@@ -10,8 +10,10 @@ use tracing::{error, info};
 use crate::{
     ACCESS_LIFETIME, JWT_SECRET, REFRESH_LIFETIME,
     db::{
+        fields::AuthUserFields,
         handles,
         models::{AuthUser, Role},
+        queries::QueryObj,
     },
     utils::errors::ServiceError,
 };
@@ -27,8 +29,8 @@ pub struct Claims {
 impl Claims {
     pub fn new(user: AuthUser, role: Role, lifetime: i64) -> Self {
         Self {
-            id: user.id,
-            username: user.username,
+            id: user.id.unwrap_or_default(),
+            username: user.username.unwrap_or_default(),
             role,
             exp: (Utc::now() + TimeDelta::try_days(lifetime).unwrap()).timestamp(),
         }
@@ -70,10 +72,22 @@ pub async fn login(
 ) -> Result<impl IntoResponse, ServiceError> {
     let username = credentials.username.clone();
     let password = credentials.password.clone();
+    let query_obj: QueryObj<AuthUserFields> = QueryObj {
+        fields: vec![
+            AuthUserFields::ID,
+            AuthUserFields::Username,
+            AuthUserFields::Password,
+            AuthUserFields::Role,
+        ],
+        search: Some(username.clone()),
+        ..Default::default()
+    };
 
-    match handles::select_auth_user(&pool, None, Some(&username)).await {
-        Ok(mut user) => {
-            if user.username.is_empty() {
+    println!("{query_obj:?}");
+
+    match handles::select_auth_user(&pool, query_obj).await {
+        Ok(resp) => {
+            if resp.results.is_empty() {
                 return Ok((
                     StatusCode::FORBIDDEN,
                     AxumJson(serde_json::json!({
@@ -82,11 +96,13 @@ pub async fn login(
                 ));
             }
 
-            let role = handles::select_auth_role(&pool, Some(&user.role_id)).await?[0].clone();
-            let pass_hash = user.password.clone();
+            let mut user = resp.results[0].clone();
+            let role = user.role.clone().unwrap();
+
+            let pass_hash = user.password.unwrap_or_default().clone();
             let cred_password = password.clone();
 
-            user.password = String::new();
+            user.password = None;
 
             let verified_password = task::spawn_blocking(move || {
                 let hash = PasswordHash::new(&pass_hash)?;
@@ -95,7 +111,7 @@ pub async fn login(
             .await?;
 
             if verified_password.is_ok() {
-                let user_id = user.id;
+                let user_id = user.id.unwrap();
 
                 let access_claims = Claims::new(user.clone(), role.name.clone(), ACCESS_LIFETIME);
                 let access_token = encode_jwt(access_claims).await?;
@@ -148,11 +164,25 @@ pub async fn refresh(
             let user_id = claims.id;
             let role = claims.role;
 
-            if let Ok(user) = handles::select_auth_user(&pool, Some(user_id), None).await {
+            let query_obj: QueryObj<AuthUserFields> = QueryObj {
+                fields: vec![
+                    AuthUserFields::ID,
+                    AuthUserFields::Username,
+                    AuthUserFields::Password,
+                    AuthUserFields::Role,
+                ],
+                search_id: Some(user_id),
+                ..Default::default()
+            };
+
+            if let Ok(resp) = handles::select_auth_user(&pool, query_obj).await
+                && !resp.results.is_empty()
+            {
+                let user = resp.results[0].clone();
                 let access_claims = Claims::new(user.clone(), role.clone(), ACCESS_LIFETIME);
                 let access_token = encode_jwt(access_claims).await?;
 
-                info!("user {} refresh, with role: {role}", user.username);
+                info!("user {} refresh, with role: {role}", user.username.unwrap());
 
                 return Ok((
                     StatusCode::OK,

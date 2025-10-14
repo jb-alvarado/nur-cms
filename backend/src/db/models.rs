@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, postgres::PgRow};
 
+use crate::db::fields::ColumnCounter;
+
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
@@ -67,29 +69,71 @@ impl FromRow<'_, PgRow> for AuthRole {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AuthUser {
-    #[serde(skip_deserializing)]
-    pub id: i32,
-    pub email: String,
-    pub username: String,
-    #[serde(skip_serializing, default = "String::new")]
-    pub password: String,
-    pub role_id: i32,
-    #[sqlx(default)]
-    #[serde(default, skip_deserializing)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<AuthRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_deserializing, skip_serializing)]
     pub last_login: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
 }
 
 impl AuthUser {
     pub fn new(email: String, username: String, password: String, role_id: i32) -> Self {
         Self {
-            id: 0,
-            email,
-            username,
-            password,
-            role_id,
+            id: None,
+            email: Some(email),
+            username: Some(username),
+            password: Some(password),
+            role_id: Some(role_id),
+            role: None,
+            created_at: None,
             last_login: None,
+            total_count: None,
         }
+    }
+}
+
+impl FromRow<'_, PgRow> for AuthUser {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        let mut role = None;
+
+        if let Ok((id, name)) = row.try_get::<(i32, String), &str>("auth_role") {
+            role = Some(AuthRole {
+                id,
+                name: Role::set_role(&name),
+            });
+        };
+
+        Ok(Self {
+            id: row.try_get("id").unwrap_or_default(),
+            email: row.try_get("email").unwrap_or_default(),
+            username: row.try_get("username").unwrap_or_default(),
+            password: row.try_get("password").unwrap_or_default(),
+            role_id: row.try_get("role_id").unwrap_or_default(),
+            role,
+            created_at: row.try_get("created_at").unwrap_or_default(),
+            last_login: row.try_get("last_login").unwrap_or_default(),
+            total_count: row.try_get("total_count").unwrap_or_default(),
+        })
+    }
+}
+
+impl ColumnCounter for AuthUser {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
     }
 }

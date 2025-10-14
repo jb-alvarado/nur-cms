@@ -1,15 +1,3 @@
-/// Main entry point for the Axum-based authentication and authorization server.
-///
-/// This application demonstrates JWT-based authentication, role-based access control,
-/// and in-memory SQLite database initialization for testing purposes.
-///
-/// Key features:
-/// - Initializes tracing and loads environment variables.
-/// - Sets up an in-memory SQLite database with test users.
-/// - Defines authentication and protected API routes.
-/// - Uses middleware to enforce role-based access to endpoints.
-///
-/// For demonstration and testing only; not intended for production use.
 use std::collections::HashSet;
 use std::{env, sync::LazyLock};
 
@@ -36,7 +24,11 @@ use crate::{
         routes::*,
     },
     db::{handles, models::Role},
-    utils::{cmd_args::Args, errors::ServiceError, logging::init_tracing},
+    utils::{
+        cmd_args::{Args, add_user},
+        errors::ServiceError,
+        logging::init_tracing,
+    },
 };
 
 // Token lifetime
@@ -44,12 +36,8 @@ const ACCESS_LIFETIME: i64 = 3;
 const REFRESH_LIFETIME: i64 = 30;
 
 pub static ARGS: LazyLock<Args> = LazyLock::new(Args::parse);
-pub static JWT_SECRET: LazyLock<String> = LazyLock::new(|| {
-    if dotenv().is_err() {
-        from_filename(".env.example").ok();
-    }
-    env::var("JWT_SECRET").expect("JWT_SECRET must be set")
-});
+pub static JWT_SECRET: LazyLock<String> =
+    LazyLock::new(|| env::var("JWT_SECRET").expect("JWT_SECRET must be set"));
 
 async fn init_db() -> Result<Pool<Postgres>, ServiceError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -96,15 +84,26 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
 
 #[tokio::main]
 async fn main() -> Result<(), ServiceError> {
+    if dotenv().is_err() {
+        from_filename(".env.example").ok();
+    }
+
     init_tracing();
 
     let pool = init_db().await?;
+
+    if ARGS.add_user {
+        add_user(&pool).await?;
+
+        return Ok(());
+    }
 
     let auth_routes = Router::new()
         .route("/login/", post(login))
         .route("/refresh/", post(refresh));
     let api_routes = Router::new()
         .route("/hello/", get(welcome))
+        .route("/auth-user/", get(auth_user_select))
         .layer(GrantsLayer::with_extractor(extract));
 
     let app = Router::new()

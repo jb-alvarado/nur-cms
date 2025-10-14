@@ -39,8 +39,8 @@ CREATE TABLE
         name TEXT UNIQUE NOT NULL, -- "BlogPost", "Page", "Product"
         slug TEXT UNIQUE NOT NULL,
         description TEXT,
-        created_at TIMESTAMPZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPZ NOT NULL DEFAULT now ()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
     );
 
 CREATE TABLE
@@ -51,8 +51,8 @@ CREATE TABLE
         field_type TEXT NOT NULL, -- "text", "richtext", "number", "boolean", "json"
         required BOOLEAN DEFAULT false,
         order_index INT DEFAULT 0,
-        created_at TIMESTAMPZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPZ NOT NULL DEFAULT now ()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
     );
 
 CREATE TABLE
@@ -74,8 +74,8 @@ CREATE TABLE
         content_item_id INT REFERENCES content_items (id) ON DELETE CASCADE,
         field_id INT REFERENCES fields (id) ON DELETE CASCADE,
         value JSONB, -- Text, Number, Bool
-        created_at TIMESTAMP NOT NULL DEFAULT now (),
-        updated_at TIMESTAMP NOT NULL DEFAULT now ()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
     );
 
 CREATE TABLE
@@ -85,5 +85,5 @@ CREATE TABLE
         url TEXT NOT NULL,
         type TEXT,
         uploaded_by INT REFERENCES auth_users (id),
-        created_at TIMESTAMP NOT NULL DEFAULT now ()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now ()
     );
