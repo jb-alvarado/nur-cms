@@ -6,9 +6,10 @@ use axum::{
     Router,
     extract::Request,
     response::Response,
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 use clap::Parser;
+use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
@@ -104,6 +105,7 @@ async fn main() -> Result<(), ServiceError> {
     let api_routes = Router::new()
         .route("/hello/", get(welcome))
         .route("/auth-user/", get(auth_user_select))
+        .route("/auth-user/{id}/", patch(auth_user_update))
         .layer(GrantsLayer::with_extractor(extract));
 
     let app = Router::new()
@@ -120,7 +122,7 @@ async fn main() -> Result<(), ServiceError> {
             })?;
 
     if let Ok(addr) = listener.local_addr() {
-        debug!("listening on {}", addr);
+        debug!("listening on {}", addr.to_string().yellow());
     } else {
         debug!("listening on bound address (local_addr unavailable)");
     }

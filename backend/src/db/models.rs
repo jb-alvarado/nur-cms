@@ -85,7 +85,9 @@ pub struct AuthUser {
     pub role: Option<AuthRole>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_deserializing, skip_serializing)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub last_login: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -101,6 +103,7 @@ impl AuthUser {
             role_id: Some(role_id),
             role: None,
             created_at: None,
+            updated_at: None,
             last_login: None,
             total_count: None,
         }
@@ -126,6 +129,7 @@ impl FromRow<'_, PgRow> for AuthUser {
             role_id: row.try_get("role_id").unwrap_or_default(),
             role,
             created_at: row.try_get("created_at").unwrap_or_default(),
+            updated_at: row.try_get("updated_at").unwrap_or_default(),
             last_login: row.try_get("last_login").unwrap_or_default(),
             total_count: row.try_get("total_count").unwrap_or_default(),
         })

@@ -2,10 +2,13 @@ use argon2::{
     Argon2, PasswordHasher,
     password_hash::{SaltString, rand_core::OsRng},
 };
-use chrono::Utc;
-use sqlx::{Execute, Pool, Postgres, QueryBuilder};
+use chrono::{DateTime, Utc};
+use colored::Colorize;
+use serde::Serialize;
+use serde_json::Value;
+use sqlx::{Execute, Pool, Postgres, QueryBuilder, postgres::PgPool};
 use tokio::task;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::{
     db::{
@@ -117,16 +120,18 @@ pub async fn select_auth_user(
     let query = query_builder.build_query_as::<AuthUser>();
 
     #[cfg(debug_assertions)]
-    debug!("\n{}", format_sql(query.sql()));
+    debug!("{}", format_sql(query.sql()).bright_black());
 
     let data: Vec<AuthUser> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(&query_obj, data))
 }
 
-pub async fn insert_auth_user(pool: &Pool<Postgres>, user: AuthUser) -> Result<(), ServiceError> {
-    const QUERY: &str =
-        "INSERT INTO auth_users (email, username, password, role_id) VALUES ($1, $2, $3, $4)";
+pub async fn insert_auth_user(pool: &PgPool, user: AuthUser) -> Result<i32, ServiceError> {
+    const QUERY: &str = r#"INSERT INTO auth_users
+        (email, username, password, role_id)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id;"#;
 
     // Hash password in blocking thread, return ServiceError on failure instead of panicking
     let password_hash = task::spawn_blocking(move || -> Result<String, ServiceError> {
@@ -139,28 +144,90 @@ pub async fn insert_auth_user(pool: &Pool<Postgres>, user: AuthUser) -> Result<(
     })
     .await??;
 
-    sqlx::query(QUERY)
+    let id: i32 = sqlx::query_scalar(QUERY)
         .bind(user.email)
         .bind(user.username)
         .bind(password_hash)
         .bind(user.role_id)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
 
-    Ok(())
+    Ok(id)
 }
 
-pub async fn update_auth_user_last_login(
-    conn: &Pool<Postgres>,
-    user_id: i32,
-) -> Result<(), ServiceError> {
-    let query = "UPDATE auth_users SET last_login = $1 WHERE id = $2;";
+pub async fn update_record<T>(
+    pool: &PgPool,
+    table: &str,
+    id: i32,
+    data: &T,
+) -> Result<(), ServiceError>
+where
+    T: Serialize,
+{
+    let value = serde_json::to_value(data)?;
 
-    sqlx::query(query)
-        .bind(Utc::now())
-        .bind(user_id)
-        .execute(conn)
-        .await?;
+    let obj = match value.as_object() {
+        Some(map) => map.clone(),
+        None => return Ok(()),
+    };
+
+    let type_ignore = ["created_at", "last_login"];
+    let type_time = ["updated_at"];
+
+    let mut qb = QueryBuilder::<Postgres>::new(format!("UPDATE {table} SET "));
+    let mut separated = qb.separated(", ");
+    let mut any_field = false;
+
+    for (key, val) in obj {
+        if val.is_null() || type_ignore.contains(&key.as_str()) {
+            continue;
+        }
+        any_field = true;
+
+        separated.push(format!("{key} = "));
+
+        match val {
+            Value::Array(a) => {
+                separated.push_bind_unseparated(a);
+            }
+            Value::String(s) => {
+                if type_time.contains(&key.as_str()) {
+                    let dt: DateTime<Utc> = match DateTime::parse_from_rfc3339(&s) {
+                        Ok(t) => t.into(),
+                        Err(_) => Utc::now(),
+                    };
+
+                    separated.push_bind_unseparated(dt);
+                } else {
+                    separated.push_bind_unseparated(s);
+                }
+            }
+            Value::Bool(b) => {
+                separated.push_bind_unseparated(b);
+            }
+            Value::Number(n) => {
+                separated.push_bind_unseparated(n.as_i64().unwrap_or_default() as i32);
+            }
+            _ => {
+                error!("Unknown Type {key}={val:?} in Update!");
+                continue;
+            }
+        }
+    }
+
+    if !any_field {
+        return Ok(());
+    }
+
+    qb.push(" WHERE id = ");
+    qb.push_bind(id);
+
+    let query = qb.build();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    query.execute(pool).await?;
 
     Ok(())
 }

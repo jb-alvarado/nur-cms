@@ -3,7 +3,7 @@ use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoRes
 use chrono::{TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
+use sqlx::postgres::PgPool;
 use tokio::task;
 use tracing::{error, info};
 
@@ -67,7 +67,7 @@ pub async fn decode_jwt(token: &str) -> Result<Claims, ServiceError> {
 }
 
 pub async fn login(
-    State(pool): State<Pool<Postgres>>,
+    State(pool): State<PgPool>,
     AxumJson(credentials): AxumJson<Credentials>,
 ) -> Result<impl IntoResponse, ServiceError> {
     let username = credentials.username.clone();
@@ -117,8 +117,12 @@ pub async fn login(
                 let access_token = encode_jwt(access_claims).await?;
                 let refresh_claims = Claims::new(user, role.name.clone(), REFRESH_LIFETIME);
                 let refresh_token = encode_jwt(refresh_claims).await?;
+                let auth_user = AuthUser {
+                    updated_at: Some(Utc::now()),
+                    ..Default::default()
+                };
 
-                handles::update_auth_user_last_login(&pool, user_id).await?;
+                handles::update_record(&pool, "auth_users", user_id, &auth_user).await?;
 
                 tracing::info!("user {username} login, with role: {}", role.name);
 
@@ -154,7 +158,7 @@ pub async fn login(
 }
 
 pub async fn refresh(
-    State(pool): State<Pool<Postgres>>,
+    State(pool): State<PgPool>,
     AxumJson(data): AxumJson<TokenRefreshRequest>,
 ) -> Result<impl IntoResponse, ServiceError> {
     let refresh_token = &data.refresh;

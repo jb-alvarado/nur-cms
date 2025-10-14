@@ -12,6 +12,7 @@ pub enum AuthUserFields {
     Username,
     Password,
     CreatedAt,
+    UpdatedAt,
     LastLogin,
     Role,
 }
@@ -24,6 +25,7 @@ impl StrCompare for AuthUserFields {
             Self::Username => other == "username",
             Self::Password => other == "password",
             Self::CreatedAt => other == "created_at",
+            Self::UpdatedAt => other == "updated_at",
             Self::LastLogin => other == "last_login",
             Self::Role => other == "role",
         }
@@ -40,6 +42,7 @@ impl FromStr for AuthUserFields {
             "username" => Ok(Self::Username),
             "password" => Ok(Self::Password),
             "created_at" => Ok(Self::CreatedAt),
+            "updated_at" => Ok(Self::UpdatedAt),
             "last_login" => Ok(Self::LastLogin),
             "role" => Ok(Self::Role),
             _ => Err(format!("Field '{input}' not found!")),
@@ -55,6 +58,7 @@ impl fmt::Display for AuthUserFields {
             Self::Username => write!(f, "username"),
             Self::Password => write!(f, "password"),
             Self::CreatedAt => write!(f, "created_at"),
+            Self::UpdatedAt => write!(f, "updated_at"),
             Self::LastLogin => write!(f, "last_login"),
             Self::Role => write!(f, "role"),
         }

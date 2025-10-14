@@ -79,6 +79,13 @@ impl From<io::Error> for ServiceError {
     }
 }
 
+impl From<serde_json::Error> for ServiceError {
+    fn from(err: serde_json::Error) -> Self {
+        error!("{err:?}");
+        Self::Conflict(err.to_string())
+    }
+}
+
 impl From<jsonwebtoken::errors::Error> for ServiceError {
     fn from(_: jsonwebtoken::errors::Error) -> Self {
         Self::Unauthorized

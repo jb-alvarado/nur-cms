@@ -20,7 +20,11 @@
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "statiolake.vscode-rustfmt"
     },
-    "cSpell.words": [],
+    "cSpell.words": [
+        "postgres",
+        "sqlx",
+        "unseparated"
+    ],
     "vue3snippets.enable-compile-vue-file-on-did-save-code": false,
     "Prettier-SQL.expressionWidth": 80,
     "Prettier-SQL.tabSizeOverride": 4
