@@ -1,0 +1,27 @@
+{
+    "editor.defaultColorDecorators": "always",
+    "eslint.useFlatConfig": true,
+    "prettier.tabWidth": 4,
+    "prettier.printWidth": 120,
+    "prettier.semi": false,
+    "prettier.singleQuote": true,
+    "rust-analyzer.cargo.target": null,
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.check.overrideCommand": null,
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.cargo.buildScripts.overrideCommand": null,
+    "rust-analyzer.rustfmt.overrideCommand": null,
+    "rust-analyzer.inlayHints.chainingHints.enable": false,
+    "rust-analyzer.inlayHints.parameterHints.enable": false,
+    "rust-analyzer.inlayHints.typeHints.enable": false,
+    "rust-analyzer.diagnostics.disabled": ["unresolved-proc-macro"],
+    "rustfmt.edition": "2024",
+    "[rust]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "statiolake.vscode-rustfmt"
+    },
+    "cSpell.words": [],
+    "vue3snippets.enable-compile-vue-file-on-did-save-code": false,
+    "Prettier-SQL.expressionWidth": 80,
+    "Prettier-SQL.tabSizeOverride": 4
+}

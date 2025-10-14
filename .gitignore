@@ -1,0 +1,5 @@
+/postgres-data
+/target
+.env
+*.sql
+!migrations/*.sql
