@@ -6,7 +6,6 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-use crate::ARGS;
 struct ChronoLocalTimer;
 
 impl FormatTime for ChronoLocalTimer {
@@ -15,14 +14,14 @@ impl FormatTime for ChronoLocalTimer {
     }
 }
 
-pub fn init_tracing() {
-    let filter = if let Some(ref level) = ARGS.log_level {
+pub fn init_tracing(level: Option<String>, timestamp: bool) {
+    let filter = if let Some(ref level) = level {
         EnvFilter::new(format!("sqlx=warn,{}={}", env!("CARGO_CRATE_NAME"), level))
     } else {
         EnvFilter::new(format!("sqlx=warn,{}=debug", env!("CARGO_CRATE_NAME")))
     };
 
-    let fmt_layer = if ARGS.log_timestamp {
+    let fmt_layer = if timestamp {
         fmt::layer()
             .with_timer(ChronoLocalTimer)
             .with_target(false)

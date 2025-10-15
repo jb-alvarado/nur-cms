@@ -10,7 +10,7 @@ use tracing::{error, info};
 use crate::{
     ACCESS_LIFETIME, JWT_SECRET, REFRESH_LIFETIME,
     db::{
-        fields::AuthUserFields,
+        fields::{AuthUserFields, Table},
         handles,
         models::{AuthUser, Role},
         queries::QueryObj,
@@ -21,16 +21,14 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Claims {
     pub id: i32,
-    pub username: String,
     pub role: Role,
     exp: i64,
 }
 
 impl Claims {
-    pub fn new(user: AuthUser, role: Role, lifetime: i64) -> Self {
+    pub fn new(id: i32, role: Role, lifetime: i64) -> Self {
         Self {
-            id: user.id.unwrap_or_default(),
-            username: user.username.unwrap_or_default(),
+            id,
             role,
             exp: (Utc::now() + TimeDelta::try_days(lifetime).unwrap()).timestamp(),
         }
@@ -83,8 +81,6 @@ pub async fn login(
         ..Default::default()
     };
 
-    println!("{query_obj:?}");
-
     match handles::select_auth_user(&pool, query_obj).await {
         Ok(resp) => {
             if resp.results.is_empty() {
@@ -113,16 +109,16 @@ pub async fn login(
             if verified_password.is_ok() {
                 let user_id = user.id.unwrap();
 
-                let access_claims = Claims::new(user.clone(), role.name.clone(), ACCESS_LIFETIME);
+                let access_claims = Claims::new(user_id, role.name.clone(), *ACCESS_LIFETIME);
                 let access_token = encode_jwt(access_claims).await?;
-                let refresh_claims = Claims::new(user, role.name.clone(), REFRESH_LIFETIME);
+                let refresh_claims = Claims::new(user_id, role.name.clone(), *REFRESH_LIFETIME);
                 let refresh_token = encode_jwt(refresh_claims).await?;
                 let auth_user = AuthUser {
                     updated_at: Some(Utc::now()),
                     ..Default::default()
                 };
 
-                handles::update_record(&pool, "auth_users", user_id, &auth_user).await?;
+                handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
 
                 tracing::info!("user {username} login, with role: {}", role.name);
 
@@ -169,12 +165,7 @@ pub async fn refresh(
             let role = claims.role;
 
             let query_obj: QueryObj<AuthUserFields> = QueryObj {
-                fields: vec![
-                    AuthUserFields::ID,
-                    AuthUserFields::Username,
-                    AuthUserFields::Password,
-                    AuthUserFields::Role,
-                ],
+                fields: vec![AuthUserFields::ID, AuthUserFields::Username],
                 search_id: Some(user_id),
                 ..Default::default()
             };
@@ -182,11 +173,11 @@ pub async fn refresh(
             if let Ok(resp) = handles::select_auth_user(&pool, query_obj).await
                 && !resp.results.is_empty()
             {
-                let user = resp.results[0].clone();
-                let access_claims = Claims::new(user.clone(), role.clone(), ACCESS_LIFETIME);
+                let username = resp.results[0].username.clone();
+                let access_claims = Claims::new(user_id, role.clone(), *ACCESS_LIFETIME);
                 let access_token = encode_jwt(access_claims).await?;
 
-                info!("user {} refresh, with role: {role}", user.username.unwrap());
+                info!("user {} refresh, with role: {role}", username.unwrap());
 
                 return Ok((
                     StatusCode::OK,

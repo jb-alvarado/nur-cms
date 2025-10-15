@@ -11,7 +11,7 @@ use tracing::error;
 
 use crate::{
     db::{
-        fields::AuthUserFields,
+        fields::{AuthUserFields, Table},
         handles,
         models::{AuthUser, Role},
         queries::{QueryObj, RespondObj},
@@ -65,8 +65,28 @@ pub async fn auth_user_update(
     auth_user.updated_at = Some(Utc::now());
 
     if details.has_any_authority(&[&Role::Admin]) {
-        return match handles::update_record(&pool, "auth_users", id, &auth_user).await {
+        return match handles::update_record(&pool, &Table::AuthUsers, id, &auth_user).await {
             Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn auth_user_insert(
+    State(pool): State<PgPool>,
+    details: AuthDetails<Role>,
+    Json(auth_user): Json<AuthUser>,
+) -> Result<Json<i32>, ServiceError> {
+    if details.has_any_authority(&[&Role::Admin]) {
+        return match handles::insert_record(&pool, &Table::AuthUsers, &auth_user).await {
+            Ok(i) => Ok(Json(i)),
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)

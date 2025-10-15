@@ -1,5 +1,5 @@
 CREATE TABLE
-    auth_roles (id SERIAL PRIMARY KEY, name VARCHAR(16) NOT NULL UNIQUE);
+    auth_roles (id SERIAL PRIMARY KEY, name VARCHAR(16) NOT NULL UNIQUE DEFAULT 'guest');
 
 INSERT INTO
     auth_roles (name)
@@ -12,7 +12,7 @@ VALUES
 CREATE TABLE
     auth_users (
         id SERIAL PRIMARY KEY,
-        email VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
         username VARCHAR(150) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW (),

@@ -26,8 +26,8 @@ pub enum ServiceError {
     #[display("Unauthorized")]
     Unauthorized,
 
-    #[display("NoContent: {_0}")]
-    NoContent(String),
+    #[display("NoContent")]
+    NoContent,
 
     #[display("ServiceUnavailable: {_0}")]
     ServiceUnavailable(String),
@@ -47,7 +47,7 @@ impl IntoResponse for ServiceError {
             Self::Conflict(msg) => (StatusCode::CONFLICT, msg),
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
-            Self::NoContent(msg) => (StatusCode::NO_CONTENT, msg),
+            Self::NoContent => (StatusCode::NO_CONTENT, "No Content".to_string()),
             Self::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
             Self::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg),
         };
@@ -75,7 +75,8 @@ impl From<inquire::InquireError> for ServiceError {
 
 impl From<io::Error> for ServiceError {
     fn from(err: io::Error) -> ServiceError {
-        Self::NoContent(err.to_string())
+        error!("{err:?}");
+        Self::NoContent
     }
 }
 

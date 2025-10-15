@@ -8,11 +8,11 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Execute, Pool, Postgres, QueryBuilder, postgres::PgPool};
 use tokio::task;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::{
     db::{
-        fields::AuthUserFields,
+        fields::{AuthUserFields, Table},
         format_sql,
         models::{AuthRole, AuthUser},
         queries::{QueryObj, RespondObj, where_chain},
@@ -155,9 +155,112 @@ pub async fn insert_auth_user(pool: &PgPool, user: AuthUser) -> Result<i32, Serv
     Ok(id)
 }
 
+pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), ServiceError> {
+    let mut qb = QueryBuilder::<Postgres>::new(format!("DELETE FROM {table} WHERE id = "));
+    qb.push_bind(id);
+
+    let query = qb.build();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    let rows_affected = query.execute(pool).await?.rows_affected();
+
+    if rows_affected == 0 {
+        let msg = format!(
+            "No record with id={} found in {}",
+            id.to_string().yellow(),
+            table.to_string().purple()
+        );
+        warn!("{msg}");
+        return Err(ServiceError::UnprocessableEntity(msg));
+    }
+
+    debug!(
+        "Deleted record with id={} from {}",
+        id.to_string().yellow(),
+        table.to_string().purple()
+    );
+
+    Ok(())
+}
+
+pub async fn insert_record<T>(pool: &PgPool, table: &Table, data: &T) -> Result<i32, ServiceError>
+where
+    T: Serialize,
+{
+    let value = serde_json::to_value(data)?;
+
+    let obj = match value.as_object() {
+        Some(map) => map.clone(),
+        None => return Err(ServiceError::NoContent),
+    };
+
+    let type_ignore = ["id", "created_at", "updated_at", "last_login"];
+
+    let mut keys = Vec::new();
+    let mut qb = QueryBuilder::<Postgres>::new(format!("INSERT INTO {table} ("));
+
+    for key in obj.keys() {
+        if type_ignore.contains(&key.as_str()) {
+            continue;
+        }
+        keys.push(key.clone());
+    }
+
+    if keys.is_empty() {
+        return Err(ServiceError::NoContent);
+    }
+
+    qb.push(keys.join(", "));
+    qb.push(") VALUES (");
+
+    let mut separated = qb.separated(", ");
+    for key in &keys {
+        let val = &obj[key];
+
+        match val {
+            Value::Array(a) => {
+                separated.push_bind_unseparated(a);
+            }
+            Value::Bool(b) => {
+                separated.push_bind_unseparated(b);
+            }
+            Value::Null => {
+                separated.push_bind_unseparated("DEFAULT");
+            }
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    separated.push_bind_unseparated(i as i32);
+                } else if let Some(f) = n.as_f64() {
+                    separated.push_bind_unseparated(f);
+                }
+            }
+            Value::String(s) => {
+                separated.push_bind_unseparated(s);
+            }
+            other => {
+                error!("Unknown Type {key}={other:?} in Insert!");
+                separated.push_bind_unseparated("DEFAULT");
+            }
+        }
+    }
+
+    qb.push(") RETURNING id");
+
+    let query = qb.build_query_scalar();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    let id = query.fetch_one(pool).await?;
+
+    Ok(id)
+}
+
 pub async fn update_record<T>(
     pool: &PgPool,
-    table: &str,
+    table: &Table,
     id: i32,
     data: &T,
 ) -> Result<(), ServiceError>

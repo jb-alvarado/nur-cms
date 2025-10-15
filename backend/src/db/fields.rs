@@ -3,6 +3,32 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Table {
+    AuthUsers,
+    Locales,
+    ContentTypes,
+    Fields,
+    ContentItems,
+    ContentValues,
+    Media,
+}
+
+impl fmt::Display for Table {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::AuthUsers => write!(f, "auth_users"),
+            Self::Locales => write!(f, "locales"),
+            Self::ContentTypes => write!(f, "content_types"),
+            Self::Fields => write!(f, "fields"),
+            Self::ContentItems => write!(f, "content_items"),
+            Self::ContentValues => write!(f, "content_values"),
+            Self::Media => write!(f, "media"),
+        }
+    }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthUserFields {
