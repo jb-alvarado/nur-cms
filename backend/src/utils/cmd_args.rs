@@ -38,6 +38,8 @@ pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
     let role_list: Vec<Role> = resp.results.iter().map(|r| r.name.clone()).collect();
 
     let email = Text::new("Email:").prompt()?;
+    let first_name = Text::new("First Name:").prompt()?;
+    let last_name = Text::new("Last Name:").prompt()?;
     let username = Text::new("Username:").prompt()?;
     let password = Password::new("Password:")
         .with_display_mode(PasswordDisplayMode::Masked)
@@ -45,7 +47,7 @@ pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
 
     let role_name = Select::new("User role:", role_list).prompt()?;
     let role = resp.results.iter().find(|r| r.name == role_name).unwrap();
-    let user = AuthUser::new(email, username, password, role.id);
+    let user = AuthUser::new(email, username, first_name, last_name, password, role.id);
 
     handles::insert_record(pool, &Table::AuthUsers, &user).await?;
 

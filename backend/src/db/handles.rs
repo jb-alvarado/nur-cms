@@ -18,15 +18,38 @@ use tracing::{debug, error, warn};
 
 use crate::{
     db::{
-        fields::{AuthUserFields, ColumnCounter, StrCompare, Table},
+        fields::{AuthUserFields, BlogPostFields, ColumnCounter, StrCompare, Table},
         format_sql,
+        models::AuthUser,
         queries::{QueryObj, RespondObj, where_chain},
-        serialize::AuthUserSerializer,
+        serialize::{AuthUserSerializer, BlogPostSerializer},
     },
     utils::errors::ServiceError,
 };
 
+#[cfg(debug_assertions)]
+pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
+    sqlx::migrate!("../migrations_dev").run(pool).await?;
+
+    let user = AuthUser::new(
+        "admin@example.org".to_string(),
+        "admin".to_string(),
+        "Ad".to_string(),
+        "Min".to_string(),
+        "admin".to_string(),
+        1,
+    );
+
+    insert_record(pool, &Table::AuthUsers, &user).await?;
+
+    Ok(())
+}
+
 pub async fn db_migrate(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
+    #[cfg(debug_assertions)]
+    dev_migrate(pool).await?;
+
+    #[cfg(not(debug_assertions))]
     sqlx::migrate!("../migrations").run(pool).await?;
 
     Ok(())
@@ -372,4 +395,128 @@ where
     query.execute(pool).await?;
 
     Ok(())
+}
+
+/* ------------------------------------
+BLOG POSTS
+--------------------------------------- */
+
+pub async fn select_blog_post(
+    pool: &Pool<Postgres>,
+    query_obj: QueryObj<BlogPostFields>,
+) -> Result<RespondObj<BlogPostSerializer>, ServiceError> {
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
+    let mut separated = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        match *f {
+            BlogPostFields::AuthorID => separated.push(format!("u.{f}")),
+            BlogPostFields::AuthorName => separated.push(format!("u.{f}")),
+            BlogPostFields::Title => separated.push(format!("fv_title.{f}")),
+            BlogPostFields::Body => separated.push(format!("fv_body.{f}")),
+            BlogPostFields::Locale => separated.push(format!("l.{f}")),
+            _ => separated.push(format!("ci.{f}")),
+        };
+    }
+
+    separated.push("count(*) OVER() AS total_count");
+    separated.push_unseparated(" ");
+    query_builder.push("FROM content_items ci ");
+    query_builder.push("JOIN content_types ct ON ct.id = ci.content_type_id ");
+
+    if query_obj.fields.contains(&BlogPostFields::AuthorID)
+        || query_obj.fields.contains(&BlogPostFields::AuthorName)
+    {
+        query_builder.push("LEFT JOIN auth_users u ON u.id = ci.created_by ");
+    }
+
+    if query_obj.fields.contains(&BlogPostFields::Title) {
+        query_builder.push(
+            r#"LEFT JOIN content_values fv_title
+            ON fv_title.content_item_id = ci.id
+                AND fv_title.locale_id = 1
+                AND fv_title.field_id = (
+                    SELECT id FROM fields
+                    WHERE content_type_id = ct.id AND name = 'title'
+                ) "#,
+        );
+    }
+
+    if query_obj.fields.contains(&BlogPostFields::Body) {
+        query_builder.push(
+            r#"LEFT JOIN content_values fv_body
+            ON fv_body.content_item_id = ci.id
+                AND fv_body.locale_id = 1
+                AND fv_body.field_id = (
+                    SELECT id FROM fields
+                    WHERE content_type_id = ct.id AND name = 'body'
+                ) "#,
+        );
+    }
+
+    if query_obj.fields.contains(&BlogPostFields::Locale) {
+        query_builder.push("JOIN locales l ON l.id = fv_title.locale_id ");
+    }
+
+    if let Some(id) = &query_obj.search_id {
+        where_chain(&mut query_builder, None, "ci.id = ");
+        query_builder.push_bind(id);
+    }
+
+    if let Some(after) = &query_obj.created_after {
+        where_chain(&mut query_builder, None, "ci.created_at >= ");
+        query_builder.push_bind(after);
+    }
+
+    if let Some(before) = &query_obj.created_before {
+        where_chain(&mut query_builder, None, "ci.created_at < ");
+        query_builder.push_bind(before);
+    }
+
+    if let Some(sl) = &query_obj.type_slag {
+        where_chain(&mut query_builder, None, "ct.slug = ");
+        query_builder.push_bind(sl.to_string());
+    }
+
+    if let Some(url) = &query_obj.url_slag {
+        where_chain(&mut query_builder, None, "ci.slug = ");
+        query_builder.push_bind(url);
+    }
+
+    if let Some(search) = query_obj.search.clone() {
+        where_chain(&mut query_builder, None, "title LIKE ");
+        query_builder.push("CONCAT('%', ");
+        query_builder.push_bind(search.clone());
+        query_builder.push(", '%')");
+
+        // TODO: add full text search
+    }
+
+    if query_obj
+        .fields
+        .iter()
+        .any(|f| query_obj.ordering.contains(&f.to_string()))
+    {
+        let ordering = query_obj
+            .ordering
+            .split(", ")
+            .map(|item| format!("u.{}", item))
+            .collect::<Vec<_>>()
+            .join(", ");
+        query_builder.push(format!(" ORDER BY {}", ordering));
+    }
+
+    query_builder.push(format!(
+        " LIMIT {} OFFSET {}",
+        query_obj.limit, query_obj.offset
+    ));
+
+    let query = query_builder.build_query_as::<BlogPostSerializer>();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    let data: Vec<BlogPostSerializer> = query.fetch_all(pool).await?;
+
+    Ok(RespondObj::new(&query_obj, data))
 }

@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
 use serde::{Deserialize, Deserializer, de};
+use serde_json::Value;
 
 pub mod fields;
 pub mod handles;
@@ -70,4 +71,8 @@ where
 
 pub fn is_zero<T: PartialEq + Default>(val: &T) -> bool {
     *val == T::default()
+}
+
+pub fn is_null(v: &Value) -> bool {
+    *v == Value::Null
 }

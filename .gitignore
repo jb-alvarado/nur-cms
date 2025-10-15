@@ -3,3 +3,4 @@
 .env
 *.sql
 !migrations/*.sql
+!migrations_dev/*.sql

@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, QueryBuilder};
 
-use crate::db::fields::{ColumnCounter, StrCompare};
+use crate::db::fields::{ColumnCounter, StrCompare, TypeSlag};
 
 // Default response items limit
 const DEFAULT_LIMIT: i64 = 50;
@@ -43,6 +43,12 @@ pub struct QueryObj<T: FromStr + strum::IntoEnumIterator + StrCompare> {
     pub ordering: String,
 
     #[serde(default)]
+    pub type_slag: Option<TypeSlag>,
+
+    #[serde(default)]
+    pub url_slag: Option<String>,
+
+    #[serde(default)]
     pub search: Option<String>,
 
     #[serde(default, rename = "id")]
@@ -50,6 +56,9 @@ pub struct QueryObj<T: FromStr + strum::IntoEnumIterator + StrCompare> {
 
     #[serde(default, rename = "locale")]
     pub search_locale: Option<String>,
+
+    #[serde(default, rename = "slag")]
+    pub search_slag: Option<String>,
 
     #[serde(default)]
     pub created_after: Option<DateTime<Utc>>,
@@ -71,9 +80,12 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             limit: default_limit(),
             offset: 0,
             ordering: default_ordering(),
+            type_slag: None,
+            url_slag: None,
             search: None,
             search_id: None,
             search_locale: None,
+            search_slag: None,
             created_after: None,
             created_before: None,
             fields: default_fields(),

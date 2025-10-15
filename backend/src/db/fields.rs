@@ -31,6 +31,22 @@ impl fmt::Display for Table {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TypeSlag {
+    BlogPost,
+    Page,
+}
+
+impl fmt::Display for TypeSlag {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::BlogPost => write!(f, "blog_post"),
+            Self::Page => write!(f, "page"),
+        }
+    }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthRoleFields {
@@ -76,6 +92,8 @@ pub enum AuthUserFields {
     #[default]
     Email,
     Username,
+    FirstName,
+    Lastname,
     Password,
     CreatedAt,
     UpdatedAt,
@@ -89,6 +107,8 @@ impl StrCompare for AuthUserFields {
             Self::ID => other == "id",
             Self::Email => other == "email",
             Self::Username => other == "username",
+            Self::FirstName => other == "first_name",
+            Self::Lastname => other == "last_name",
             Self::Password => other == "password",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
@@ -106,6 +126,8 @@ impl FromStr for AuthUserFields {
             "id" => Ok(Self::ID),
             "email" => Ok(Self::Email),
             "username" => Ok(Self::Username),
+            "first_name" => Ok(Self::FirstName),
+            "last_name" => Ok(Self::Lastname),
             "password" => Ok(Self::Password),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
@@ -122,6 +144,8 @@ impl fmt::Display for AuthUserFields {
             Self::ID => write!(f, "id"),
             Self::Email => write!(f, "email"),
             Self::Username => write!(f, "username"),
+            Self::FirstName => write!(f, "first_name"),
+            Self::Lastname => write!(f, "last_name"),
             Self::Password => write!(f, "password"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
@@ -169,6 +193,76 @@ impl fmt::Display for LocaleFields {
             Self::ID => write!(f, "id"),
             Self::Code => write!(f, "code"),
             Self::Name => write!(f, "name"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[serde(rename_all = "snake_case")]
+pub enum BlogPostFields {
+    ID,
+    #[default]
+    Slug,
+    Status,
+    CreatedAt,
+    UpdatedAt,
+    AuthorID,
+    AuthorName,
+    Title,
+    Body,
+    Locale,
+}
+
+impl StrCompare for BlogPostFields {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::ID => other == "id",
+            Self::Slug => other == "slug",
+            Self::Status => other == "status",
+            Self::CreatedAt => other == "created_at",
+            Self::UpdatedAt => other == "updated_at",
+            Self::AuthorID => other == "author_id",
+            Self::AuthorName => other == "author_name",
+            Self::Title => other == "title",
+            Self::Body => other == "body",
+            Self::Locale => other == "locale",
+        }
+    }
+}
+
+impl FromStr for BlogPostFields {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "id" => Ok(Self::ID),
+            "slug" => Ok(Self::Slug),
+            "status" => Ok(Self::Status),
+            "created_at" => Ok(Self::CreatedAt),
+            "updated_at" => Ok(Self::UpdatedAt),
+            "author_id" => Ok(Self::AuthorID),
+            "author_name" => Ok(Self::AuthorName),
+            "title" => Ok(Self::Title),
+            "body" => Ok(Self::Body),
+            "locale" => Ok(Self::Locale),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for BlogPostFields {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::ID => write!(f, "id"),
+            Self::Slug => write!(f, "slug"),
+            Self::Status => write!(f, "status"),
+            Self::CreatedAt => write!(f, "created_at"),
+            Self::UpdatedAt => write!(f, "updated_at"),
+            Self::AuthorID => write!(f, "author_id"),
+            Self::AuthorName => write!(f, "author_name"),
+            Self::Title => write!(f, "title"),
+            Self::Body => write!(f, "body"),
+            Self::Locale => write!(f, "locale"),
         }
     }
 }

@@ -15,6 +15,10 @@ pub struct AuthUserSerializer {
     pub email: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
     #[serde(default, skip_serializing)]
     pub password: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -47,6 +51,8 @@ impl FromRow<'_, PgRow> for AuthUserSerializer {
             id: row.try_get("id").ok(),
             email: row.try_get("email").ok(),
             username: row.try_get("username").ok(),
+            first_name: row.try_get("first_name").ok(),
+            last_name: row.try_get("last_name").ok(),
             password: row.try_get("password").ok(),
             role_id: row.try_get("role_id").ok(),
             role,
@@ -59,6 +65,50 @@ impl FromRow<'_, PgRow> for AuthUserSerializer {
 }
 
 impl ColumnCounter for AuthUserSerializer {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct BlogPostSerializer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>, // draft, published, archived
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for BlogPostSerializer {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").ok(),
+            slug: row.try_get("slug").ok(),
+            status: row.try_get("status").ok(),
+            created_at: row.try_get("created_at").ok(),
+            updated_at: row.try_get("updated_at").ok(),
+            locale: row.try_get("locale_code").ok(),
+            title: row.try_get("title").ok(),
+            body: row.try_get("body").ok(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for BlogPostSerializer {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

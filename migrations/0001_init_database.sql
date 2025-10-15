@@ -14,6 +14,8 @@ CREATE TABLE
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) NOT NULL UNIQUE,
         username VARCHAR(150) NOT NULL UNIQUE,
+        first_name VARCHAR(150) NOT NULL,
+        last_name VARCHAR(150) NOT NULL,
         password VARCHAR(255) NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW (),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now (),
@@ -59,7 +61,6 @@ CREATE TABLE
     content_items (
         id SERIAL PRIMARY KEY,
         content_type_id INT REFERENCES content_types (id) ON DELETE CASCADE,
-        locale_id INT REFERENCES locales (id) ON DELETE CASCADE,
         slug TEXT NOT NULL,
         status TEXT DEFAULT 'draft', -- draft, published, archived
         created_by INT REFERENCES auth_users (id),
@@ -68,15 +69,17 @@ CREATE TABLE
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
     );
 
-CREATE TABLE
-    content_values (
-        id SERIAL PRIMARY KEY,
-        content_item_id INT REFERENCES content_items (id) ON DELETE CASCADE,
-        field_id INT REFERENCES fields (id) ON DELETE CASCADE,
-        value JSONB, -- Text, Number, Bool
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
-    );
+CREATE TABLE content_values (
+    id SERIAL PRIMARY KEY,
+    content_item_id INT NOT NULL REFERENCES content_items(id) ON DELETE CASCADE,
+    field_id INT NOT NULL REFERENCES fields(id) ON DELETE CASCADE,
+    locale_id INT NOT NULL REFERENCES locales(id) ON DELETE CASCADE,
+    value JSONB,
+    text_vector TSVECTOR, -- for full text search, fill on insert
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(content_item_id, field_id, locale_id)
+);
 
 CREATE TABLE
     media (
