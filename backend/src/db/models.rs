@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, postgres::PgRow};
 
-use crate::db::fields::ColumnCounter;
+use crate::db::{fields::ColumnCounter, is_zero};
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -49,8 +49,11 @@ impl fmt::Display for Role {
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow)]
 #[serde(rename_all = "snake_case")]
 pub struct AuthRole {
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
     pub name: Role,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
 }
 
 impl FromRow<'_, PgRow> for AuthRole {
@@ -63,80 +66,75 @@ impl FromRow<'_, PgRow> for AuthRole {
         };
 
         Ok(Self {
-            id: row.get("id"),
+            id: row.try_get("id").unwrap_or_default(),
             name: role,
+            total_count: row.try_get("total_count").ok(),
         })
+    }
+}
+
+impl ColumnCounter for AuthRole {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AuthUser {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub password: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role_id: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<AuthRole>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub email: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub username: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub password: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub role_id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_login: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing)]
-    pub total_count: Option<i64>,
 }
 
 impl AuthUser {
     pub fn new(email: String, username: String, password: String, role_id: i32) -> Self {
         Self {
-            id: None,
-            email: Some(email),
-            username: Some(username),
-            password: Some(password),
-            role_id: Some(role_id),
-            role: None,
-            created_at: None,
-            updated_at: None,
-            last_login: None,
-            total_count: None,
+            email,
+            username,
+            password,
+            role_id,
+            ..Default::default()
         }
     }
 }
 
-impl FromRow<'_, PgRow> for AuthUser {
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Locale {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub code: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for Locale {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
-        let mut role = None;
-
-        if let Ok((id, name)) = row.try_get::<(i32, String), &str>("auth_role") {
-            role = Some(AuthRole {
-                id,
-                name: Role::set_role(&name),
-            });
-        };
-
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
-            email: row.try_get("email").unwrap_or_default(),
-            username: row.try_get("username").unwrap_or_default(),
-            password: row.try_get("password").unwrap_or_default(),
-            role_id: row.try_get("role_id").unwrap_or_default(),
-            role,
-            created_at: row.try_get("created_at").unwrap_or_default(),
-            updated_at: row.try_get("updated_at").unwrap_or_default(),
-            last_login: row.try_get("last_login").unwrap_or_default(),
-            total_count: row.try_get("total_count").unwrap_or_default(),
+            code: row.try_get("code").unwrap_or_default(),
+            name: row.try_get("name").unwrap_or_default(),
+            total_count: row.try_get("total_count").ok(),
         })
     }
 }
 
-impl ColumnCounter for AuthUser {
+impl ColumnCounter for Locale {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

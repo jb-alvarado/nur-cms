@@ -3,7 +3,12 @@ use inquire::{Password, PasswordDisplayMode, Select, Text};
 use sqlx::{Pool, Postgres};
 
 use crate::{
-    db::{handles, models::AuthUser},
+    db::{
+        fields::{AuthRoleFields, Table},
+        handles,
+        models::{AuthRole, AuthUser, Role},
+        queries::QueryObj,
+    },
     utils::errors::ServiceError,
 };
 
@@ -26,8 +31,11 @@ pub struct Args {
 }
 
 pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
-    let roles = handles::select_auth_role(pool, None).await?;
-    let role_list = roles.iter().map(|r| r.name.clone()).collect();
+    let query: QueryObj<AuthRoleFields> = QueryObj::default();
+
+    let resp =
+        handles::select_record::<AuthRoleFields, AuthRole>(pool, &Table::AuthRoles, query).await?;
+    let role_list: Vec<Role> = resp.results.iter().map(|r| r.name.clone()).collect();
 
     let email = Text::new("Email:").prompt()?;
     let username = Text::new("Username:").prompt()?;
@@ -36,10 +44,10 @@ pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
         .prompt()?;
 
     let role_name = Select::new("User role:", role_list).prompt()?;
-    let role = roles.iter().find(|r| r.name == role_name).unwrap();
+    let role = resp.results.iter().find(|r| r.name == role_name).unwrap();
     let user = AuthUser::new(email, username, password, role.id);
 
-    handles::insert_auth_user(pool, user).await?;
+    handles::insert_record(pool, &Table::AuthUsers, &user).await?;
 
     Ok(())
 }

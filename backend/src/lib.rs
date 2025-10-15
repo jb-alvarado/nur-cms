@@ -6,7 +6,7 @@ use axum::{
     Router,
     extract::Request,
     response::Response,
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
 };
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -91,10 +91,17 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
     let auth_routes = Router::new()
         .route("/login/", post(login))
         .route("/refresh/", post(refresh));
+
     let api_routes = Router::new()
         .route("/hello/", get(welcome))
+        .route("/auth-role/", get(auth_role_select))
         .route("/auth-user/", get(auth_user_select))
+        .route("/auth-user/{id}/", delete(auth_user_delete))
+        .route("/auth-user/", post(auth_user_insert))
         .route("/auth-user/{id}/", patch(auth_user_update))
+        .route("/locale/", get(locale_select))
+        .route("/locale/{id}/", delete(locale_delete))
+        .route("/locale/", post(locale_insert))
         .layer(GrantsLayer::with_extractor(extract));
 
     Ok((auth_routes, api_routes))

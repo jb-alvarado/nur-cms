@@ -1,6 +1,6 @@
 use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
-use chrono::{TimeDelta, Utc};
+use chrono::{Local, TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
@@ -114,7 +114,7 @@ pub async fn login(
                 let refresh_claims = Claims::new(user_id, role.name.clone(), *REFRESH_LIFETIME);
                 let refresh_token = encode_jwt(refresh_claims).await?;
                 let auth_user = AuthUser {
-                    updated_at: Some(Utc::now()),
+                    last_login: Some(Local::now().into()),
                     ..Default::default()
                 };
 

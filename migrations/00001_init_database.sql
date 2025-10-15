@@ -81,9 +81,19 @@ CREATE TABLE
 CREATE TABLE
     media (
         id SERIAL PRIMARY KEY,
+        alt TEXT,
         filename TEXT NOT NULL,
-        url TEXT NOT NULL,
+        path TEXT NOT NULL,
         type TEXT,
         uploaded_by INT REFERENCES auth_users (id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT now ()
+    );
+
+CREATE TABLE
+    media_variants (
+        id SERIAL PRIMARY KEY,
+        media_id INT REFERENCES media (id) ON DELETE CASCADE,
+        resolution INT NOT NULL,
+        format TEXT NOT NULL DEFAULT 'jpg',
+        filename TEXT NOT NULL
     );

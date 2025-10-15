@@ -67,3 +67,7 @@ where
 
     Ok(Some(s))
 }
+
+pub fn is_zero<T: PartialEq + Default>(val: &T) -> bool {
+    *val == T::default()
+}

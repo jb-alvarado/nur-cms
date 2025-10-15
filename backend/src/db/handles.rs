@@ -1,3 +1,8 @@
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
+
 use argon2::{
     Argon2, PasswordHasher,
     password_hash::{SaltString, rand_core::OsRng},
@@ -7,15 +12,16 @@ use colored::Colorize;
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Execute, Pool, Postgres, QueryBuilder, postgres::PgPool};
+use strum::IntoEnumIterator;
 use tokio::task;
 use tracing::{debug, error, warn};
 
 use crate::{
     db::{
-        fields::{AuthUserFields, Table},
+        fields::{AuthUserFields, ColumnCounter, StrCompare, Table},
         format_sql,
-        models::{AuthRole, AuthUser},
         queries::{QueryObj, RespondObj, where_chain},
+        serialize::AuthUserSerializer,
     },
     utils::errors::ServiceError,
 };
@@ -26,31 +32,10 @@ pub async fn db_migrate(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
     Ok(())
 }
 
-pub async fn select_auth_role(
-    pool: &Pool<Postgres>,
-    id: Option<&i32>,
-) -> Result<Vec<AuthRole>, ServiceError> {
-    let result = match id {
-        Some(id) => {
-            sqlx::query_as("SELECT id, name FROM auth_roles WHERE id = $1")
-                .bind(id)
-                .fetch_all(pool)
-                .await?
-        }
-        None => {
-            sqlx::query_as("SELECT id, name FROM auth_roles")
-                .fetch_all(pool)
-                .await?
-        }
-    };
-
-    Ok(result)
-}
-
 pub async fn select_auth_user(
     pool: &Pool<Postgres>,
     query_obj: QueryObj<AuthUserFields>,
-) -> Result<RespondObj<AuthUser>, ServiceError> {
+) -> Result<RespondObj<AuthUserSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut separated = query_builder.separated(", ");
 
@@ -61,8 +46,7 @@ pub async fn select_auth_user(
     }
 
     separated.push("(r.id, r.name) AS \"auth_role\"");
-
-    separated.push("count(*) OVER() AS total_count".to_string());
+    separated.push("count(*) OVER() AS total_count");
 
     separated.push_unseparated(" ");
     query_builder.push("FROM auth_users u ");
@@ -117,42 +101,14 @@ pub async fn select_auth_user(
         query_obj.limit, query_obj.offset
     ));
 
-    let query = query_builder.build_query_as::<AuthUser>();
+    let query = query_builder.build_query_as::<AuthUserSerializer>();
 
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(query.sql()).bright_black());
 
-    let data: Vec<AuthUser> = query.fetch_all(pool).await?;
+    let data: Vec<AuthUserSerializer> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(&query_obj, data))
-}
-
-pub async fn insert_auth_user(pool: &PgPool, user: AuthUser) -> Result<i32, ServiceError> {
-    const QUERY: &str = r#"INSERT INTO auth_users
-        (email, username, password, role_id)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id;"#;
-
-    // Hash password in blocking thread, return ServiceError on failure instead of panicking
-    let password_hash = task::spawn_blocking(move || -> Result<String, ServiceError> {
-        let salt = SaltString::generate(&mut OsRng);
-        let hash = Argon2::default()
-            .hash_password(user.password.unwrap().as_bytes(), &salt)
-            .map_err(|_| ServiceError::InternalServerError)?;
-
-        Ok(hash.to_string())
-    })
-    .await??;
-
-    let id: i32 = sqlx::query_scalar(QUERY)
-        .bind(user.email)
-        .bind(user.username)
-        .bind(password_hash)
-        .bind(user.role_id)
-        .fetch_one(pool)
-        .await?;
-
-    Ok(id)
 }
 
 pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), ServiceError> {
@@ -221,27 +177,43 @@ where
 
         match val {
             Value::Array(a) => {
-                separated.push_bind_unseparated(a);
+                separated.push_bind(a);
             }
             Value::Bool(b) => {
-                separated.push_bind_unseparated(b);
+                separated.push_bind(b);
             }
             Value::Null => {
-                separated.push_bind_unseparated("DEFAULT");
+                separated.push_bind("DEFAULT");
             }
             Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    separated.push_bind_unseparated(i as i32);
+                    separated.push_bind(i as i32);
                 } else if let Some(f) = n.as_f64() {
-                    separated.push_bind_unseparated(f);
+                    separated.push_bind(f);
                 }
             }
             Value::String(s) => {
-                separated.push_bind_unseparated(s);
+                if key == "password" {
+                    let pw = s.clone();
+                    let password_hash =
+                        task::spawn_blocking(move || -> Result<String, ServiceError> {
+                            let salt = SaltString::generate(&mut OsRng);
+                            let hash = Argon2::default()
+                                .hash_password(pw.as_bytes(), &salt)
+                                .map_err(|_| ServiceError::InternalServerError)?;
+
+                            Ok(hash.to_string())
+                        })
+                        .await??;
+
+                    separated.push_bind(password_hash);
+                } else {
+                    separated.push_bind(s);
+                }
             }
             other => {
                 error!("Unknown Type {key}={other:?} in Insert!");
-                separated.push_bind_unseparated("DEFAULT");
+                separated.push_bind("DEFAULT");
             }
         }
     }
@@ -256,6 +228,59 @@ where
     let id = query.fetch_one(pool).await?;
 
     Ok(id)
+}
+
+pub async fn select_record<T, M>(
+    pool: &Pool<Postgres>,
+    table: &Table,
+    query_obj: QueryObj<T>,
+) -> Result<RespondObj<M>, ServiceError>
+where
+    T: Display + StrCompare + IntoEnumIterator + FromStr + Debug,
+    M: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin + ColumnCounter,
+{
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
+    let mut separated = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        separated.push(f.to_owned());
+    }
+
+    separated.push("count(*) OVER() AS total_count");
+    query_builder.push(format!(" FROM {table}"));
+
+    if let Some(id) = &query_obj.search_id {
+        where_chain(&mut query_builder, None, "id = ");
+        query_builder.push_bind(id);
+    }
+
+    if query_obj
+        .fields
+        .iter()
+        .any(|f| query_obj.ordering.contains(&f.to_string()))
+    {
+        let ordering = query_obj
+            .ordering
+            .split(", ")
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        query_builder.push(format!(" ORDER BY {ordering}"));
+    }
+
+    query_builder.push(format!(
+        " LIMIT {} OFFSET {}",
+        query_obj.limit, query_obj.offset
+    ));
+
+    let query = query_builder.build_query_as::<M>();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    let data: Vec<M> = query.fetch_all(pool).await?;
+
+    Ok(RespondObj::new(&query_obj, data))
 }
 
 pub async fn update_record<T>(
@@ -274,8 +299,8 @@ where
         None => return Ok(()),
     };
 
-    let type_ignore = ["created_at", "last_login"];
-    let type_time = ["updated_at"];
+    let type_ignore = ["created_at"];
+    let type_time = ["updated_at", "last_login"];
 
     let mut qb = QueryBuilder::<Postgres>::new(format!("UPDATE {table} SET "));
     let mut separated = qb.separated(", ");
@@ -301,6 +326,20 @@ where
                     };
 
                     separated.push_bind_unseparated(dt);
+                } else if key.as_str() == "password" {
+                    let pw = s.clone();
+                    let password_hash =
+                        task::spawn_blocking(move || -> Result<String, ServiceError> {
+                            let salt = SaltString::generate(&mut OsRng);
+                            let hash = Argon2::default()
+                                .hash_password(pw.as_bytes(), &salt)
+                                .map_err(|_| ServiceError::InternalServerError)?;
+
+                            Ok(hash.to_string())
+                        })
+                        .await??;
+
+                    separated.push_bind_unseparated(password_hash);
                 } else {
                     separated.push_bind_unseparated(s);
                 }

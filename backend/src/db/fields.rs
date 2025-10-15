@@ -6,6 +6,7 @@ use strum_macros::EnumIter;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Table {
+    AuthRoles,
     AuthUsers,
     Locales,
     ContentTypes,
@@ -18,6 +19,7 @@ pub enum Table {
 impl fmt::Display for Table {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Self::AuthRoles => write!(f, "auth_roles"),
             Self::AuthUsers => write!(f, "auth_users"),
             Self::Locales => write!(f, "locales"),
             Self::ContentTypes => write!(f, "content_types"),
@@ -25,6 +27,44 @@ impl fmt::Display for Table {
             Self::ContentItems => write!(f, "content_items"),
             Self::ContentValues => write!(f, "content_values"),
             Self::Media => write!(f, "media"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthRoleFields {
+    ID,
+    #[default]
+    Name,
+}
+
+impl StrCompare for AuthRoleFields {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::ID => other == "id",
+            Self::Name => other == "name",
+        }
+    }
+}
+
+impl FromStr for AuthRoleFields {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "id" => Ok(Self::ID),
+            "name" => Ok(Self::Name),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for AuthRoleFields {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::ID => write!(f, "id"),
+            Self::Name => write!(f, "name"),
         }
     }
 }
