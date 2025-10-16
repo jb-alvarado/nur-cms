@@ -5,19 +5,25 @@ use axum::{
 };
 use chrono::Utc;
 // use axum_macros::debug_handler;
+use markdown::{ParseOptions, to_html, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
+use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tracing::error;
 
 use crate::{
+    OUTPUT_TYPE,
     db::{
-        fields::{AuthRoleFields, AuthUserFields, LocaleFields, Table},
+        fields::{
+            AuthRoleFields, AuthUserFields, BlogPostFields, LocaleFields, OutputType, Table,
+            TypeSlag,
+        },
         handles,
         models::{AuthRole, AuthUser, Locale, Role},
         queries::{QueryObj, RespondObj},
-        serialize::AuthUserSerializer,
+        serialize::{AuthUserSerializer, BlogPostSerializer},
     },
-    utils::errors::ServiceError,
+    utils::{ast_serialize::to_structure, errors::ServiceError},
 };
 
 pub async fn welcome(details: AuthDetails<Role>) -> Result<String, (StatusCode, String)> {
@@ -231,4 +237,41 @@ pub async fn locale_update(
     Err(ServiceError::Forbidden(
         "You do not have permission to access this resource.".to_string(),
     ))
+}
+
+/* ------------------------------
+LOCALES
+---------------------------------*/
+
+pub async fn blog_post_select(
+    State(pool): State<PgPool>,
+    Query(mut params): Query<QueryObj<BlogPostFields>>,
+    OriginalUri(original_uri): OriginalUri,
+) -> Result<Json<RespondObj<BlogPostSerializer>>, ServiceError> {
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
+    params.type_slag = Some(TypeSlag::BlogPost);
+
+    let mut content = handles::select_content(&pool, params).await?;
+
+    for b in &mut content.results {
+        let text = b.body_value.take().unwrap_or_default();
+
+        if *OUTPUT_TYPE == OutputType::AST {
+            let ast = to_mdast(&text, &ParseOptions::default())?;
+            let json = serde_json::to_string(&ast).unwrap_or_default();
+            let tree: Value = serde_json::from_str(&json).unwrap_or_default();
+            b.body_value = None;
+            b.body = Some(to_structure(&tree));
+        } else if *OUTPUT_TYPE == OutputType::HTML {
+            let html = to_html(&text);
+            b.body_value = None;
+            b.body = Some(Value::String(html));
+        } else {
+            b.body_value = None;
+            b.body = Some(Value::String(text));
+        }
+    }
+
+    Ok(Json(content))
 }

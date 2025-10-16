@@ -31,6 +31,7 @@ dotenvy = "0.15"
 http-body-util = "0.1"
 inquire = "0.9"
 jsonwebtoken = "9"
+markdown =  { version = "1", features = ["serde"] }
 regex = "1"
 protect-axum = "0.2"
 protect-endpoints-core = { version = "0.2", features = ["tower"] }

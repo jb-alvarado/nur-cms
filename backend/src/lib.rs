@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::str::FromStr;
 use std::{env, sync::LazyLock};
 
 use axum::response::IntoResponse;
@@ -21,7 +22,7 @@ use crate::{
         auth::{decode_jwt, login, refresh},
         routes::*,
     },
-    db::{handles, models::Role},
+    db::{fields::OutputType, handles, models::Role},
     utils::errors::ServiceError,
 };
 
@@ -39,6 +40,13 @@ pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| {
 });
 pub static JWT_SECRET: LazyLock<String> =
     LazyLock::new(|| env::var("JWT_SECRET").expect("JWT_SECRET must be set"));
+
+pub static OUTPUT_TYPE: LazyLock<OutputType> = LazyLock::new(|| {
+    env::var("OUTPUT_TYPE")
+        .ok()
+        .and_then(|v| OutputType::from_str(&v.to_ascii_lowercase()).ok())
+        .unwrap_or(OutputType::AST)
+});
 
 pub async fn init_db() -> Result<PgPool, ServiceError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -102,6 +110,7 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         .route("/locale/", get(locale_select))
         .route("/locale/{id}/", delete(locale_delete))
         .route("/locale/", post(locale_insert))
+        .route("/blog-post/", get(blog_post_select))
         .layer(GrantsLayer::with_extractor(extract));
 
     Ok((auth_routes, api_routes))

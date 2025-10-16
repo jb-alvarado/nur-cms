@@ -28,9 +28,7 @@ use crate::{
 };
 
 #[cfg(debug_assertions)]
-pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
-    sqlx::migrate!("../migrations_dev").run(pool).await?;
-
+pub async fn dev_user(pool: &PgPool) -> Result<(), ServiceError> {
     let user = AuthUser::new(
         "admin@example.org".to_string(),
         "admin".to_string(),
@@ -46,11 +44,10 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
 }
 
 pub async fn db_migrate(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
-    #[cfg(debug_assertions)]
-    dev_migrate(pool).await?;
-
-    #[cfg(not(debug_assertions))]
     sqlx::migrate!("../migrations").run(pool).await?;
+
+    #[cfg(debug_assertions)]
+    dev_user(pool).await?;
 
     Ok(())
 }
@@ -401,7 +398,7 @@ where
 BLOG POSTS
 --------------------------------------- */
 
-pub async fn select_blog_post(
+pub async fn select_content(
     pool: &Pool<Postgres>,
     query_obj: QueryObj<BlogPostFields>,
 ) -> Result<RespondObj<BlogPostSerializer>, ServiceError> {
@@ -410,11 +407,12 @@ pub async fn select_blog_post(
 
     for f in &query_obj.fields {
         match *f {
-            BlogPostFields::AuthorID => separated.push(format!("u.{f}")),
-            BlogPostFields::AuthorName => separated.push(format!("u.{f}")),
-            BlogPostFields::Title => separated.push(format!("fv_title.{f}")),
-            BlogPostFields::Body => separated.push(format!("fv_body.{f}")),
-            BlogPostFields::Locale => separated.push(format!("l.{f}")),
+            BlogPostFields::Author => {
+                separated.push(format!("(u.id, u.first_name, u.last_name) AS {f}"))
+            }
+            BlogPostFields::Title => separated.push(format!("fv_title.value->>0 AS {f}")),
+            BlogPostFields::Body => separated.push(format!("fv_body.value->>0 AS {f}")),
+            BlogPostFields::Locale => separated.push(format!("l.code as {f}")),
             _ => separated.push(format!("ci.{f}")),
         };
     }
@@ -424,9 +422,7 @@ pub async fn select_blog_post(
     query_builder.push("FROM content_items ci ");
     query_builder.push("JOIN content_types ct ON ct.id = ci.content_type_id ");
 
-    if query_obj.fields.contains(&BlogPostFields::AuthorID)
-        || query_obj.fields.contains(&BlogPostFields::AuthorName)
-    {
+    if query_obj.fields.contains(&BlogPostFields::Author) {
         query_builder.push("LEFT JOIN auth_users u ON u.id = ci.created_by ");
     }
 
@@ -436,7 +432,7 @@ pub async fn select_blog_post(
             ON fv_title.content_item_id = ci.id
                 AND fv_title.locale_id = 1
                 AND fv_title.field_id = (
-                    SELECT id FROM fields
+                    SELECT id FROM content_fields
                     WHERE content_type_id = ct.id AND name = 'title'
                 ) "#,
         );
@@ -448,7 +444,7 @@ pub async fn select_blog_post(
             ON fv_body.content_item_id = ci.id
                 AND fv_body.locale_id = 1
                 AND fv_body.field_id = (
-                    SELECT id FROM fields
+                    SELECT id FROM content_fields
                     WHERE content_type_id = ct.id AND name = 'body'
                 ) "#,
         );

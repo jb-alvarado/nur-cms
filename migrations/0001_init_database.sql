@@ -46,7 +46,7 @@ CREATE TABLE
     );
 
 CREATE TABLE
-    fields (
+    content_fields (
         id SERIAL PRIMARY KEY,
         content_type_id INT REFERENCES content_types (id) ON DELETE CASCADE,
         name TEXT NOT NULL, -- "title", "body", "published_at"
@@ -72,7 +72,7 @@ CREATE TABLE
 CREATE TABLE content_values (
     id SERIAL PRIMARY KEY,
     content_item_id INT NOT NULL REFERENCES content_items(id) ON DELETE CASCADE,
-    field_id INT NOT NULL REFERENCES fields(id) ON DELETE CASCADE,
+    field_id INT NOT NULL REFERENCES content_fields(id) ON DELETE CASCADE,
     locale_id INT NOT NULL REFERENCES locales(id) ON DELETE CASCADE,
     value JSONB,
     text_vector TSVECTOR, -- for full text search, fill on insert

@@ -1,29 +1,56 @@
--- First Blog Post (English)
-INSERT INTO content_values (content_item_id, field_id, locale_id, value)
+INSERT INTO content_types (id, name, slug, description)
 VALUES
-    (1, 1, 1, '"My First Blog Post"'),
-    (1, 2, 1, '"first-blog-post"'),
-    (1, 3, 1, '"A short introduction to my first blog post."'),
-    (1, 4, 1, '"<p>This is the body of my first blog post, written in HTML format.</p>"'),
-    (1, 5, 1, '"2025-10-15T10:00:00Z"');
+  (1, 'BlogPost', 'blog-post', 'A blog article entry'),
+  (2, 'Page', 'page', 'A static page'),
+  (3, 'Event', 'event', 'An event entry');
 
--- Second Blog Post (English)
-INSERT INTO content_values (content_item_id, field_id, locale_id, value)
+INSERT INTO content_fields (content_type_id, name, field_type, required, order_index)
 VALUES
-    (2, 1, 1, '"Second Blog Post (Draft)"'),
-    (2, 2, 1, '"second-blog-post"'),
-    (2, 3, 1, '"This is a draft post not yet published."'),
-    (2, 4, 1, '"<p>Still working on this one...</p>"')
+  -- BlogPost
+  (1, 'title', 'text', true, 1),
+  (1, 'body', 'markdown', true, 2),
+  (1, 'published_at', 'datetime', false, 3),
 
--- Third Blog Post (English + German)
+  -- Page
+  (2, 'title', 'text', true, 1),
+  (2, 'body', 'markdown', true, 2),
+
+  -- Event
+  (3, 'title', 'text', true, 1),
+  (3, 'description', 'markdown', true, 2),
+  (3, 'date', 'datetime', true, 3),
+  (3, 'location', 'text', false, 4),
+  (3, 'is_online', 'boolean', false, 5);
+
+INSERT INTO content_items (content_type_id, slug, status, created_by, updated_by)
+VALUES
+  (1, 'first-blog-post', 'published', 1, 1),
+  (2, 'about-page', 'published', 1, 1),
+  (3, 'rust-workshop', 'draft', 1, 1);
+
 INSERT INTO content_values (content_item_id, field_id, locale_id, value)
 VALUES
-    (3, 1, 1, '"Third Blog Post"'),
-    (3, 1, 2, '"Dritter Blogeintrag"'),
-    (3, 2, 1, '"third-blog-post"'),
-    (3, 2, 2, '"dritter-blogeintrag"'),
-    (3, 3, 1, '"A multilingual blog post example."'),
-    (3, 3, 2, '"Ein mehrsprachiges Blogpost-Beispiel."'),
-    (3, 4, 1, '"<p>This post has both English and German versions.</p>"'),
-    (3, 4, 2, '"<p>Dieser Beitrag ist auf Englisch und Deutsch verfügbar.</p>"'),
-    (3, 5, 1, '"2025-10-10T08:00:00Z"');
+  -- title
+  (1, (SELECT id FROM content_fields WHERE content_type_id = 1 AND name = 'title'), 1, '"Welcome to my blog"'),
+  -- body
+  (1, (SELECT id FROM content_fields WHERE content_type_id = 1 AND name = 'body'), 1, '"# Hello World\nThis is my first blog post in **Markdown**."'),
+  -- published_at
+  (1, (SELECT id FROM content_fields WHERE content_type_id = 1 AND name = 'published_at'), 1, '"2025-10-16T12:00:00Z"'),
+
+  -- Page
+  -- title
+  (2, (SELECT id FROM content_fields WHERE content_type_id = 2 AND name = 'title'), 1, '"About Us"'),
+  -- body
+  (2, (SELECT id FROM content_fields WHERE content_type_id = 2 AND name = 'body'), 1, '"This is the **about** page written in Markdown."'),
+
+  -- Event
+  -- title
+  (3, (SELECT id FROM content_fields WHERE content_type_id = 3 AND name = 'title'), 1, '"Rust Workshop"'),
+  -- description
+  (3, (SELECT id FROM content_fields WHERE content_type_id = 3 AND name = 'description'), 1, '"Learn Rust in a **hands-on** workshop!"'),
+  -- date
+  (3, (SELECT id FROM content_fields WHERE content_type_id = 3 AND name = 'date'), 1, '"2025-11-01T09:00:00Z"'),
+  -- location
+  (3, (SELECT id FROM content_fields WHERE content_type_id = 3 AND name = 'location'), 1, '"Berlin, Germany"'),
+  -- is_online
+  (3, (SELECT id FROM content_fields WHERE content_type_id = 3 AND name = 'is_online'), 1, 'false');

@@ -79,6 +79,8 @@ pub struct BlogPostSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>, // draft, published, archived
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<AuthUserSerializer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
@@ -87,22 +89,38 @@ pub struct BlogPostSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
+    pub body_value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<serde_json::Value>,
+    #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
 impl FromRow<'_, PgRow> for BlogPostSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        let mut author = None;
+        if let Ok((id, first_name, last_name)) =
+            row.try_get::<(i32, String, String), &str>("author")
+        {
+            author = Some(AuthUserSerializer {
+                id: Some(id),
+                first_name: Some(first_name),
+                last_name: Some(last_name),
+                ..Default::default()
+            });
+        };
+
         Ok(Self {
             id: row.try_get("id").ok(),
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
+            author,
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
             locale: row.try_get("locale_code").ok(),
             title: row.try_get("title").ok(),
-            body: row.try_get("body").ok(),
+            body_value: row.try_get("body").ok(),
+            body: None,
             total_count: row.try_get("total_count").ok(),
         })
     }

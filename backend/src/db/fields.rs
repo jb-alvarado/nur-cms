@@ -35,14 +35,37 @@ impl fmt::Display for Table {
 #[serde(rename_all = "snake_case")]
 pub enum TypeSlag {
     BlogPost,
+    Event,
     Page,
 }
 
 impl fmt::Display for TypeSlag {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Self::BlogPost => write!(f, "blog_post"),
+            Self::BlogPost => write!(f, "blog-post"),
+            Self::Event => write!(f, "event"),
             Self::Page => write!(f, "page"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputType {
+    AST,
+    HTML,
+    Markdown,
+}
+
+impl FromStr for OutputType {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "ast" => Ok(Self::AST),
+            "html" => Ok(Self::HTML),
+            "markdown" => Ok(Self::Markdown),
+            _ => Err(format!("Field '{input}' not found!")),
         }
     }
 }
@@ -206,8 +229,7 @@ pub enum BlogPostFields {
     Status,
     CreatedAt,
     UpdatedAt,
-    AuthorID,
-    AuthorName,
+    Author,
     Title,
     Body,
     Locale,
@@ -221,8 +243,7 @@ impl StrCompare for BlogPostFields {
             Self::Status => other == "status",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
-            Self::AuthorID => other == "author_id",
-            Self::AuthorName => other == "author_name",
+            Self::Author => other == "author",
             Self::Title => other == "title",
             Self::Body => other == "body",
             Self::Locale => other == "locale",
@@ -240,8 +261,7 @@ impl FromStr for BlogPostFields {
             "status" => Ok(Self::Status),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
-            "author_id" => Ok(Self::AuthorID),
-            "author_name" => Ok(Self::AuthorName),
+            "author" => Ok(Self::Author),
             "title" => Ok(Self::Title),
             "body" => Ok(Self::Body),
             "locale" => Ok(Self::Locale),
@@ -258,8 +278,7 @@ impl fmt::Display for BlogPostFields {
             Self::Status => write!(f, "status"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
-            Self::AuthorID => write!(f, "author_id"),
-            Self::AuthorName => write!(f, "author_name"),
+            Self::Author => write!(f, "author"),
             Self::Title => write!(f, "title"),
             Self::Body => write!(f, "body"),
             Self::Locale => write!(f, "locale"),

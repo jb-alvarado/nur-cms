@@ -21,7 +21,10 @@
         "editor.defaultFormatter": "statiolake.vscode-rustfmt"
     },
     "cSpell.words": [
+        "ansi",
+        "axum",
         "postgres",
+        "serde",
         "sqlx",
         "unseparated"
     ],

@@ -189,7 +189,7 @@ impl ColumnCounter for ContentType {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Field {
+pub struct ContentField {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -210,7 +210,7 @@ pub struct Field {
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for Field {
+impl FromRow<'_, PgRow> for ContentField {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
@@ -226,7 +226,7 @@ impl FromRow<'_, PgRow> for Field {
     }
 }
 
-impl ColumnCounter for Field {
+impl ColumnCounter for ContentField {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

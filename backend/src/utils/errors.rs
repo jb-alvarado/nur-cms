@@ -73,6 +73,12 @@ impl From<inquire::InquireError> for ServiceError {
     }
 }
 
+impl From<markdown::message::Message> for ServiceError {
+    fn from(err: markdown::message::Message) -> ServiceError {
+        Self::Conflict(err.to_string())
+    }
+}
+
 impl From<io::Error> for ServiceError {
     fn from(err: io::Error) -> ServiceError {
         error!("{err:?}");
