@@ -243,14 +243,15 @@ pub async fn locale_update(
 LOCALES
 ---------------------------------*/
 
-pub async fn blog_post_select(
+pub async fn content_select(
     State(pool): State<PgPool>,
+    Path(type_slug): Path<TypeSlag>,
     Query(mut params): Query<QueryObj<BlogPostFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<BlogPostSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
-    params.type_slag = Some(TypeSlag::BlogPost);
+    params.type_slag = Some(type_slug);
 
     let mut content = handles::select_content(&pool, params).await?;
 
@@ -261,6 +262,7 @@ pub async fn blog_post_select(
             let ast = to_mdast(&text, &ParseOptions::default())?;
             let json = serde_json::to_string(&ast).unwrap_or_default();
             let tree: Value = serde_json::from_str(&json).unwrap_or_default();
+            println!("{tree:#?}");
             b.body_value = None;
             b.body = Some(to_structure(&tree));
         } else if *OUTPUT_TYPE == OutputType::HTML {

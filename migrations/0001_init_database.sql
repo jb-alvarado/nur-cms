@@ -69,17 +69,18 @@ CREATE TABLE
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
     );
 
-CREATE TABLE content_values (
-    id SERIAL PRIMARY KEY,
-    content_item_id INT NOT NULL REFERENCES content_items(id) ON DELETE CASCADE,
-    field_id INT NOT NULL REFERENCES content_fields(id) ON DELETE CASCADE,
-    locale_id INT NOT NULL REFERENCES locales(id) ON DELETE CASCADE,
-    value JSONB,
-    text_vector TSVECTOR, -- for full text search, fill on insert
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(content_item_id, field_id, locale_id)
-);
+CREATE TABLE
+    content_values (
+        id SERIAL PRIMARY KEY,
+        content_item_id INT NOT NULL REFERENCES content_items (id) ON DELETE CASCADE,
+        field_id INT NOT NULL REFERENCES content_fields (id) ON DELETE CASCADE,
+        locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
+        value JSONB,
+        text_vector TSVECTOR, -- for full text search, fill on insert
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        UNIQUE (content_item_id, field_id, locale_id)
+    );
 
 CREATE TABLE
     media (
@@ -99,4 +100,17 @@ CREATE TABLE
         resolution INT NOT NULL,
         format TEXT NOT NULL DEFAULT 'jpg',
         filename TEXT NOT NULL
+    );
+
+CREATE TABLE
+    content_media (
+        id SERIAL PRIMARY KEY,
+        content_item_id INT NOT NULL REFERENCES content_items (id) ON DELETE CASCADE,
+        media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+        node_index INT NOT NULL DEFAULT 0,
+        start_offset INT,
+        end_offset INT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        UNIQUE (content_item_id, media_id, node_index)
     );

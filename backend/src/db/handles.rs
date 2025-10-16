@@ -431,10 +431,11 @@ pub async fn select_content(
     }
 
     if query_obj.fields.contains(&BlogPostFields::Title) {
+        // TODO: add search_locale
         query_builder.push(
             r#"LEFT JOIN content_values fv_title
             ON fv_title.content_item_id = ci.id
-                AND fv_title.locale_id = 1
+                AND fv_title.locale_id = 2
                 AND fv_title.field_id = (
                     SELECT id FROM content_fields
                     WHERE content_type_id = ct.id AND name = 'title'
@@ -443,10 +444,11 @@ pub async fn select_content(
     }
 
     if query_obj.fields.contains(&BlogPostFields::Body) {
+        // TODO: add search_locale
         query_builder.push(
             r#"LEFT JOIN content_values fv_body
             ON fv_body.content_item_id = ci.id
-                AND fv_body.locale_id = 1
+                AND fv_body.locale_id = 2
                 AND fv_body.field_id = (
                     SELECT id FROM content_fields
                     WHERE content_type_id = ct.id AND name = 'body'

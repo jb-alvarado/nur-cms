@@ -32,7 +32,7 @@ impl fmt::Display for Table {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "kebab-case")]
 pub enum TypeSlag {
     BlogPost,
     Event,
