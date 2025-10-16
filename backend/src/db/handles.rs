@@ -29,16 +29,20 @@ use crate::{
 
 #[cfg(debug_assertions)]
 pub async fn dev_user(pool: &PgPool) -> Result<(), ServiceError> {
-    let user = AuthUser::new(
-        "admin@example.org".to_string(),
-        "admin".to_string(),
-        "Ad".to_string(),
-        "Min".to_string(),
-        "admin".to_string(),
-        1,
-    );
+    let resp = select_auth_user(pool, QueryObj::default()).await?;
 
-    insert_record(pool, &Table::AuthUsers, &user).await?;
+    if resp.results.is_empty() {
+        let user = AuthUser::new(
+            "admin@example.org".to_string(),
+            "admin".to_string(),
+            "Ad".to_string(),
+            "Min".to_string(),
+            "admin".to_string(),
+            1,
+        );
+
+        insert_record(pool, &Table::AuthUsers, &user).await?;
+    }
 
     Ok(())
 }
