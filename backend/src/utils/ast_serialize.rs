@@ -2,11 +2,12 @@ use serde_json::{Map, Value, json};
 
 use crate::db::serialize::MediaSerializer;
 
-fn pop_media(line: i32, media: &mut Vec<MediaSerializer>) -> Option<MediaSerializer> {
+fn pop_media(line: i32, media: &mut Vec<MediaSerializer>) -> Option<Value> {
     media
         .iter()
         .position(|m| m.node_index == line)
         .map(|pos| media.remove(pos))
+        .and_then(|m| serde_json::to_value(m).ok())
 }
 
 pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
@@ -28,16 +29,20 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
                 let line: i32 = map
                     .get("position")
                     .and_then(|p| p.get("start"))
+                    .and_then(Value::as_object)
                     .and_then(|s| s.get("line"))
                     .and_then(Value::as_i64)
                     .unwrap_or_default()
                     .try_into()
                     .unwrap_or_default();
 
-                return json!({
-                    "type": "image",
-                    "children": pop_media(line, media),
-                });
+                if let Some(mut media_node) = pop_media(line, media) {
+                    if let Some(obj) = media_node.as_object_mut() {
+                        obj.insert("type".into(), Value::String("image".into()));
+                    }
+
+                    return media_node;
+                }
             }
 
             let mut children: Vec<Value> = vec![];
