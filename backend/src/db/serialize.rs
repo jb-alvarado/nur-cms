@@ -162,7 +162,6 @@ pub struct MediaSerializer {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MediaVariantSerializer {
-    pub id: i32,
     pub resolution: i32,
     pub format: String,
     pub filename: String,

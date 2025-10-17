@@ -2,12 +2,62 @@ use serde_json::{Map, Value, json};
 
 use crate::db::serialize::MediaSerializer;
 
-fn pop_media(line: i32, media: &mut Vec<MediaSerializer>) -> Option<Value> {
+fn pop_media(map: &Map<String, Value>, media: &mut Vec<MediaSerializer>) -> Option<Value> {
+    let line: i32 = map
+        .get("position")
+        .and_then(|p| p.get("start"))
+        .and_then(Value::as_object)
+        .and_then(|s| s.get("line"))
+        .and_then(Value::as_i64)
+        .unwrap_or_default()
+        .try_into()
+        .unwrap_or_default();
+
     media
-        .iter()
-        .position(|m| m.node_index == line)
+        .iter_mut()
+        .position(|m| {
+            if m.node_index == line {
+                m.node_index = 0;
+                true
+            } else {
+                false
+            }
+        })
         .map(|pos| media.remove(pos))
         .and_then(|m| serde_json::to_value(m).ok())
+}
+
+fn apply_styles(node_type: &str, map: &Map<String, Value>, o: &mut Map<String, Value>) -> bool {
+    match node_type {
+        "strong" => {
+            o.insert("bold".into(), Value::Bool(true));
+            true
+        }
+        "emphasis" => {
+            o.insert("italic".into(), Value::Bool(true));
+            true
+        }
+        "underline" => {
+            o.insert("underline".into(), Value::Bool(true));
+            true
+        }
+        "delete" => {
+            o.insert("strikethrough".into(), Value::Bool(true));
+            true
+        }
+        "inlineCode" => {
+            o.insert("code".into(), Value::Bool(true));
+            true
+        }
+        "link" => {
+            if let Some(href) = map.get("url").and_then(Value::as_str) {
+                o.insert("url".into(), Value::String(href.to_string()));
+            }
+            o.insert("type".into(), Value::String("text".to_string()));
+            true
+        }
+        _ => false,
+    }
 }
 
 pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
@@ -25,55 +75,40 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
                 });
             }
 
-            if node_type == "image" {
-                let line: i32 = map
-                    .get("position")
-                    .and_then(|p| p.get("start"))
-                    .and_then(Value::as_object)
-                    .and_then(|s| s.get("line"))
-                    .and_then(Value::as_i64)
-                    .unwrap_or_default()
-                    .try_into()
-                    .unwrap_or_default();
+            if node_type == "image"
+                && let Some(mut media_node) = pop_media(map, media)
+                && let Some(obj) = media_node.as_object_mut()
+            {
+                obj.insert("type".into(), Value::String("image".into()));
 
-                if let Some(mut media_node) = pop_media(line, media) {
-                    if let Some(obj) = media_node.as_object_mut() {
-                        obj.insert("type".into(), Value::String("image".into()));
-                    }
-
-                    return media_node;
-                }
+                return media_node;
             }
 
             let mut children: Vec<Value> = vec![];
+
             if let Some(arr) = map.get("children").and_then(|v| v.as_array()) {
                 for child in arr {
                     let mut converted = to_structure(child, media);
 
-                    if let Value::Object(ref mut o) = converted {
-                        match node_type {
-                            "strong" => {
-                                o.insert("bold".into(), Value::Bool(true));
-                            }
-                            "emphasis" => {
-                                o.insert("italic".into(), Value::Bool(true));
-                            }
-                            "underline" => {
-                                o.insert("underline".into(), Value::Bool(true));
-                            }
-                            "delete" => {
-                                o.insert("strikethrough".into(), Value::Bool(true));
-                            }
-                            "inlineCode" => {
-                                o.insert("code".into(), Value::Bool(true));
-                            }
-                            "link" => {
-                                if let Some(href) = map.get("url").and_then(|v| v.as_str()) {
-                                    o.insert("href".into(), Value::String(href.to_string()));
-                                }
-                            }
-                            _ => {}
-                        }
+                    if node_type == "paragraph"
+                        && converted.get("type").and_then(Value::as_str) == Some("image")
+                    {
+                        if !children.is_empty() {
+                            children.push(converted.clone());
+
+                            return json!({
+                                "type": "paragraph",
+                                "children": children
+                            });
+                        };
+
+                        return converted;
+                    }
+
+                    if let Value::Object(ref mut o) = converted
+                        && apply_styles(node_type, map, o)
+                    {
+                        return Value::Object(o.clone());
                     }
 
                     children.push(converted);
