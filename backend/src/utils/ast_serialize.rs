@@ -1,8 +1,8 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::db::serialize::MediaSerializer;
 
-fn get_media(line: i32, media: &mut Vec<MediaSerializer>) -> Option<MediaSerializer> {
+fn pop_media(line: i32, media: &mut Vec<MediaSerializer>) -> Option<MediaSerializer> {
     media
         .iter()
         .position(|m| m.node_index == line)
@@ -33,9 +33,10 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
                     .unwrap_or_default()
                     .try_into()
                     .unwrap_or_default();
+
                 return json!({
                     "type": "image",
-                    "children": get_media(line, media),
+                    "children": pop_media(line, media),
                 });
             }
 
@@ -44,35 +45,50 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
                 for child in arr {
                     let mut converted = to_structure(child, media);
 
-                    if node_type == "strong"
-                        && let Value::Object(ref mut o) = converted
-                    {
-                        o.insert("bold".into(), Value::Bool(true));
-                    }
-                    if node_type == "emphasis"
-                        && let Value::Object(ref mut o) = converted
-                    {
-                        o.insert("italic".into(), Value::Bool(true));
+                    if let Value::Object(ref mut o) = converted {
+                        match node_type {
+                            "strong" => {
+                                o.insert("bold".into(), Value::Bool(true));
+                            }
+                            "emphasis" => {
+                                o.insert("italic".into(), Value::Bool(true));
+                            }
+                            "underline" => {
+                                o.insert("underline".into(), Value::Bool(true));
+                            }
+                            "delete" => {
+                                o.insert("strikethrough".into(), Value::Bool(true));
+                            }
+                            "inlineCode" => {
+                                o.insert("code".into(), Value::Bool(true));
+                            }
+                            "link" => {
+                                if let Some(href) = map.get("url").and_then(|v| v.as_str()) {
+                                    o.insert("href".into(), Value::String(href.to_string()));
+                                }
+                            }
+                            _ => {}
+                        }
                     }
 
                     children.push(converted);
                 }
             }
 
-            let mut result = json!({
-                "type": node_type,
-                "children": children
-            });
+            let mut result = Map::new();
+            result.insert("type".into(), Value::String(node_type.to_string()));
+
+            if !children.is_empty() {
+                result.insert("children".into(), Value::Array(children));
+            }
 
             if node_type.starts_with("heading")
                 && let Some(Value::Number(level)) = map.get("depth")
             {
-                result
-                    .as_object_mut()
-                    .unwrap()
-                    .insert("level".into(), Value::Number(level.clone()));
+                result.insert("level".into(), Value::Number(level.clone()));
             }
-            result
+
+            Value::Object(result)
         }
         _ => json!({}),
     }
