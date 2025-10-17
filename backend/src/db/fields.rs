@@ -222,7 +222,7 @@ impl fmt::Display for LocaleFields {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "snake_case")]
-pub enum BlogPostFields {
+pub enum ContentFields {
     ID,
     #[default]
     Slug,
@@ -233,9 +233,10 @@ pub enum BlogPostFields {
     Title,
     Body,
     Locale,
+    Media,
 }
 
-impl StrCompare for BlogPostFields {
+impl StrCompare for ContentFields {
     fn is_equal_to_str(&self, other: &str) -> bool {
         match self {
             Self::ID => other == "id",
@@ -247,11 +248,12 @@ impl StrCompare for BlogPostFields {
             Self::Title => other == "title",
             Self::Body => other == "body",
             Self::Locale => other == "locale",
+            Self::Media => other == "media",
         }
     }
 }
 
-impl FromStr for BlogPostFields {
+impl FromStr for ContentFields {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
@@ -265,12 +267,13 @@ impl FromStr for BlogPostFields {
             "title" => Ok(Self::Title),
             "body" => Ok(Self::Body),
             "locale" => Ok(Self::Locale),
+            "media" => Ok(Self::Media),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
 }
 
-impl fmt::Display for BlogPostFields {
+impl fmt::Display for ContentFields {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Self::ID => write!(f, "id"),
@@ -282,6 +285,7 @@ impl fmt::Display for BlogPostFields {
             Self::Title => write!(f, "title"),
             Self::Body => write!(f, "body"),
             Self::Locale => write!(f, "locale"),
+            Self::Media => write!(f, "media"),
         }
     }
 }

@@ -18,11 +18,11 @@ use tracing::{debug, error, warn};
 
 use crate::{
     db::{
-        fields::{AuthUserFields, BlogPostFields, ColumnCounter, StrCompare, Table},
+        fields::{AuthUserFields, ColumnCounter, ContentFields, StrCompare, Table},
         format_sql,
         models::AuthUser,
-        queries::{QueryObj, RespondObj, where_chain},
-        serialize::{AuthUserSerializer, BlogPostSerializer},
+        queries::{QueryObj, RespondObj, WhereBuilder, where_chain},
+        serialize::{AuthUserSerializer, ContentSerializer},
     },
     utils::errors::ServiceError,
 };
@@ -404,19 +404,23 @@ BLOG POSTS
 
 pub async fn select_content(
     pool: &Pool<Postgres>,
-    query_obj: QueryObj<BlogPostFields>,
-) -> Result<RespondObj<BlogPostSerializer>, ServiceError> {
+    query_obj: QueryObj<ContentFields>,
+) -> Result<RespondObj<ContentSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
+    let mut where_chain = WhereBuilder::new();
     let mut separated = query_builder.separated(", ");
 
     for f in &query_obj.fields {
         match *f {
-            BlogPostFields::Author => {
+            ContentFields::Author => {
                 separated.push(format!("(u.id, u.first_name, u.last_name) AS {f}"))
             }
-            BlogPostFields::Title => separated.push(format!("fv_title.value->>0 AS {f}")),
-            BlogPostFields::Body => separated.push(format!("fv_body.value->>0 AS {f}")),
-            BlogPostFields::Locale => separated.push(format!("l.code as {f}")),
+            ContentFields::Title => separated.push(format!("fv_title.value->>0 AS {f}")),
+            ContentFields::Body => separated.push(format!("fv_body.value->>0 AS {f}")),
+            ContentFields::Locale => separated.push(format!("l.code as {f}")),
+            ContentFields::Media => {
+                separated.push(format!("COALESCE(media_data.media, '[]') AS {f}"))
+            }
             _ => separated.push(format!("ci.{f}")),
         };
     }
@@ -426,11 +430,11 @@ pub async fn select_content(
     query_builder.push("FROM content_items ci ");
     query_builder.push("JOIN content_types ct ON ct.id = ci.content_type_id ");
 
-    if query_obj.fields.contains(&BlogPostFields::Author) {
+    if query_obj.fields.contains(&ContentFields::Author) {
         query_builder.push("LEFT JOIN auth_users u ON u.id = ci.created_by ");
     }
 
-    if query_obj.fields.contains(&BlogPostFields::Title) {
+    if query_obj.fields.contains(&ContentFields::Title) {
         // TODO: add search_locale
         query_builder.push(
             r#"LEFT JOIN content_values fv_title
@@ -443,7 +447,7 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&BlogPostFields::Body) {
+    if query_obj.fields.contains(&ContentFields::Body) {
         // TODO: add search_locale
         query_builder.push(
             r#"LEFT JOIN content_values fv_body
@@ -456,37 +460,74 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&BlogPostFields::Locale) {
+    if query_obj.fields.contains(&ContentFields::Locale) {
         query_builder.push("JOIN locales l ON l.id = fv_title.locale_id ");
     }
 
+    if query_obj.fields.contains(&ContentFields::Media) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'id', m.id,
+                        'alt', m.alt,
+                        'filename', m.filename,
+                        'path', m.path,
+                        'type', m.type,
+                        'node_index', cm.node_index,
+                        'start_offset', cm.start_offset,
+                        'end_offset', cm.end_offset,
+                        'variants', COALESCE(
+                            (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'id', mv.id,
+                                        'resolution', mv.resolution,
+                                        'format', mv.format,
+                                        'filename', mv.filename
+                                    )
+                                )
+                                FROM media_variants mv
+                                WHERE mv.media_id = m.id
+                            ),
+                            '[]'
+                        )
+                    )
+                ) AS media
+                FROM content_media cm
+                JOIN media m ON m.id = cm.media_id
+                WHERE cm.content_item_id = ci.id
+            ) AS media_data ON TRUE "#,
+        );
+    }
+
     if let Some(id) = &query_obj.search_id {
-        where_chain(&mut query_builder, None, "ci.id = ");
+        where_chain.push(&mut query_builder, None, "ci.id = ");
         query_builder.push_bind(id);
     }
 
     if let Some(after) = &query_obj.created_after {
-        where_chain(&mut query_builder, None, "ci.created_at >= ");
+        where_chain.push(&mut query_builder, None, "ci.created_at >= ");
         query_builder.push_bind(after);
     }
 
     if let Some(before) = &query_obj.created_before {
-        where_chain(&mut query_builder, None, "ci.created_at < ");
+        where_chain.push(&mut query_builder, None, "ci.created_at < ");
         query_builder.push_bind(before);
     }
 
     if let Some(sl) = &query_obj.type_slag {
-        where_chain(&mut query_builder, None, "ct.slug = ");
+        where_chain.push(&mut query_builder, None, "ct.slug = ");
         query_builder.push_bind(sl.to_string());
     }
 
     if let Some(url) = &query_obj.url_slag {
-        where_chain(&mut query_builder, None, "ci.slug = ");
+        where_chain.push(&mut query_builder, None, "ci.slug = ");
         query_builder.push_bind(url);
     }
 
     if let Some(search) = query_obj.search.clone() {
-        where_chain(&mut query_builder, None, "title LIKE ");
+        where_chain.push(&mut query_builder, None, "title LIKE ");
         query_builder.push("CONCAT('%', ");
         query_builder.push_bind(search.clone());
         query_builder.push(", '%')");
@@ -513,12 +554,12 @@ pub async fn select_content(
         query_obj.limit, query_obj.offset
     ));
 
-    let query = query_builder.build_query_as::<BlogPostSerializer>();
+    let query = query_builder.build_query_as::<ContentSerializer>();
 
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(query.sql()).bright_black());
 
-    let data: Vec<BlogPostSerializer> = query.fetch_all(pool).await?;
+    let data: Vec<ContentSerializer> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(&query_obj, data))
 }

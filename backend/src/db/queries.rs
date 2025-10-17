@@ -291,3 +291,36 @@ pub fn where_chain(builder: &mut QueryBuilder<Postgres>, operator: Option<&str>,
         builder.push(format!(" {condition}"));
     }
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct WhereBuilder {
+    where_set: bool,
+}
+
+impl WhereBuilder {
+    pub fn new() -> Self {
+        Self { where_set: false }
+    }
+
+    pub fn push(
+        &mut self,
+        builder: &mut QueryBuilder<Postgres>,
+        operator: Option<&str>,
+        condition: &str,
+    ) {
+        if condition.is_empty() {
+            return;
+        }
+
+        let op = operator.unwrap_or(" AND");
+
+        if self.where_set {
+            builder.push(op);
+        } else {
+            builder.push(" WHERE");
+            self.where_set = true;
+        }
+
+        builder.push(format!(" {condition}"));
+    }
+}

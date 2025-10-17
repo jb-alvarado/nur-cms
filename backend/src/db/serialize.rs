@@ -4,6 +4,7 @@ use sqlx::{FromRow, Row, postgres::PgRow};
 
 use crate::db::{
     fields::ColumnCounter,
+    is_zero,
     models::{AuthRole, Role},
 };
 
@@ -71,7 +72,7 @@ impl ColumnCounter for AuthUserSerializer {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct BlogPostSerializer {
+pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,11 +93,13 @@ pub struct BlogPostSerializer {
     pub body_value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub media: Vec<MediaSerializer>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for BlogPostSerializer {
+impl FromRow<'_, PgRow> for ContentSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         let mut author = None;
         if let Ok((id, first_name, last_name)) =
@@ -110,6 +113,11 @@ impl FromRow<'_, PgRow> for BlogPostSerializer {
             });
         };
 
+        let media = row
+            .try_get::<Option<serde_json::Value>, _>("media")?
+            .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
+            .unwrap_or_default();
+
         Ok(Self {
             id: row.try_get("id").ok(),
             slug: row.try_get("slug").ok(),
@@ -121,13 +129,41 @@ impl FromRow<'_, PgRow> for BlogPostSerializer {
             title: row.try_get("title").ok(),
             body_value: row.try_get("body").ok(),
             body: None,
+            media,
             total_count: row.try_get("total_count").ok(),
         })
     }
 }
 
-impl ColumnCounter for BlogPostSerializer {
+impl ColumnCounter for ContentSerializer {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct MediaSerializer {
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
+    pub filename: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub node_index: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_offset: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_offset: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<MediaVariantSerializer>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct MediaVariantSerializer {
+    pub id: i32,
+    pub resolution: i32,
+    pub format: String,
+    pub filename: String,
 }

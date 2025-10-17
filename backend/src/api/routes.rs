@@ -15,15 +15,15 @@ use crate::{
     OUTPUT_TYPE,
     db::{
         fields::{
-            AuthRoleFields, AuthUserFields, BlogPostFields, LocaleFields, OutputType, Table,
+            AuthRoleFields, AuthUserFields, ContentFields, LocaleFields, OutputType, Table,
             TypeSlag,
         },
         handles,
         models::{AuthRole, AuthUser, Locale, Role},
         queries::{QueryObj, RespondObj},
-        serialize::{AuthUserSerializer, BlogPostSerializer},
+        serialize::{AuthUserSerializer, ContentSerializer},
     },
-    utils::{ast_serialize::to_structure, errors::ServiceError},
+    utils::{ast_serialize::to_structure_root, errors::ServiceError},
 };
 
 pub async fn welcome(details: AuthDetails<Role>) -> Result<String, (StatusCode, String)> {
@@ -246,9 +246,9 @@ LOCALES
 pub async fn content_select(
     State(pool): State<PgPool>,
     Path(type_slug): Path<TypeSlag>,
-    Query(mut params): Query<QueryObj<BlogPostFields>>,
+    Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
-) -> Result<Json<RespondObj<BlogPostSerializer>>, ServiceError> {
+) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
     params.type_slag = Some(type_slug);
@@ -262,9 +262,9 @@ pub async fn content_select(
             let ast = to_mdast(&text, &ParseOptions::default())?;
             let json = serde_json::to_string(&ast).unwrap_or_default();
             let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-            println!("{tree:#?}");
+            // println!("{tree:#?}");
             b.body_value = None;
-            b.body = Some(to_structure(&tree));
+            b.body = Some(to_structure_root(&tree, &mut b.media));
         } else if *OUTPUT_TYPE == OutputType::HTML {
             let html = to_html(&text);
             b.body_value = None;
