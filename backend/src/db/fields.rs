@@ -10,9 +10,10 @@ pub enum Table {
     AuthUsers,
     Locales,
     ContentTypes,
-    Fields,
-    ContentItems,
-    ContentValues,
+    ContentCategories,
+    ContentTags,
+    ContentAttributes,
+    ContentEntries,
     Media,
 }
 
@@ -23,9 +24,10 @@ impl fmt::Display for Table {
             Self::AuthUsers => write!(f, "auth_users"),
             Self::Locales => write!(f, "locales"),
             Self::ContentTypes => write!(f, "content_types"),
-            Self::Fields => write!(f, "fields"),
-            Self::ContentItems => write!(f, "content_items"),
-            Self::ContentValues => write!(f, "content_values"),
+            Self::ContentCategories => write!(f, "content_categories"),
+            Self::ContentTags => write!(f, "content_tags"),
+            Self::ContentAttributes => write!(f, "content_attributes"),
+            Self::ContentEntries => write!(f, "content_entries"),
             Self::Media => write!(f, "media"),
         }
     }
@@ -227,12 +229,16 @@ pub enum ContentFields {
     #[default]
     Slug,
     Status,
+    Author,
+    Categories,
+    Tags,
+    Attributes,
+    Locale,
+    Title,
+    Description,
+    Body,
     CreatedAt,
     UpdatedAt,
-    Author,
-    Title,
-    Body,
-    Locale,
     Media,
 }
 
@@ -242,12 +248,16 @@ impl StrCompare for ContentFields {
             Self::ID => other == "id",
             Self::Slug => other == "slug",
             Self::Status => other == "status",
+            Self::Author => other == "author",
+            Self::Categories => other == "categories",
+            Self::Tags => other == "tags",
+            Self::Attributes => other == "attributes",
+            Self::Locale => other == "locale",
+            Self::Title => other == "title",
+            Self::Description => other == "description",
+            Self::Body => other == "body",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
-            Self::Author => other == "author",
-            Self::Title => other == "title",
-            Self::Body => other == "body",
-            Self::Locale => other == "locale",
             Self::Media => other == "media",
         }
     }
@@ -261,12 +271,16 @@ impl FromStr for ContentFields {
             "id" => Ok(Self::ID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
+            "author" => Ok(Self::Author),
+            "categories" => Ok(Self::Categories),
+            "tags" => Ok(Self::Tags),
+            "attributes" => Ok(Self::Attributes),
+            "locale" => Ok(Self::Locale),
+            "title" => Ok(Self::Title),
+            "description" => Ok(Self::Description),
+            "body" => Ok(Self::Body),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
-            "author" => Ok(Self::Author),
-            "title" => Ok(Self::Title),
-            "body" => Ok(Self::Body),
-            "locale" => Ok(Self::Locale),
             "media" => Ok(Self::Media),
             _ => Err(format!("Field '{input}' not found!")),
         }
@@ -279,13 +293,75 @@ impl fmt::Display for ContentFields {
             Self::ID => write!(f, "id"),
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
+            Self::Author => write!(f, "author"),
+            Self::Categories => write!(f, "categories"),
+            Self::Tags => write!(f, "tags"),
+            Self::Attributes => write!(f, "attributes"),
+            Self::Locale => write!(f, "locale"),
+            Self::Title => write!(f, "title"),
+            Self::Description => write!(f, "description"),
+            Self::Body => write!(f, "body"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
-            Self::Author => write!(f, "author"),
-            Self::Title => write!(f, "title"),
-            Self::Body => write!(f, "body"),
-            Self::Locale => write!(f, "locale"),
             Self::Media => write!(f, "media"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaFields {
+    ID,
+    Alt,
+    #[default]
+    Filename,
+    Path,
+    Type,
+    UploadedBy,
+    CreatedAt,
+}
+
+impl StrCompare for MediaFields {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::ID => other == "id",
+            Self::Alt => other == "alt",
+            Self::Filename => other == "filename",
+            Self::Path => other == "path",
+            Self::Type => other == "type",
+            Self::UploadedBy => other == "uploaded_by",
+            Self::CreatedAt => other == "created_at",
+        }
+    }
+}
+
+impl FromStr for MediaFields {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "id" => Ok(Self::ID),
+            "alt" => Ok(Self::Alt),
+            "filename" => Ok(Self::Filename),
+            "path" => Ok(Self::Path),
+            "type" => Ok(Self::Type),
+            "uploaded_by" => Ok(Self::UploadedBy),
+            "created_at" => Ok(Self::CreatedAt),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for MediaFields {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::ID => write!(f, "id"),
+            Self::Alt => write!(f, "alt"),
+            Self::Filename => write!(f, "filename"),
+            Self::Path => write!(f, "path"),
+            Self::Type => write!(f, "type"),
+            Self::UploadedBy => write!(f, "uploaded_by"),
+            Self::CreatedAt => write!(f, "created_at"),
         }
     }
 }

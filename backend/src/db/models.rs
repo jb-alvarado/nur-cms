@@ -132,6 +132,8 @@ pub struct Locale {
     pub code: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tsv_dict: String,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -142,6 +144,7 @@ impl FromRow<'_, PgRow> for Locale {
             id: row.try_get("id").unwrap_or_default(),
             code: row.try_get("code").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
+            tsv_dict: row.try_get("name").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -159,13 +162,8 @@ pub struct ContentType {
     pub id: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slug: String,
     pub total_count: Option<i64>,
 }
 
@@ -174,9 +172,7 @@ impl FromRow<'_, PgRow> for ContentType {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
-            description: row.try_get("description").ok(),
-            created_at: row.try_get("created_at").ok(),
-            updated_at: row.try_get("updated_at").ok(),
+            slug: row.try_get("slug").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -189,55 +185,83 @@ impl ColumnCounter for ContentType {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct ContentField {
+pub struct ContentCategory {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub content_type_id: i32,
+    pub locale_id: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub field_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub required: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order_index: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing)]
+    pub slug: String,
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for ContentField {
+impl FromRow<'_, PgRow> for ContentCategory {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
-            content_type_id: row.try_get("content_type_id").unwrap_or_default(),
+            locale_id: row.try_get("locale_id").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
-            field_type: row.try_get("field_type").unwrap_or_default(),
-            required: row.try_get("required").ok(),
-            order_index: row.try_get("order_index").ok(),
-            created_at: row.try_get("created_at").ok(),
-            updated_at: row.try_get("updated_at").ok(),
+            slug: row.try_get("slug").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })
     }
 }
 
-impl ColumnCounter for ContentField {
+impl ColumnCounter for ContentCategory {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct ContentItem {
+pub struct ContentTag {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub content_type_id: i32,
+    pub locale_id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slug: String,
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for ContentTag {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").unwrap_or_default(),
+            locale_id: row.try_get("locale_id").unwrap_or_default(),
+            name: row.try_get("name").unwrap_or_default(),
+            slug: row.try_get("slug").unwrap_or_default(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for ContentTag {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ContentEntry {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub locale_id: i32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub type_id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slug: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub status: String,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -252,11 +276,16 @@ pub struct ContentItem {
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for ContentItem {
+impl FromRow<'_, PgRow> for ContentEntry {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
-            content_type_id: row.try_get("content_type_id").unwrap_or_default(),
+            locale_id: row.try_get("locale_id").unwrap_or_default(),
+            type_id: row.try_get("type_id").unwrap_or_default(),
+            slug: row.try_get("slug").unwrap_or_default(),
+            title: row.try_get("title").unwrap_or_default(),
+            description: row.try_get("description").unwrap_or_default(),
+            text: row.try_get("text").unwrap_or_default(),
             status: row.try_get("status").unwrap_or_default(),
             created_by: row.try_get("created_by").unwrap_or_default(),
             updated_by: row.try_get("updated_by").unwrap_or_default(),
@@ -267,45 +296,39 @@ impl FromRow<'_, PgRow> for ContentItem {
     }
 }
 
-impl ColumnCounter for ContentItem {
+impl ColumnCounter for ContentEntry {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct ContentValue {
+pub struct ContentAttribute {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub content_item_id: i32,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub locale_id: i32,
+    pub content_entry_id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default, skip_serializing_if = "is_null")]
     pub value: serde_json::Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for ContentValue {
+impl FromRow<'_, PgRow> for ContentAttribute {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
-            content_item_id: row.try_get("content_item_id").unwrap_or_default(),
-            locale_id: row.try_get("locale_id").unwrap_or_default(),
+            content_entry_id: row.try_get("content_entry_id").unwrap_or_default(),
+            name: row.try_get("name").unwrap_or_default(),
             value: row.try_get("value").unwrap_or_default(),
-            created_at: row.try_get("created_at").ok(),
-            updated_at: row.try_get("updated_at").ok(),
             total_count: row.try_get("total_count").ok(),
         })
     }
 }
 
-impl ColumnCounter for ContentValue {
+impl ColumnCounter for ContentAttribute {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{FromRow, Row, postgres::PgRow};
 
 use crate::db::{
@@ -81,18 +82,26 @@ pub struct ContentSerializer {
     pub status: Option<String>, // draft, published, archived
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<AuthUserSerializer>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<ContentCategorySerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<ContentTagSerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attributes: Vec<ContentAttributeSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub body_value: Option<String>,
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub media: Vec<MediaSerializer>,
     #[serde(default, skip_serializing)]
@@ -102,6 +111,9 @@ pub struct ContentSerializer {
 impl FromRow<'_, PgRow> for ContentSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         let mut author = None;
+        let mut categories = vec![];
+        let mut tags = vec![];
+        let mut attributes = vec![];
         if let Ok((id, first_name, last_name)) =
             row.try_get::<(i32, String, String), &str>("author")
         {
@@ -113,6 +125,33 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             });
         };
 
+        for (id, name, slug) in row
+            .try_get::<Vec<Option<(i32, String, String)>>, &str>("categories")
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+        {
+            categories.push(ContentCategorySerializer { id, name, slug });
+        }
+
+        for (id, name, slug) in row
+            .try_get::<Vec<Option<(i32, String, String)>>, &str>("tags")
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+        {
+            tags.push(ContentTagSerializer { id, name, slug });
+        }
+
+        for (id, name, value) in row
+            .try_get::<Vec<Option<(i32, String, Value)>>, &str>("attributes")
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+        {
+            attributes.push(ContentAttributeSerializer { id, name, value });
+        }
+
         let media = row
             .try_get::<Option<serde_json::Value>, _>("media")?
             .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
@@ -123,12 +162,16 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
             author,
-            created_at: row.try_get("created_at").ok(),
-            updated_at: row.try_get("updated_at").ok(),
+            categories,
+            tags,
+            attributes,
             locale: row.try_get("locale_code").ok(),
             title: row.try_get("title").ok(),
-            body_value: row.try_get("body").ok(),
+            description: row.try_get("description").ok(),
+            text: row.try_get("text").ok(),
             body: None,
+            created_at: row.try_get("created_at").ok(),
+            updated_at: row.try_get("updated_at").ok(),
             media,
             total_count: row.try_get("total_count").ok(),
         })
@@ -142,6 +185,36 @@ impl ColumnCounter for ContentSerializer {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ContentCategorySerializer {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slug: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ContentTagSerializer {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slug: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ContentAttributeSerializer {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(default)]
+    pub value: Value,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MediaSerializer {
     pub id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,7 +224,7 @@ pub struct MediaSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub node_index: i32,
+    pub ast_line: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_offset: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

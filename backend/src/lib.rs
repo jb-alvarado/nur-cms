@@ -110,7 +110,7 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         .route("/locale/", get(locale_select))
         .route("/locale/{id}/", delete(locale_delete))
         .route("/locale/", post(locale_insert))
-        .route("/{type_slag}/", get(content_select))
+        .route("/content/{type_slag}/", get(content_select))
         .layer(GrantsLayer::with_extractor(extract));
 
     Ok((auth_routes, api_routes))

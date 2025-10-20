@@ -1,5 +1,6 @@
 use std::{
     fmt::{Debug, Display},
+    path::Path,
     str::FromStr,
 };
 
@@ -13,14 +14,16 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Execute, Pool, Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
-use tokio::task;
-use tracing::{debug, error, warn};
+use tokio::{fs, task};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     db::{
-        fields::{AuthUserFields, ColumnCounter, ContentFields, StrCompare, Table},
+        fields::{
+            AuthUserFields, ColumnCounter, ContentFields as CF, MediaFields, StrCompare, Table,
+        },
         format_sql,
-        models::AuthUser,
+        models::{AuthUser, Media},
         queries::{QueryObj, RespondObj, WhereBuilder, where_chain},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
@@ -28,10 +31,13 @@ use crate::{
 };
 
 #[cfg(debug_assertions)]
-pub async fn dev_user(pool: &PgPool) -> Result<(), ServiceError> {
-    let resp = select_auth_user(pool, QueryObj::default()).await?;
+pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
+    let query: QueryObj<MediaFields> = QueryObj::default();
 
-    if resp.results.is_empty() {
+    let auth_resp = select_auth_user(pool, QueryObj::default()).await?;
+    let media_resp = select_record::<MediaFields, Media>(pool, &Table::Media, query).await?;
+
+    if auth_resp.results.is_empty() {
         let user = AuthUser::new(
             "admin@example.org".to_string(),
             "admin".to_string(),
@@ -44,6 +50,36 @@ pub async fn dev_user(pool: &PgPool) -> Result<(), ServiceError> {
         insert_record(pool, &Table::AuthUsers, &user).await?;
     }
 
+    if media_resp.results.is_empty() {
+        let migrations_path = Path::new("../migrations_dev");
+        let mut rd = fs::read_dir(migrations_path).await?;
+        let mut migrations = Vec::new();
+        while let Some(entry) = rd.next_entry().await? {
+            if entry
+                .path()
+                .extension()
+                .map(|ext| ext == "sql")
+                .unwrap_or(false)
+            {
+                migrations.push(entry);
+            }
+        }
+
+        migrations.sort_by_key(fs::DirEntry::path);
+
+        for entry in migrations {
+            use sqlx::Executor;
+
+            let path = entry.path();
+            let sql = fs::read_to_string(&path).await?;
+            info!("Executing dev migration: {:?}", path.file_name().unwrap());
+
+            pool.execute(&*sql).await?;
+
+            // sqlx::query(&sql).execute(pool).await?;
+        }
+    }
+
     Ok(())
 }
 
@@ -51,7 +87,7 @@ pub async fn db_migrate(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
     sqlx::migrate!("../migrations").run(pool).await?;
 
     #[cfg(debug_assertions)]
-    dev_user(pool).await?;
+    dev_migrate(pool).await?;
 
     Ok(())
 }
@@ -404,67 +440,77 @@ BLOG POSTS
 
 pub async fn select_content(
     pool: &Pool<Postgres>,
-    query_obj: QueryObj<ContentFields>,
+    query_obj: QueryObj<CF>,
 ) -> Result<RespondObj<ContentSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut where_chain = WhereBuilder::new();
-    let mut separated = query_builder.separated(", ");
+    let mut sep = query_builder.separated(", ");
 
     for f in &query_obj.fields {
         match *f {
-            ContentFields::Author => {
-                separated.push(format!("(u.id, u.first_name, u.last_name) AS {f}"))
-            }
-            ContentFields::Title => separated.push(format!("fv_title.value->>0 AS {f}")),
-            ContentFields::Body => separated.push(format!("fv_body.value->>0 AS {f}")),
-            ContentFields::Locale => separated.push(format!("l.code as {f}")),
-            ContentFields::Media => {
-                separated.push(format!("COALESCE(media_data.media, '[]') AS {f}"))
-            }
-            _ => separated.push(format!("ci.{f}")),
+            CF::Author => sep.push(format!("(u.id, u.first_name, u.last_name) AS {f}")),
+            CF::Categories => sep.push(format!("COALESCE(cats.data, ARRAY[]::record[]) AS {f}")),
+            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
+            CF::Attributes => sep.push(format!("COALESCE(att.data, ARRAY[]::record[]) AS {f}")),
+            CF::Body => sep.push("ce.text".to_string()),
+            CF::Locale => sep.push(format!("l.code as {f}")),
+            CF::Media => sep.push(format!("COALESCE(media_data.media, '[]') AS {f}")),
+            _ => sep.push(format!("ce.{f}")),
         };
     }
 
-    separated.push("count(*) OVER() AS total_count");
-    separated.push_unseparated(" ");
-    query_builder.push("FROM content_items ci ");
-    query_builder.push("JOIN content_types ct ON ct.id = ci.content_type_id ");
+    sep.push("count(*) OVER() AS total_count");
+    sep.push_unseparated(" ");
+    query_builder.push("FROM content_entries ce ");
+    query_builder.push("JOIN content_types ct ON ct.id = ce.type_id ");
 
-    if query_obj.fields.contains(&ContentFields::Author) {
-        query_builder.push("LEFT JOIN auth_users u ON u.id = ci.created_by ");
+    if query_obj.fields.contains(&CF::Author) {
+        query_builder.push("LEFT JOIN auth_users u ON u.id = ce.created_by ");
     }
 
-    if query_obj.fields.contains(&ContentFields::Title) {
-        // TODO: add search_locale
+    if query_obj.fields.contains(&CF::Categories) {
         query_builder.push(
-            r#"LEFT JOIN content_values fv_title
-            ON fv_title.content_item_id = ci.id
-                AND fv_title.locale_id = 2
-                AND fv_title.field_id = (
-                    SELECT id FROM content_fields
-                    WHERE content_type_id = ct.id AND name = 'title'
-                ) "#,
+            r#"LEFT JOIN LATERAL (
+                SELECT ARRAY_AGG(
+                    (c.id, c.name, c.slug)
+                ) AS data
+                FROM content_categories c
+                JOIN content_entry_categories cc ON cc.category_id = c.id
+                WHERE cc.entry_id = ce.id
+            ) AS cats ON TRUE "#,
         );
     }
 
-    if query_obj.fields.contains(&ContentFields::Body) {
-        // TODO: add search_locale
+    if query_obj.fields.contains(&CF::Tags) {
         query_builder.push(
-            r#"LEFT JOIN content_values fv_body
-            ON fv_body.content_item_id = ci.id
-                AND fv_body.locale_id = 2
-                AND fv_body.field_id = (
-                    SELECT id FROM content_fields
-                    WHERE content_type_id = ct.id AND name = 'body'
-                ) "#,
+            r#"LEFT JOIN LATERAL (
+                SELECT ARRAY_AGG(
+                    (t.id, t.name, t.slug)
+                ) AS data
+                FROM content_tags t
+                JOIN content_entry_tags ct ON ct.tag_id = t.id
+                WHERE ct.entry_id = ce.id
+            ) AS tags ON TRUE "#,
         );
     }
 
-    if query_obj.fields.contains(&ContentFields::Locale) {
-        query_builder.push("JOIN locales l ON l.id = fv_title.locale_id ");
+    if query_obj.fields.contains(&CF::Attributes) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT ARRAY_AGG(
+                    (a.id, a.name, a.value)
+                ) AS data
+                FROM content_attributes a
+                 WHERE a.content_entry_id = ce.id
+            ) AS att ON TRUE "#,
+        );
     }
 
-    if query_obj.fields.contains(&ContentFields::Media) {
+    if query_obj.fields.contains(&CF::Locale) {
+        query_builder.push("JOIN locales l ON l.id = ce.locale_id ");
+    }
+
+    if query_obj.fields.contains(&CF::Media) {
         query_builder.push(
             r#"LEFT JOIN LATERAL (
                 SELECT json_agg(
@@ -474,7 +520,7 @@ pub async fn select_content(
                         'filename', m.filename,
                         'path', m.path,
                         'type', m.type,
-                        'node_index', cm.node_index,
+                        'ast_line', cm.ast_line,
                         'start_offset', cm.start_offset,
                         'end_offset', cm.end_offset,
                         'variants', COALESCE(
@@ -496,23 +542,23 @@ pub async fn select_content(
                 ) AS media
                 FROM content_media cm
                 JOIN media m ON m.id = cm.media_id
-                WHERE cm.content_item_id = ci.id
+                WHERE cm.entry_id = ce.id
             ) AS media_data ON TRUE "#,
         );
     }
 
     if let Some(id) = &query_obj.search_id {
-        where_chain.push(&mut query_builder, None, "ci.id = ");
+        where_chain.push(&mut query_builder, None, "ce.id = ");
         query_builder.push_bind(id);
     }
 
     if let Some(after) = &query_obj.created_after {
-        where_chain.push(&mut query_builder, None, "ci.created_at >= ");
+        where_chain.push(&mut query_builder, None, "ce.created_at >= ");
         query_builder.push_bind(after);
     }
 
     if let Some(before) = &query_obj.created_before {
-        where_chain.push(&mut query_builder, None, "ci.created_at < ");
+        where_chain.push(&mut query_builder, None, "ce.created_at < ");
         query_builder.push_bind(before);
     }
 
@@ -522,7 +568,7 @@ pub async fn select_content(
     }
 
     if let Some(url) = &query_obj.url_slag {
-        where_chain.push(&mut query_builder, None, "ci.slug = ");
+        where_chain.push(&mut query_builder, None, "ce.slug = ");
         query_builder.push_bind(url);
     }
 

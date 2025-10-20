@@ -19,9 +19,9 @@ fn pop_media(map: &Map<String, Value>, media: &mut Vec<MediaSerializer>) -> Opti
     media
         .iter_mut()
         .position(|m| {
-            if m.node_index == line {
+            if m.ast_line == line {
                 // set to 0 to skip serialization
-                m.node_index = 0;
+                m.ast_line = 0;
                 true
             } else {
                 false

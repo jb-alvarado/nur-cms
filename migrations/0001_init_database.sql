@@ -25,62 +25,79 @@ CREATE TABLE
     );
 
 CREATE TABLE
-    locales (id SERIAL PRIMARY KEY, code VARCHAR(7) NOT NULL, name VARCHAR(64) NOT NULL);
+    locales (id SERIAL PRIMARY KEY, code VARCHAR(7) NOT NULL, name VARCHAR(64) NOT NULL, tsv_dict VARCHAR(24) NOT NULL DEFAULT 'simple');
 
 INSERT INTO
-    locales (code, name)
+    locales (code, name, tsv_dict)
 VALUES
-    ('de-DE', 'German'),
-    ('en-US', 'English (US)'),
-    ('fr-FR', 'French'),
-    ('es-ES', 'Spanish');
+    ('de-DE', 'German', 'german'),
+    ('en-US', 'English (US)', 'english'),
+    ('fr-FR', 'French', 'french'),
+    ('es-ES', 'Spanish', 'spanish');
 
 CREATE TABLE
     content_types (
         id SERIAL PRIMARY KEY,
-        name TEXT UNIQUE NOT NULL, -- "BlogPost", "Page", "Product"
-        slug TEXT UNIQUE NOT NULL,
-        description TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
+        name VARCHAR(12) UNIQUE NOT NULL, -- "BlogPost", "Page", "Event"
+        slug VARCHAR(32) UNIQUE NOT NULL
     );
 
 CREATE TABLE
-    content_fields (
+    content_categories (
         id SERIAL PRIMARY KEY,
-        content_type_id INT REFERENCES content_types (id) ON DELETE CASCADE,
-        name TEXT NOT NULL, -- "title", "body", "published_at"
-        field_type TEXT NOT NULL, -- "text", "richtext", "number", "boolean", "json"
-        required BOOLEAN DEFAULT false,
-        order_index INT DEFAULT 0,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
+        locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
+        name VARCHAR(160) NOT NULL,
+        slug VARCHAR(160) NOT NULL,
+        UNIQUE (slug, locale_id)
     );
 
 CREATE TABLE
-    content_items (
+    content_tags (
         id SERIAL PRIMARY KEY,
-        content_type_id INT REFERENCES content_types (id) ON DELETE CASCADE,
+        locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
+        name VARCHAR(160) NOT NULL,
+        slug VARCHAR(160) NOT NULL,
+        UNIQUE (slug, locale_id)
+    );
+
+CREATE TABLE
+    content_entries (
+        id SERIAL PRIMARY KEY,
+        type_id INT NOT NULL REFERENCES content_types (id) ON DELETE CASCADE,
+        locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
         slug TEXT NOT NULL,
-        status TEXT DEFAULT 'draft', -- draft, published, archived
+        title TEXT NOT NULL,
+        description TEXT,
+        text TEXT,
+        text_vector TSVECTOR, -- for full text search, fill on insert
+        status VARCHAR(16) CHECK (status IN ('draft', 'published', 'archived')) DEFAULT 'draft', -- draft, published, archived
         created_by INT REFERENCES auth_users (id),
         updated_by INT REFERENCES auth_users (id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now ()
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now (),
+        UNIQUE (slug, locale_id, type_id)
     );
 
-CREATE TABLE
-    content_values (
-        id SERIAL PRIMARY KEY,
-        content_item_id INT NOT NULL REFERENCES content_items (id) ON DELETE CASCADE,
-        field_id INT NOT NULL REFERENCES content_fields (id) ON DELETE CASCADE,
-        locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
-        value JSONB,
-        text_vector TSVECTOR, -- for full text search, fill on insert
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        UNIQUE (content_item_id, field_id, locale_id)
-    );
+CREATE TABLE content_attributes (
+    id SERIAL PRIMARY KEY,
+    content_entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    value JSONB NOT NULL,
+    UNIQUE (content_entry_id, name)
+);
+
+
+CREATE TABLE content_entry_categories (
+    entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
+    category_id INT REFERENCES content_categories (id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, category_id)
+);
+
+CREATE TABLE content_entry_tags (
+    entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
+    tag_id INT REFERENCES content_tags (id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, tag_id)
+);
 
 CREATE TABLE
     media (
@@ -105,12 +122,34 @@ CREATE TABLE
 CREATE TABLE
     content_media (
         id SERIAL PRIMARY KEY,
-        content_item_id INT NOT NULL REFERENCES content_items (id) ON DELETE CASCADE,
+        entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
         media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
-        node_index INT NOT NULL DEFAULT 0,
+        ast_line INT NOT NULL DEFAULT 0,
         start_offset INT,
         end_offset INT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now (),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now (),
-        UNIQUE (content_item_id, media_id, node_index)
+        UNIQUE (entry_id, media_id, ast_line)
     );
+
+CREATE OR REPLACE FUNCTION content_text_vector_update() RETURNS trigger AS $$
+DECLARE
+    dict TEXT;
+BEGIN
+    SELECT l.tsv_dict INTO dict FROM locales l WHERE l.id = NEW.locale_id;
+    IF dict IS NULL THEN
+        dict := 'simple';
+    END IF;
+
+    NEW.text_vector := to_tsvector(dict::regconfig,
+        COALESCE(NEW.title, '') || ' ' || COALESCE(NEW.text, ''));
+
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER content_text_vector_trigger
+BEFORE INSERT OR UPDATE ON content_entries
+FOR EACH ROW
+EXECUTE FUNCTION content_text_vector_update();
