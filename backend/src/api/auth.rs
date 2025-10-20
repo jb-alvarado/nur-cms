@@ -162,10 +162,14 @@ pub async fn refresh(
     match decode_jwt(refresh_token).await {
         Ok(claims) => {
             let user_id = claims.id;
-            let role = claims.role;
+            let claim_role = claims.role;
 
             let query_obj: QueryObj<AuthUserFields> = QueryObj {
-                fields: vec![AuthUserFields::ID, AuthUserFields::Username],
+                fields: vec![
+                    AuthUserFields::ID,
+                    AuthUserFields::Username,
+                    AuthUserFields::Role,
+                ],
                 search_id: Some(user_id),
                 ..Default::default()
             };
@@ -174,10 +178,25 @@ pub async fn refresh(
                 && !resp.results.is_empty()
             {
                 let username = resp.results[0].username.clone();
-                let access_claims = Claims::new(user_id, role.clone(), *ACCESS_LIFETIME);
+                let role_name = resp.results[0]
+                    .role
+                    .clone()
+                    .ok_or(ServiceError::Unauthorized)?
+                    .name;
+
+                if role_name != claim_role {
+                    return Ok((
+                        StatusCode::UNAUTHORIZED,
+                        AxumJson(serde_json::json!({
+                            "detail": "Role mismatch in refresh token",
+                        })),
+                    ));
+                }
+
+                let access_claims = Claims::new(user_id, role_name.clone(), *ACCESS_LIFETIME);
                 let access_token = encode_jwt(access_claims).await?;
 
-                info!("user {} refresh, with role: {role}", username.unwrap());
+                info!("user {} refresh, with role: {role_name}", username.unwrap());
 
                 return Ok((
                     StatusCode::OK,

@@ -24,7 +24,7 @@ use crate::{
         },
         format_sql,
         models::{AuthUser, Media},
-        queries::{QueryObj, RespondObj, WhereBuilder, where_chain},
+        queries::{QueryObj, RespondObj, WhereBuilder},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
     utils::errors::ServiceError,
@@ -100,12 +100,12 @@ pub async fn select_auth_user(
     let mut separated = query_builder.separated(", ");
 
     for f in &query_obj.fields {
-        if *f != AuthUserFields::Role {
-            separated.push(format!("u.{f}"));
-        }
+        match *f {
+            AuthUserFields::Role => separated.push("(r.id, r.name) AS \"auth_role\""),
+            _ => separated.push(format!("u.{f}")),
+        };
     }
 
-    separated.push("(r.id, r.name) AS \"auth_role\"");
     separated.push("count(*) OVER() AS total_count");
 
     separated.push_unseparated(" ");
@@ -115,32 +115,37 @@ pub async fn select_auth_user(
         query_builder.push("LEFT JOIN auth_roles r ON r.id = u.role_id");
     }
 
+    let mut where_chain = WhereBuilder::new(query_builder);
+
     if let Some(id) = &query_obj.search_id {
-        where_chain(&mut query_builder, None, "u.id = ");
-        query_builder.push_bind(id);
+        where_chain.push_and_bind(None, "u.id = ", id, None);
     }
 
     if let Some(after) = &query_obj.created_after {
-        where_chain(&mut query_builder, None, "u.created_at >= ");
-        query_builder.push_bind(after);
+        where_chain.push_and_bind(None, "u.created_at >= ", after, None);
     }
 
     if let Some(before) = &query_obj.created_before {
-        where_chain(&mut query_builder, None, "u.created_at < ");
-        query_builder.push_bind(before);
+        where_chain.push_and_bind(None, "u.created_at < ", before, None);
     }
 
     if let Some(search) = query_obj.search.clone() {
-        where_chain(&mut query_builder, None, "u.username LIKE ");
-        query_builder.push("CONCAT('%', ");
-        query_builder.push_bind(search.clone());
-        query_builder.push(", '%')");
+        where_chain.push_and_bind(
+            None,
+            "u.username LIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%')"),
+        );
 
-        where_chain(&mut query_builder, Some(" OR"), "u.email LIKE ");
-        query_builder.push("CONCAT('%', ");
-        query_builder.push_bind(search.clone());
-        query_builder.push(", '%')");
+        where_chain.push_and_bind(
+            Some(" OR"),
+            "u.email LIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%')"),
+        );
     }
+
+    query_builder = where_chain.into_inner();
 
     if query_obj
         .fields
@@ -309,10 +314,13 @@ where
     separated.push("count(*) OVER() AS total_count");
     query_builder.push(format!(" FROM {table}"));
 
+    let mut where_chain = WhereBuilder::new(query_builder);
+
     if let Some(id) = &query_obj.search_id {
-        where_chain(&mut query_builder, None, "id = ");
-        query_builder.push_bind(id);
+        where_chain.push_and_bind(None, "id = ", id, None);
     }
+
+    query_builder = where_chain.into_inner();
 
     if query_obj
         .fields
@@ -435,7 +443,7 @@ where
 }
 
 /* ------------------------------------
-BLOG POSTS
+Content
 --------------------------------------- */
 
 pub async fn select_content(
@@ -443,7 +451,6 @@ pub async fn select_content(
     query_obj: QueryObj<CF>,
 ) -> Result<RespondObj<ContentSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
-    let mut where_chain = WhereBuilder::new();
     let mut sep = query_builder.separated(", ");
 
     for f in &query_obj.fields {
@@ -506,7 +513,7 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&CF::Locale) {
+    if query_obj.fields.contains(&CF::Locale) || query_obj.search_locale.is_some() {
         query_builder.push("JOIN locales l ON l.id = ce.locale_id ");
     }
 
@@ -547,39 +554,49 @@ pub async fn select_content(
         );
     }
 
+    let mut where_chain = WhereBuilder::new(query_builder);
+
     if let Some(id) = &query_obj.search_id {
-        where_chain.push(&mut query_builder, None, "ce.id = ");
-        query_builder.push_bind(id);
+        where_chain.push_and_bind(None, "ce.id = ", id, None);
+    }
+
+    if let Some(locale) = &query_obj.search_locale {
+        where_chain.push_and_bind(None, "l.code = ", locale, None);
     }
 
     if let Some(after) = &query_obj.created_after {
-        where_chain.push(&mut query_builder, None, "ce.created_at >= ");
-        query_builder.push_bind(after);
+        where_chain.push_and_bind(None, "ce.created_at >= ", after, None);
     }
 
     if let Some(before) = &query_obj.created_before {
-        where_chain.push(&mut query_builder, None, "ce.created_at < ");
-        query_builder.push_bind(before);
+        where_chain.push_and_bind(None, "ce.created_at < ", before, None);
     }
 
-    if let Some(sl) = &query_obj.type_slag {
-        where_chain.push(&mut query_builder, None, "ct.slug = ");
-        query_builder.push_bind(sl.to_string());
+    if let Some(ts) = &query_obj.type_slug {
+        where_chain.push_and_bind(None, "ct.slug = ", ts.to_string(), None);
     }
 
-    if let Some(url) = &query_obj.url_slag {
-        where_chain.push(&mut query_builder, None, "ce.slug = ");
-        query_builder.push_bind(url);
+    if let Some(slug) = &query_obj.search_slug {
+        where_chain.push_and_bind(None, "ce.slug = ", slug, None);
+    }
+
+    if let Some(status) = &query_obj.search_status {
+        where_chain.push_and_bind(None, "ce.status = ", status, None);
     }
 
     if let Some(search) = query_obj.search.clone() {
-        where_chain.push(&mut query_builder, None, "title LIKE ");
-        query_builder.push("CONCAT('%', ");
-        query_builder.push_bind(search.clone());
-        query_builder.push(", '%')");
+        where_chain.push_and_bind(
+            None,
+            "title LIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%')"),
+        );
 
         // TODO: add full text search
     }
+
+    // take builder back from where_chain
+    query_builder = where_chain.into_inner();
 
     if query_obj
         .fields

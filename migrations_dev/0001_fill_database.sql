@@ -19,22 +19,48 @@ VALUES
     (2, 2, 'Rust', 'rust'),
     (3, 2, 'Open Source', 'open-source');
 
-INSERT INTO
-    content_entries (id, type_id, locale_id, slug, title, description, text, status, created_by, updated_by)
+INSERT INTO content_entries (id, type_id, locale_id, slug, title, description, text, status, created_by, updated_by)
 VALUES
     (1, 1, 2, 'first-blog-post', 'Welcome to my blog', 'This is my first blog post in Markdown.', E'# Hello World\nThis is my first blog post in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/10/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/10/block.jpg)', 'published', 1, 1),
-    (2, 2, 2, 'about-us', 'About Us', NULL, E'This is the **about** page written in Markdown.', 'published', 1, 1);
+    (2, 2, 1, 'about-us', 'Über uns', NULL, E'Dies ist die **About** Seite.', 'published', 1, 1),
+    (3, 1, 3, 'second-blog-post', 'Un autre billet', 'This is the second blog post.', E'# Deuxième billet\nCeci est du **Markdown** pour le deuxième billet.', 'published', 1, 1),
+    (4, 1, 4, 'third-blog-post', 'Otro Blog Post', 'Third blog post description.', E'# Tercer Post\nMás contenido con _italic_ y **bold**.', 'published', 1, 1),
+    (5, 2, 2, 'privacy-policy', 'Privacy Policy', 'Information about privacy.', E'# Privacy Policy\nThis page explains our privacy practices.', 'published', 1, 1),
+    (6, 2, 1, 'terms-of-service', 'Nutzungsbedingungen', 'Terms and conditions.', E'# Nutzungsbedingungen\nAlle rechtlichen Hinweise.', 'published', 1, 1),
+    (7, 2, 3, 'faq', 'FAQ', 'Common questions answered.', E'# FAQ\nNous répondons aux questions fréquentes.', 'published', 1, 1),
+    (8, 2, 4, 'team', 'Nuestro Equipo', 'Meet the team.', E'# Equipo\nDetalles sobre los miembros del equipo.', 'published', 1, 1),
+    (9, 2, 2, 'contact', 'Contact Us', 'How to contact us.', E'# Contact\nInformation to reach us.', 'published', 1, 1),
+    (10, 3, 2, 'rust-meetup-1', 'Rust Meetup #1', 'First Rust meetup.', E'# Rust Meetup #1\nJoin us for our first Rust meetup.', 'published', 1, 1),
+    (11, 3, 3, 'rust-meetup-2', 'Rencontre Rust #2', 'Second Rust meetup.', E'# Rust Meetup #2\nDétails du second meetup.', 'published', 1, 1),
+    (12, 3, 1, 'opensource-conference', 'Open Source Konferenz', 'Annual conference.', E'# Open Source Konferenz\nDetails zur jährlichen Konferenz.', 'published', 1, 1),
+    (13, 3, 4, 'web-dev-workshop', 'Taller de Desarrollo Web', 'Hands-on workshop.', E'# Taller de Desarrollo Web\nAprende desarrollo web con ejercicios prácticos.', 'published', 1, 1),
+    (14, 3, 2, 'ai-seminar', 'AI Seminar', 'Seminar about AI.', E'# AI Seminar\nDiscussing AI trends and technologies.', 'published', 1, 1);
+
+
+
+
 
 INSERT INTO
     content_entry_categories (entry_id, category_id)
 VALUES
-    (1, 1);
+    (1, 1),
+    (3, 1),
+    (4, 2),
+    (5, 3),
+    (6, 3),
+    (10, 2),
+    (11, 2);
 
 INSERT INTO
     content_entry_tags (entry_id, tag_id)
 VALUES
     (1, 1),
-    (1, 2);
+    (1, 2),
+    (3, 1),
+    (3, 2),
+    (4, 2),
+    (10, 2),
+    (12, 3);
 
 INSERT INTO
     media (alt, filename, path, type, uploaded_by)

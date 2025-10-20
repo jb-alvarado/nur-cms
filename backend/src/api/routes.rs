@@ -16,7 +16,7 @@ use crate::{
     db::{
         fields::{
             AuthRoleFields, AuthUserFields, ContentFields, LocaleFields, OutputType, Table,
-            TypeSlag,
+            TypeSlug,
         },
         handles,
         models::{AuthRole, AuthUser, Locale, Role},
@@ -245,13 +245,22 @@ LOCALES
 
 pub async fn content_select(
     State(pool): State<PgPool>,
-    Path(type_slug): Path<TypeSlag>,
+    Path(type_slug): Path<TypeSlug>,
     Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
+    details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
-    params.type_slag = Some(type_slug);
+    params.type_slug = Some(type_slug);
+
+    let mut output = OUTPUT_TYPE.to_owned();
+
+    if let Some(typ) = &params.output_type
+        && details.has_any_authority(&[&Role::Admin])
+    {
+        output = typ.clone();
+    }
 
     let mut content = handles::select_content(&pool, params).await?;
 
@@ -259,17 +268,21 @@ pub async fn content_select(
         let text = b.text.take().unwrap_or_default();
         b.text = None;
 
-        if *OUTPUT_TYPE == OutputType::AST {
-            let ast = to_mdast(&text, &ParseOptions::default())?;
-            let json = serde_json::to_string(&ast).unwrap_or_default();
-            let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-            // println!("{tree:#?}");
-            b.body = Some(to_structure_root(&tree, &mut b.media));
-        } else if *OUTPUT_TYPE == OutputType::HTML {
-            let html = to_html(&text);
-            b.body = Some(Value::String(html));
-        } else {
-            b.body = Some(Value::String(text));
+        match output {
+            OutputType::AST => {
+                let ast = to_mdast(&text, &ParseOptions::default())?;
+                let json = serde_json::to_string(&ast).unwrap_or_default();
+                let tree: Value = serde_json::from_str(&json).unwrap_or_default();
+                // println!("{tree:#?}");
+                b.body = Some(to_structure_root(&tree, &mut b.media));
+            }
+            OutputType::HTML => {
+                let html = to_html(&text);
+                b.body = Some(Value::String(html));
+            }
+            _ => {
+                b.body = Some(Value::String(text));
+            }
         }
     }
 

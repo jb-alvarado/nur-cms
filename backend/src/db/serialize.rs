@@ -165,7 +165,7 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             categories,
             tags,
             attributes,
-            locale: row.try_get("locale_code").ok(),
+            locale: row.try_get("locale").ok(),
             title: row.try_get("title").ok(),
             description: row.try_get("description").ok(),
             text: row.try_get("text").ok(),

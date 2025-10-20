@@ -5,7 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, QueryBuilder};
 
-use crate::db::fields::{ColumnCounter, StrCompare, TypeSlag};
+use crate::db::fields::{ColumnCounter, OutputType, StrCompare, TypeSlug};
 
 // Default response items limit
 const DEFAULT_LIMIT: i64 = 50;
@@ -43,10 +43,7 @@ pub struct QueryObj<T: FromStr + strum::IntoEnumIterator + StrCompare> {
     pub ordering: String,
 
     #[serde(default)]
-    pub type_slag: Option<TypeSlag>,
-
-    #[serde(default)]
-    pub url_slag: Option<String>,
+    pub type_slug: Option<TypeSlug>,
 
     #[serde(default)]
     pub search: Option<String>,
@@ -57,8 +54,13 @@ pub struct QueryObj<T: FromStr + strum::IntoEnumIterator + StrCompare> {
     #[serde(default, rename = "locale")]
     pub search_locale: Option<String>,
 
-    #[serde(default, rename = "slag")]
-    pub search_slag: Option<String>,
+    #[serde(default, rename = "slug")]
+    pub search_slug: Option<String>,
+
+    #[serde(default, rename = "status")]
+    pub search_status: Option<String>,
+
+    pub output_type: Option<OutputType>,
 
     #[serde(default)]
     pub created_after: Option<DateTime<Utc>>,
@@ -80,12 +82,13 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             limit: default_limit(),
             offset: 0,
             ordering: default_ordering(),
-            type_slag: None,
-            url_slag: None,
+            type_slug: None,
             search: None,
             search_id: None,
             search_locale: None,
-            search_slag: None,
+            search_slug: None,
+            search_status: None,
+            output_type: None,
             created_after: None,
             created_before: None,
             fields: default_fields(),
@@ -278,36 +281,28 @@ where
     }
 }
 
-pub fn where_chain(builder: &mut QueryBuilder<Postgres>, operator: Option<&str>, condition: &str) {
-    let s = operator.unwrap_or(" AND");
-
-    if builder.sql().contains("WHERE") {
-        builder.push(s);
-    } else {
-        builder.push(" WHERE");
-    }
-
-    if !condition.is_empty() {
-        builder.push(format!(" {condition}"));
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct WhereBuilder {
+pub struct WhereBuilder<'a> {
+    builder: QueryBuilder<'a, Postgres>,
     where_set: bool,
 }
 
-impl WhereBuilder {
-    pub fn new() -> Self {
-        Self { where_set: false }
+impl<'a> WhereBuilder<'a> {
+    pub fn new(builder: QueryBuilder<'a, Postgres>) -> Self {
+        Self {
+            builder,
+            where_set: false,
+        }
     }
 
-    pub fn push(
+    pub fn push_and_bind<T>(
         &mut self,
-        builder: &mut QueryBuilder<Postgres>,
         operator: Option<&str>,
         condition: &str,
-    ) {
+        bind: T,
+        suffix: Option<&str>,
+    ) where
+        T: sqlx::Encode<'a, Postgres> + sqlx::Type<Postgres> + 'a,
+    {
         if condition.is_empty() {
             return;
         }
@@ -315,12 +310,21 @@ impl WhereBuilder {
         let op = operator.unwrap_or(" AND");
 
         if self.where_set {
-            builder.push(op);
+            self.builder.push(op);
         } else {
-            builder.push(" WHERE");
+            self.builder.push(" WHERE");
             self.where_set = true;
         }
 
-        builder.push(format!(" {condition}"));
+        self.builder.push(format!(" {condition}"));
+        self.builder.push_bind(bind);
+
+        if let Some(s) = suffix {
+            self.builder.push(s);
+        }
+    }
+
+    pub fn into_inner(self) -> QueryBuilder<'a, Postgres> {
+        self.builder
     }
 }
