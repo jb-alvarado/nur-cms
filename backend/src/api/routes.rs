@@ -259,13 +259,11 @@ pub async fn content_select(
         let text = b.text.take().unwrap_or_default();
         b.text = None;
 
-        println!("text: {text:?}");
-
         if *OUTPUT_TYPE == OutputType::AST {
             let ast = to_mdast(&text, &ParseOptions::default())?;
             let json = serde_json::to_string(&ast).unwrap_or_default();
             let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-            println!("{tree:#?}");
+            // println!("{tree:#?}");
             b.body = Some(to_structure_root(&tree, &mut b.media));
         } else if *OUTPUT_TYPE == OutputType::HTML {
             let html = to_html(&text);
