@@ -459,6 +459,7 @@ pub async fn select_content(
             CF::Categories => sep.push(format!("COALESCE(cats.data, ARRAY[]::record[]) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Attributes => sep.push(format!("COALESCE(att.data, ARRAY[]::record[]) AS {f}")),
+            CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
             CF::Body => sep.push("ce.text".to_string()),
             CF::Locale => sep.push(format!("l.code as {f}")),
             CF::Media => sep.push(format!("COALESCE(media_data.media, '[]') AS {f}")),
@@ -508,8 +509,25 @@ pub async fn select_content(
                     (a.id, a.name, a.value)
                 ) AS data
                 FROM content_attributes a
-                 WHERE a.content_entry_id = ce.id
+                WHERE a.entry_id = ce.id
             ) AS att ON TRUE "#,
+        );
+    }
+
+    if query_obj.fields.contains(&CF::Blocks) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'id', bl.id,
+                        'type', bl.type,
+                        'data', bl.data
+                    )
+                    ORDER BY bl.order_index
+                ) AS data
+                FROM content_blocks bl
+                WHERE bl.entry_id = ce.id
+            ) AS blocks ON TRUE "#,
         );
     }
 

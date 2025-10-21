@@ -63,6 +63,12 @@ fn apply_styles(node_type: &str, map: &Map<String, Value>, o: &mut Map<String, V
             o.insert("type".into(), Value::String("text".to_string()));
             true
         }
+        "html" => {
+            if let Some(value) = map.get("value") {
+                o.insert("text".into(), value.clone());
+            }
+            true
+        }
         _ => false,
     }
 }
@@ -81,6 +87,13 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
             if node_type == "text" {
                 return json!({
                     "type": "text",
+                    "text": map.get("value").and_then(|v| v.as_str()).unwrap_or(""),
+                });
+            }
+
+            if node_type == "html" {
+                return json!({
+                    "type": "html",
                     "text": map.get("value").and_then(|v| v.as_str()).unwrap_or(""),
                 });
             }

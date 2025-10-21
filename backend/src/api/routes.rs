@@ -273,7 +273,7 @@ pub async fn content_select(
                 let ast = to_mdast(&text, &ParseOptions::default())?;
                 let json = serde_json::to_string(&ast).unwrap_or_default();
                 let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                // println!("{tree:#?}");
+                println!("{tree:#?}");
                 b.body = Some(to_structure_root(&tree, &mut b.media));
             }
             OutputType::HTML => {

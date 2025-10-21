@@ -25,7 +25,12 @@ CREATE TABLE
     );
 
 CREATE TABLE
-    locales (id SERIAL PRIMARY KEY, code VARCHAR(7) NOT NULL, name VARCHAR(64) NOT NULL, tsv_dict VARCHAR(24) NOT NULL DEFAULT 'simple');
+    locales (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(7) NOT NULL,
+        name VARCHAR(64) NOT NULL,
+        tsv_dict VARCHAR(24) NOT NULL DEFAULT 'simple'
+    );
 
 INSERT INTO
     locales (code, name, tsv_dict)
@@ -78,26 +83,37 @@ CREATE TABLE
         UNIQUE (slug, locale_id, type_id)
     );
 
-CREATE TABLE content_attributes (
-    id SERIAL PRIMARY KEY,
-    content_entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    value JSONB NOT NULL,
-    UNIQUE (content_entry_id, name)
-);
+CREATE TABLE
+    content_attributes (
+        id SERIAL PRIMARY KEY,
+        entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        value JSONB NOT NULL,
+        UNIQUE (entry_id, name)
+    );
 
+CREATE TABLE
+    content_blocks (
+        id SERIAL PRIMARY KEY,
+        entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
+        type VARCHAR(64) NOT NULL,
+        order_index INT NOT NULL DEFAULT 0,
+        data JSONB NOT NULL
+    );
 
-CREATE TABLE content_entry_categories (
-    entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
-    category_id INT REFERENCES content_categories (id) ON DELETE CASCADE,
-    PRIMARY KEY (entry_id, category_id)
-);
+CREATE TABLE
+    content_entry_categories (
+        entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
+        category_id INT REFERENCES content_categories (id) ON DELETE CASCADE,
+        PRIMARY KEY (entry_id, category_id)
+    );
 
-CREATE TABLE content_entry_tags (
-    entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
-    tag_id INT REFERENCES content_tags (id) ON DELETE CASCADE,
-    PRIMARY KEY (entry_id, tag_id)
-);
+CREATE TABLE
+    content_entry_tags (
+        entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
+        tag_id INT REFERENCES content_tags (id) ON DELETE CASCADE,
+        PRIMARY KEY (entry_id, tag_id)
+    );
 
 CREATE TABLE
     media (
@@ -147,7 +163,6 @@ BEGIN
     RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
-
 
 CREATE TRIGGER content_text_vector_trigger
 BEFORE INSERT OR UPDATE ON content_entries

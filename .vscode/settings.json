@@ -29,6 +29,6 @@
         "unseparated"
     ],
     "vue3snippets.enable-compile-vue-file-on-did-save-code": false,
-    "Prettier-SQL.expressionWidth": 80,
-    "Prettier-SQL.tabSizeOverride": 4
+    "SQL-Formatter-VSCode.expressionWidth": 80,
+    "SQL-Formatter-VSCode.tabSizeOverride": 4
 }

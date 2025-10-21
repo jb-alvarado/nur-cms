@@ -88,6 +88,8 @@ pub struct ContentSerializer {
     pub tags: Vec<ContentTagSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attributes: Vec<ContentAttributeSerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<ContentBlockSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,6 +154,11 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             attributes.push(ContentAttributeSerializer { id, name, value });
         }
 
+        let blocks = row
+            .try_get::<Option<serde_json::Value>, _>("blocks")?
+            .map(|v| serde_json::from_value::<Vec<ContentBlockSerializer>>(v).unwrap_or_default())
+            .unwrap_or_default();
+
         let media = row
             .try_get::<Option<serde_json::Value>, _>("media")?
             .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
@@ -165,6 +172,7 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             categories,
             tags,
             attributes,
+            blocks,
             locale: row.try_get("locale").ok(),
             title: row.try_get("title").ok(),
             description: row.try_get("description").ok(),
@@ -212,6 +220,16 @@ pub struct ContentAttributeSerializer {
     pub name: String,
     #[serde(default)]
     pub value: Value,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ContentBlockSerializer {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub r#type: String,
+    #[serde(default)]
+    pub data: Value,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

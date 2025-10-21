@@ -1,7 +1,7 @@
 {
     "recommendations": [
         "esbenp.prettier-vscode",
-        "inferrinizzard.prettier-sql-vscode",
+        "renesaarsoo.sql-formatter-vsc",
         "rust-lang.rust-analyzer",
         "statiolake.vscode-rustfmt",
         "tamasfe.even-better-toml",
