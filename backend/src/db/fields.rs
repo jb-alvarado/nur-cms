@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum Table {
     AuthRoles,
@@ -13,8 +13,10 @@ pub enum Table {
     ContentCategories,
     ContentTags,
     ContentAttributes,
+    ContentBlocks,
     ContentEntries,
     Media,
+    TsConfig,
 }
 
 impl fmt::Display for Table {
@@ -27,8 +29,10 @@ impl fmt::Display for Table {
             Self::ContentCategories => write!(f, "content_categories"),
             Self::ContentTags => write!(f, "content_tags"),
             Self::ContentAttributes => write!(f, "content_attributes"),
+            Self::ContentBlocks => write!(f, "content_blocks"),
             Self::ContentEntries => write!(f, "content_entries"),
             Self::Media => write!(f, "media"),
+            Self::TsConfig => write!(f, "pg_catalog.pg_ts_config"),
         }
     }
 }
@@ -68,6 +72,39 @@ impl FromStr for OutputType {
             "html" => Ok(Self::HTML),
             "markdown" => Ok(Self::Markdown),
             _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[serde(rename_all = "lowercase")]
+pub enum TSLanguage {
+    CFGname,
+}
+
+impl StrCompare for TSLanguage {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::CFGname => other == "cfgname",
+        }
+    }
+}
+
+impl FromStr for TSLanguage {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "cfgname" => Ok(Self::CFGname),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for TSLanguage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::CFGname => write!(f, "cfgname"),
         }
     }
 }

@@ -56,6 +56,21 @@ pub struct AuthRole {
     pub total_count: Option<i64>,
 }
 
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow)]
+#[serde(rename_all = "snake_case")]
+pub struct TSConfig {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cfgname: String,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl ColumnCounter for TSConfig {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
 impl FromRow<'_, PgRow> for AuthRole {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         let role = match row.get("name") {

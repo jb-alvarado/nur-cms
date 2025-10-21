@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{Execute, Pool, Postgres, QueryBuilder, postgres::PgPool};
+use sqlx::{Execute, Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 use tokio::{fs, task};
 use tracing::{debug, error, info, warn};
@@ -20,10 +20,11 @@ use tracing::{debug, error, info, warn};
 use crate::{
     db::{
         fields::{
-            AuthUserFields, ColumnCounter, ContentFields as CF, MediaFields, StrCompare, Table,
+            AuthUserFields, ColumnCounter, ContentFields as CF, MediaFields, StrCompare,
+            TSLanguage, Table,
         },
         format_sql,
-        models::{AuthUser, Media},
+        models::{AuthUser, Media, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
@@ -83,7 +84,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
     Ok(())
 }
 
-pub async fn db_migrate(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
+pub async fn db_migrate(pool: &PgPool) -> Result<(), ServiceError> {
     sqlx::migrate!("../migrations").run(pool).await?;
 
     #[cfg(debug_assertions)]
@@ -92,8 +93,24 @@ pub async fn db_migrate(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
     Ok(())
 }
 
+pub async fn select_ts_language(pool: &PgPool) -> Result<RespondObj<TSConfig>, ServiceError> {
+    const QUERY: &str =
+        "select cfgname, count(*) OVER() AS total_count from pg_catalog.pg_ts_config;";
+    let query_obj: QueryObj<TSLanguage> = QueryObj {
+        limit: 200,
+        ..Default::default()
+    };
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(QUERY).bright_black());
+
+    let data: Vec<TSConfig> = sqlx::query_as(QUERY).fetch_all(pool).await?;
+
+    Ok(RespondObj::new(&query_obj, data))
+}
+
 pub async fn select_auth_user(
-    pool: &Pool<Postgres>,
+    pool: &PgPool,
     query_obj: QueryObj<AuthUserFields>,
 ) -> Result<RespondObj<AuthUserSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
@@ -296,7 +313,7 @@ where
 }
 
 pub async fn select_record<T, M>(
-    pool: &Pool<Postgres>,
+    pool: &PgPool,
     table: &Table,
     query_obj: QueryObj<T>,
 ) -> Result<RespondObj<M>, ServiceError>
@@ -447,7 +464,7 @@ Content
 --------------------------------------- */
 
 pub async fn select_content(
-    pool: &Pool<Postgres>,
+    pool: &PgPool,
     query_obj: QueryObj<CF>,
 ) -> Result<RespondObj<ContentSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");

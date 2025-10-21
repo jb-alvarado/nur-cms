@@ -101,7 +101,7 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         .route("/refresh/", post(refresh));
 
     let api_routes = Router::new()
-        .route("/hello/", get(welcome))
+        .route("/ts-language/", get(ts_language_select))
         .route("/auth-role/", get(auth_role_select))
         .route("/auth-user/", get(auth_user_select))
         .route("/auth-user/{id}/", delete(auth_user_delete))
@@ -110,7 +110,9 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         .route("/locale/", get(locale_select))
         .route("/locale/{id}/", delete(locale_delete))
         .route("/locale/", post(locale_insert))
-        .route("/content/{type_slag}/", get(content_select))
+        .route("/content/{kind}/", get(content_select))
+        .route("/content/{kind}/{id}/", delete(content_delete))
+        .route("/content/{kind}/", post(content_insert))
         .layer(GrantsLayer::with_extractor(extract));
 
     Ok((auth_routes, api_routes))

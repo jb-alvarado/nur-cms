@@ -1,14 +1,13 @@
 use axum::{
     Json,
     extract::{OriginalUri, Path, Query, State},
-    http::StatusCode,
 };
 use chrono::Utc;
-// use axum_macros::debug_handler;
 use markdown::{ParseOptions, to_html, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
+use strum::IntoEnumIterator;
 use tracing::error;
 
 use crate::{
@@ -19,24 +18,12 @@ use crate::{
             TypeSlug,
         },
         handles,
-        models::{AuthRole, AuthUser, Locale, Role},
+        models::{AuthRole, AuthUser, Locale, Role, TSConfig},
         queries::{QueryObj, RespondObj},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
     utils::{ast_serialize::to_structure_root, errors::ServiceError},
 };
-
-pub async fn welcome(details: AuthDetails<Role>) -> Result<String, (StatusCode, String)> {
-    if details.has_authority(&Role::Admin) {
-        return Ok("Hello Admin!".to_string());
-    } else if details.has_authority(&Role::Author) {
-        return Ok("Hello Author!".to_string());
-    } else if details.has_authority(&Role::User) {
-        return Ok("Hello User!".to_string());
-    }
-
-    Ok("Hello Guest!".to_string())
-}
 
 pub async fn auth_role_select(
     State(pool): State<PgPool>,
@@ -50,6 +37,25 @@ pub async fn auth_role_select(
 
         return match handles::select_record(&pool, &Table::AuthRoles, params).await {
             Ok(role) => Ok(Json(role)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn ts_language_select(
+    State(pool): State<PgPool>,
+    details: AuthDetails<Role>,
+) -> Result<Json<RespondObj<TSConfig>>, ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::select_ts_language(&pool).await {
+            Ok(lang) => Ok(Json(lang)),
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)
@@ -240,7 +246,7 @@ pub async fn locale_update(
 }
 
 /* ------------------------------
-LOCALES
+CONTENT
 ---------------------------------*/
 
 pub async fn content_select(
@@ -257,7 +263,7 @@ pub async fn content_select(
     let mut output = OUTPUT_TYPE.to_owned();
 
     if let Some(typ) = &params.output_type
-        && details.has_any_authority(&[&Role::Admin])
+        && details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User])
     {
         output = typ.clone();
     }
@@ -273,7 +279,7 @@ pub async fn content_select(
                 let ast = to_mdast(&text, &ParseOptions::default())?;
                 let json = serde_json::to_string(&ast).unwrap_or_default();
                 let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                println!("{tree:#?}");
+                // println!("{tree:#?}");
                 b.body = Some(to_structure_root(&tree, &mut b.media));
             }
             OutputType::HTML => {
@@ -287,4 +293,61 @@ pub async fn content_select(
     }
 
     Ok(Json(content))
+}
+
+pub async fn content_delete(
+    State(pool): State<PgPool>,
+    Path((table, id)): Path<(Table, i32)>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    let content_tables: Vec<Table> = Table::iter()
+        .filter(|t| t.to_string().starts_with("content_"))
+        .collect();
+
+    if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
+        || (table != Table::ContentTypes
+            && content_tables.contains(&table)
+            && details.has_any_authority(&[&Role::Admin, &Role::Author]))
+    {
+        return match handles::delete_record(&pool, &table, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn content_insert(
+    State(pool): State<PgPool>,
+    Path(table): Path<Table>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    let content_tables: Vec<Table> = Table::iter()
+        .filter(|t| t.to_string().starts_with("content_"))
+        .collect();
+
+    if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
+        || (table != Table::ContentTypes
+            && content_tables.contains(&table)
+            && details.has_any_authority(&[&Role::Admin, &Role::Author]))
+    {
+        return match handles::insert_record(&pool, &table, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
 }
