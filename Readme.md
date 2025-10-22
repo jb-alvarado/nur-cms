@@ -20,7 +20,7 @@ A simple and fast content management system.
     ```
 3. Start backend server:
     ```bash
-    cargo run
+    cargo run -- -l 127.0.0.1:8777
     ```
 4. Start frontend:
     ```bash
