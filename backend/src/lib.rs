@@ -7,7 +7,7 @@ use axum::{
     Router,
     extract::Request,
     response::Response,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post, put},
 };
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -22,7 +22,11 @@ use crate::{
         auth::{decode_jwt, login, refresh},
         routes::*,
     },
-    db::{fields::OutputType, handles, models::Role},
+    db::{
+        fields::OutputType,
+        handles,
+        models::{AuthUserMeta, Role},
+    },
     utils::errors::ServiceError,
 };
 
@@ -86,6 +90,7 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
     match decode_jwt(token).await {
         Ok(t) => {
             authorities.insert(t.role);
+            req.extensions_mut().insert(AuthUserMeta::new(t.id));
             Ok(authorities)
         }
         Err(e) => {
@@ -106,7 +111,7 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         .route("/auth-user/", get(auth_user_select))
         .route("/auth-user/{id}/", delete(auth_user_delete))
         .route("/auth-user/", post(auth_user_insert))
-        .route("/auth-user/{id}/", patch(auth_user_update))
+        .route("/auth-user/{id}/", put(auth_user_update))
         .route("/locale/", get(locale_select))
         .route("/locale/{id}/", delete(locale_delete))
         .route("/locale/", post(locale_insert))

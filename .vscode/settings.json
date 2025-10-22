@@ -20,6 +20,9 @@
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "statiolake.vscode-rustfmt"
     },
+    "files.associations": {
+        "*.css": "tailwindcss"
+    },
     "cSpell.words": [
         "ansi",
         "axum",

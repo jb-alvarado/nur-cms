@@ -4,6 +4,7 @@ use chrono::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, QueryBuilder};
+use ts_rs::TS;
 
 use crate::db::fields::{ColumnCounter, OutputType, StrCompare, TypeSlug};
 
@@ -17,7 +18,8 @@ static RE_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"offset=\d+").u
 /// - if there is more then limit restricted, provide a link for the next request
 /// - if possible, provide a previous link
 /// - gives the actual result
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "query.d.ts")]
 pub struct RespondObj<T> {
     pub count: i64,
     pub next: Option<String>,
@@ -25,8 +27,9 @@ pub struct RespondObj<T> {
     pub results: Vec<T>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct QueryObj<T: FromStr + strum::IntoEnumIterator + StrCompare> {
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "query.d.ts")]
+pub struct QueryObj<T> {
     #[serde(default)]
     pub path: String,
 
@@ -69,7 +72,8 @@ pub struct QueryObj<T: FromStr + strum::IntoEnumIterator + StrCompare> {
 
     #[serde(
         default = "default_fields",
-        deserialize_with = "split_string_to_fields"
+        deserialize_with = "split_string_to_fields",
+        bound(deserialize = "T: FromStr + strum::IntoEnumIterator + StrCompare")
     )]
     pub fields: Vec<T>,
 }
@@ -105,7 +109,7 @@ pub trait QueryResult {
     fn offset(&self) -> i64;
 }
 
-impl<T: FromStr + strum::IntoEnumIterator + StrCompare> QueryResult for QueryObj<T> {
+impl<T> QueryResult for QueryObj<T> {
     fn path(&self) -> String {
         self.path.clone()
     }
@@ -123,7 +127,7 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> QueryResult for QueryObj
     }
 }
 
-impl<T: FromStr + strum::IntoEnumIterator + StrCompare> ResultObject for QueryObj<T> {}
+impl<T> ResultObject for QueryObj<T> {}
 
 fn default_limit() -> i64 {
     DEFAULT_LIMIT

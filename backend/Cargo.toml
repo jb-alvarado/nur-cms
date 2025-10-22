@@ -53,3 +53,4 @@ tracing-subscriber = { version = "=0.3.19", features = [
     "time",
     "chrono",
 ] }
+ts-rs = { version = "11", features = ["chrono-impl", "no-serde-warnings", "serde-json-impl"] }

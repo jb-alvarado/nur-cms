@@ -318,7 +318,7 @@ pub async fn select_record<T, M>(
     query_obj: QueryObj<T>,
 ) -> Result<RespondObj<M>, ServiceError>
 where
-    T: Display + StrCompare + IntoEnumIterator + FromStr + Debug,
+    T: Display + StrCompare + IntoEnumIterator + FromStr + Debug + ts_rs::TS,
     M: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin + ColumnCounter,
 {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");

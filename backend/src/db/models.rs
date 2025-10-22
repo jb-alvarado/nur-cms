@@ -3,10 +3,11 @@ use std::{fmt, str::FromStr};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, postgres::PgRow};
+use ts_rs::TS;
 
 use crate::db::{fields::ColumnCounter, is_null, is_zero};
 
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     Admin,
@@ -46,7 +47,8 @@ impl fmt::Display for Role {
     }
 }
 
-#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow)]
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow, TS)]
+#[ts(export, export_to = "models.d.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct AuthRole {
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -54,21 +56,6 @@ pub struct AuthRole {
     pub name: Role,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
-}
-
-#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow)]
-#[serde(rename_all = "snake_case")]
-pub struct TSConfig {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub cfgname: String,
-    #[serde(default, skip_serializing)]
-    pub total_count: Option<i64>,
-}
-
-impl ColumnCounter for TSConfig {
-    fn total_count(&self) -> i64 {
-        self.total_count.unwrap_or_default()
-    }
 }
 
 impl FromRow<'_, PgRow> for AuthRole {
@@ -94,7 +81,8 @@ impl ColumnCounter for AuthRole {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct AuthUser {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -139,7 +127,34 @@ impl AuthUser {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, Hash, PartialEq)]
+pub struct AuthUserMeta {
+    pub id: i32,
+}
+
+impl AuthUserMeta {
+    pub fn new(id: i32) -> Self {
+        Self { id }
+    }
+}
+
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow)]
+#[serde(rename_all = "snake_case")]
+pub struct TSConfig {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cfgname: String,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl ColumnCounter for TSConfig {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct Locale {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -171,7 +186,8 @@ impl ColumnCounter for Locale {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct ContentType {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -199,7 +215,8 @@ impl ColumnCounter for ContentType {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct ContentCategory {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -230,7 +247,8 @@ impl ColumnCounter for ContentCategory {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct ContentTag {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -261,7 +279,8 @@ impl ColumnCounter for ContentTag {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct ContentEntry {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -317,7 +336,8 @@ impl ColumnCounter for ContentEntry {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct ContentAttribute {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -349,7 +369,8 @@ impl ColumnCounter for ContentAttribute {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct Media {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -390,7 +411,8 @@ impl ColumnCounter for Media {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct MediaVariant {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,

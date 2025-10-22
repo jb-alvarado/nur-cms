@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, Row, postgres::PgRow};
+use ts_rs::TS;
 
 use crate::db::{
     fields::ColumnCounter,
@@ -9,7 +10,8 @@ use crate::db::{
     models::{AuthRole, Role},
 };
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct AuthUserSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
@@ -58,8 +60,8 @@ impl FromRow<'_, PgRow> for AuthUserSerializer {
             password: row.try_get("password").ok(),
             role_id: row.try_get("role_id").ok(),
             role,
-            created_at: row.try_get("created_at").ok(),
-            updated_at: row.try_get("updated_at").ok(),
+            created_at: None,
+            updated_at: None,
             last_login: row.try_get("last_login").ok(),
             total_count: row.try_get("total_count").ok(),
         })
@@ -72,7 +74,8 @@ impl ColumnCounter for AuthUserSerializer {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
@@ -192,7 +195,8 @@ impl ColumnCounter for ContentSerializer {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentCategorySerializer {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -202,7 +206,8 @@ pub struct ContentCategorySerializer {
     pub slug: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentTagSerializer {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -212,7 +217,8 @@ pub struct ContentTagSerializer {
     pub slug: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentAttributeSerializer {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -222,7 +228,8 @@ pub struct ContentAttributeSerializer {
     pub value: Value,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentBlockSerializer {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
@@ -232,7 +239,8 @@ pub struct ContentBlockSerializer {
     pub data: Value,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct MediaSerializer {
     pub id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,7 +259,8 @@ pub struct MediaSerializer {
     pub variants: Vec<MediaVariantSerializer>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct MediaVariantSerializer {
     pub resolution: i32,
     pub format: String,

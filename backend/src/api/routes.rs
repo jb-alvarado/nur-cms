@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{OriginalUri, Path, Query, State},
+    extract::{Extension, OriginalUri, Path, Query, State},
 };
 use chrono::Utc;
 use markdown::{ParseOptions, to_html, to_mdast};
@@ -18,7 +18,7 @@ use crate::{
             TypeSlug,
         },
         handles,
-        models::{AuthRole, AuthUser, Locale, Role, TSConfig},
+        models::{AuthRole, AuthUser, AuthUserMeta, Locale, Role, TSConfig},
         queries::{QueryObj, RespondObj},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
@@ -72,24 +72,34 @@ pub async fn auth_user_select(
     State(pool): State<PgPool>,
     Query(mut params): Query<QueryObj<AuthUserFields>>,
     OriginalUri(original_uri): OriginalUri,
+    Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<AuthUserSerializer>>, ServiceError> {
-    if details.has_any_authority(&[&Role::Admin]) {
-        params.path = original_uri.path().to_string();
+    params.path = original_uri.path().to_string();
+
+    if details.has_any_authority(&[&Role::Author, &Role::User]) {
+        params.fields = vec![
+            AuthUserFields::Email,
+            AuthUserFields::FirstName,
+            AuthUserFields::Lastname,
+            AuthUserFields::Username,
+        ];
+        params.query = format!("id={}", user.id);
+    } else if details.has_any_authority(&[&Role::Admin]) {
         params.query = original_uri.query().unwrap_or("").to_string();
+    } else {
+        return Err(ServiceError::Forbidden(
+            "You do not have permission to access this resource.".to_string(),
+        ));
+    };
 
-        return match handles::select_auth_user(&pool, params).await {
-            Ok(user) => Ok(Json(user)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
+    handles::select_auth_user(&pool, params)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            error!("{e}");
+            ServiceError::InternalServerError
+        })
 }
 
 pub async fn auth_user_delete(
@@ -140,6 +150,7 @@ pub async fn auth_user_update(
 ) -> Result<(), ServiceError> {
     let mut auth_user: AuthUser = auth_user;
     auth_user.updated_at = Some(Utc::now());
+    auth_user.last_login = None;
 
     if details.has_any_authority(&[&Role::Admin]) {
         return match handles::update_record(&pool, &Table::AuthUsers, id, &auth_user).await {

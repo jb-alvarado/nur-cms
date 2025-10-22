@@ -2,8 +2,9 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
+use ts_rs::TS;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Table {
     AuthRoles,
@@ -37,7 +38,7 @@ impl fmt::Display for Table {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum TypeSlug {
     BlogPost,
@@ -55,7 +56,7 @@ impl fmt::Display for TypeSlug {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputType {
     AST,
@@ -76,7 +77,7 @@ impl FromStr for OutputType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum TSLanguage {
     CFGname,
@@ -109,7 +110,7 @@ impl fmt::Display for TSLanguage {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthRoleFields {
     ID,
@@ -147,7 +148,7 @@ impl fmt::Display for AuthRoleFields {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthUserFields {
     ID,
@@ -217,7 +218,7 @@ impl fmt::Display for AuthUserFields {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum LocaleFields {
     ID,
@@ -259,7 +260,7 @@ impl fmt::Display for LocaleFields {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ContentFields {
     ID,
@@ -349,7 +350,7 @@ impl fmt::Display for ContentFields {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaFields {
     ID,
