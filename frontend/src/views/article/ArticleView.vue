@@ -43,7 +43,7 @@ const selectCount = computed(() => tableCols.value.reduce((acc, item: any) => ac
 const published = ref('Publish')
 
 async function articleSelect() {
-    const fields = visibleRows.value.map((r) => r.field).join(',')
+    const fields = visibleRows.value.map((r: any) => r.field).join(',')
 
     await fetch(`/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=id`, {
         headers: auth.authHeader,
