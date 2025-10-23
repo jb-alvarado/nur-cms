@@ -12,7 +12,7 @@ const auth = useAuth()
 const store = useIndex()
 
 const allRows = [
-    { check: false, name: 'ID', field: 'id' },
+    { check: true, name: 'ID', field: 'id' },
     { check: false, name: 'Title', field: 'title' },
     { check: false, name: 'Slug', field: 'slug' },
     { check: false, name: 'Status', field: 'status' },
@@ -72,7 +72,7 @@ async function setStatus() {
                     if (resp.status >= 400) {
                         store.msgAlert('error', await resp.text(), 6)
                     } else {
-                        store.msgAlert('success', `Update: ${item.id}`, 2)
+                        store.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
                     }
                 })
                 .catch((e) => {
@@ -145,6 +145,7 @@ function statusLabel() {
                                     type="checkbox"
                                     class="checkbox checkbox-sm"
                                     @change="activeFields"
+                                    :disabled="row.field === 'id'"
                                 />
                                 {{ row.name }}
                             </label>
