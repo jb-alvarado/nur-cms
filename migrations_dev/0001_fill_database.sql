@@ -1,11 +1,4 @@
 INSERT INTO
-    content_types (id, name, slug)
-VALUES
-    (1, 'BlogPost', 'blog-post'),
-    (2, 'Page', 'page'),
-    (3, 'Event', 'event');
-
-INSERT INTO
     content_categories (id, locale_id, name, slug)
 VALUES
     (1, 2, 'World Wide IT', 'world-wide-it'),
@@ -37,10 +30,10 @@ VALUES
         1,
         1,
         2,
-        'first-blog-post',
+        'first-article',
         'Welcome to my blog',
-        'This is my first blog post in Markdown.',
-        E'# Hello World\nThis is my first blog post in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/10/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/10/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://example.org/image1.jpg" alt="image1" />\n\n<img src="https://example.org/image2.jpg" alt="image2" />\n\n<img src="https://example.org/image3.jpg" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
+        'This is my first article in Markdown.',
+        E'# Hello World\nThis is my first article in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/10/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/10/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://example.org/image1.jpg" alt="image1" />\n\n<img src="https://example.org/image2.jpg" alt="image2" />\n\n<img src="https://example.org/image3.jpg" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
         'published',
         1,
         1
@@ -61,9 +54,9 @@ VALUES
         3,
         1,
         3,
-        'second-blog-post',
+        'second-article',
         'Un autre billet',
-        'This is the second blog post.',
+        'This is the second article.',
         E'# Deuxième billet\nCeci est du **Markdown** pour le deuxième billet.',
         'published',
         1,
@@ -73,9 +66,9 @@ VALUES
         4,
         1,
         4,
-        'third-blog-post',
-        'Otro Blog Post',
-        'Third blog post description.',
+        'third-article',
+        'Otro article',
+        'Third article description.',
         E'# Tercer Post\nMás contenido con _italic_ y **bold**.',
         'published',
         1,

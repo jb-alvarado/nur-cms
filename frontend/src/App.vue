@@ -6,7 +6,7 @@ import { useAuth } from '@/stores/auth'
 
 import AlertMsg from '@/components/AlertMsg.vue'
 import LoginView from '@/views/LoginView.vue'
-import MenuHeader from '@/components/MenuHeader.vue'
+// import MenuHeader from '@/components/MenuHeader.vue'
 import MenuSide from '@/components/MenuSide.vue'
 
 const authStore = useAuth()
@@ -25,13 +25,9 @@ onMounted(() => {
 <template>
     <div class="h-screen bg-base-300">
         <template v-if="authStore.isLogin">
-            <div class="">
-                <MenuHeader />
-            </div>
-
-            <div class="flex flex-row h-[calc(100%-44px)]">
-                <MenuSide />
-                <main class="overflow-y-auto w-full bg-base-100">
+            <div class="flex flex-row h-full">
+                <MenuSide class="pt-3" />
+                <main class="overflow-y-auto w-full bg-base-100 px-7 pt-3">
                     <RouterView />
                 </main>
             </div>

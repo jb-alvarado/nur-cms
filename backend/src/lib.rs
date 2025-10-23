@@ -7,7 +7,7 @@ use axum::{
     Router,
     extract::Request,
     response::Response,
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
 };
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -108,16 +108,18 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
     let api_routes = Router::new()
         .route("/ts-language/", get(ts_language_select))
         .route("/auth-role/", get(auth_role_select))
-        .route("/auth-user/", get(auth_user_select))
-        .route("/auth-user/{id}/", delete(auth_user_delete))
-        .route("/auth-user/", post(auth_user_insert))
-        .route("/auth-user/{id}/", put(auth_user_update))
-        .route("/locale/", get(locale_select))
+        .route("/auth-user/", get(auth_user_select).post(auth_user_insert))
+        .route(
+            "/auth-user/{id}/",
+            delete(auth_user_delete).put(auth_user_update),
+        )
+        .route("/locale/", get(locale_select).post(locale_insert))
         .route("/locale/{id}/", delete(locale_delete))
-        .route("/locale/", post(locale_insert))
-        .route("/content/{kind}/", get(content_select))
-        .route("/content/{kind}/{id}/", delete(content_delete))
-        .route("/content/{kind}/", post(content_insert))
+        .route("/content/{kind}/", get(content_select).post(content_insert))
+        .route(
+            "/content/{kind}/{id}/",
+            delete(content_delete).put(content_update),
+        )
         .layer(GrantsLayer::with_extractor(extract));
 
     Ok((auth_routes, api_routes))

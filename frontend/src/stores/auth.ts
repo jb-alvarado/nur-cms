@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { jwtDecode } from 'jwt-decode'
+import { useIndex } from '@/stores/index'
 
 export const useAuth = defineStore('auth', {
     state: () => ({
@@ -121,6 +122,7 @@ export const useAuth = defineStore('auth', {
         },
 
         async selectAuthUser() {
+            const store = useIndex()
             await fetch('/api/auth-user/', {
                 headers: this.authHeader,
             })
@@ -134,8 +136,8 @@ export const useAuth = defineStore('auth', {
                         delete this.user.role
                     }
                 })
-                .catch(() => {
-                    this.removeToken()
+                .catch((e) => {
+                    store.msgAlert('error', e, 3)
                 })
         },
     },

@@ -12,6 +12,21 @@ const router = createRouter({
             component: HomeView,
         },
         {
+            path: '/article',
+            name: 'article',
+            component: () => import('../views/article/ArticleView.vue'),
+        },
+        {
+            path: '/page',
+            name: 'page',
+            component: () => import('../views/page/PageView.vue'),
+        },
+        {
+            path: '/media',
+            name: 'media',
+            component: () => import('../views/media/MediaView.vue'),
+        },
+        {
             path: '/user',
             name: 'user',
             component: () => import('../views/UserView.vue'),

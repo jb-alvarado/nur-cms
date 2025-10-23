@@ -41,7 +41,7 @@ impl fmt::Display for Table {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum TypeSlug {
-    BlogPost,
+    Article,
     Event,
     Page,
 }
@@ -49,7 +49,7 @@ pub enum TypeSlug {
 impl fmt::Display for TypeSlug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Self::BlogPost => write!(f, "blog-post"),
+            Self::Article => write!(f, "article"),
             Self::Event => write!(f, "event"),
             Self::Page => write!(f, "page"),
         }

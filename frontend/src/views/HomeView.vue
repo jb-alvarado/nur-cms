@@ -8,7 +8,7 @@ useHead({
 
 <template>
     <div class="w-full h-full">
-        <div class="p-5">
+        <div>
             Welcome your are logged in!
         </div>
     </div>

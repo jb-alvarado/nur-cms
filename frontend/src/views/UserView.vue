@@ -38,17 +38,12 @@ async function saveUser() {
 </script>
 
 <template>
-    <div class="flex p-8">
-        <form class="w-80" @submit.prevent="saveUser">
+    <div>
+        <h1 class="text-2xl">{{ $t('user.title') }}</h1>
+        <form class="w-80 mt-8" @submit.prevent="saveUser">
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.name') }}</legend>
-                <input
-                    v-model="authStore.user.username"
-                    type="text"
-                    name="username"
-                    class="input w-full bg-base-200!"
-                    disabled
-                />
+                <input v-model="authStore.user.username" type="text" name="username" class="input w-full" />
             </fieldset>
 
             <fieldset class="fieldset">
@@ -74,7 +69,7 @@ async function saveUser() {
             </fieldset>
 
             <div>
-                <button class="btn btn-accent mt-5" type="submit">{{ $t('user.save') }}</button>
+                <button class="btn btn-sm btn-accent mt-5" type="submit">{{ $t('user.save') }}</button>
             </div>
         </form>
     </div>

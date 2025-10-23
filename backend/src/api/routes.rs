@@ -279,26 +279,30 @@ pub async fn content_select(
         output = typ.clone();
     }
 
-    let mut content = handles::select_content(&pool, params).await?;
+    let mut content = handles::select_content(&pool, &params).await?;
 
-    for b in &mut content.results {
-        let text = b.text.take().unwrap_or_default();
-        b.text = None;
+    if params.fields.contains(&ContentFields::Body) {
+        for b in &mut content.results {
+            let text = b.text.take().unwrap_or_default();
+            b.text = None;
 
-        match output {
-            OutputType::AST => {
-                let ast = to_mdast(&text, &ParseOptions::default())?;
-                let json = serde_json::to_string(&ast).unwrap_or_default();
-                let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                // println!("{tree:#?}");
-                b.body = Some(to_structure_root(&tree, &mut b.media));
-            }
-            OutputType::HTML => {
-                let html = to_html(&text);
-                b.body = Some(Value::String(html));
-            }
-            _ => {
-                b.body = Some(Value::String(text));
+            match output {
+                OutputType::AST => {
+                    let ast = to_mdast(&text, &ParseOptions::default())?;
+                    let json = serde_json::to_string(&ast).unwrap_or_default();
+                    let tree: Value = serde_json::from_str(&json).unwrap_or_default();
+                    // println!("{tree:#?}");
+                    let body = to_structure_root(&tree, &mut b.media);
+
+                    b.body = Some(body);
+                }
+                OutputType::HTML => {
+                    let html = to_html(&text);
+                    b.body = Some(Value::String(html));
+                }
+                _ => {
+                    b.body = Some(Value::String(text));
+                }
             }
         }
     }
@@ -351,6 +355,37 @@ pub async fn content_insert(
     {
         return match handles::insert_record(&pool, &table, &content).await {
             Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn content_update(
+    State(pool): State<PgPool>,
+    Path((table, id)): Path<(Table, i32)>,
+    details: AuthDetails<Role>,
+    Json(mut content): Json<Value>,
+) -> Result<(), ServiceError> {
+    let content_tables: Vec<Table> = Table::iter()
+        .filter(|t| t.to_string().starts_with("content_"))
+        .collect();
+
+    if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
+        || (table != Table::ContentTypes
+            && content_tables.contains(&table)
+            && details.has_any_authority(&[&Role::Admin, &Role::Author]))
+    {
+        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+
+        return match handles::update_record(&pool, &table, id, &content).await {
+            Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)

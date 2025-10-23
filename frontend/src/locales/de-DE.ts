@@ -19,7 +19,10 @@ export default {
         notFound: 'Seite nicht gefunden',
         serverError: 'Interner Server Fehler',
     },
-     user: {
+    article: {
+        title: 'Artikel',
+    },
+    user: {
         title: 'Benutzer-Konfiguration',
         add: 'Benutzer hinzufügen',
         delete: 'Löschen',

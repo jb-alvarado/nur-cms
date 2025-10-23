@@ -465,7 +465,7 @@ Content
 
 pub async fn select_content(
     pool: &PgPool,
-    query_obj: QueryObj<CF>,
+    query_obj: &QueryObj<CF>,
 ) -> Result<RespondObj<ContentSerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut sep = query_builder.separated(", ");
@@ -641,7 +641,7 @@ pub async fn select_content(
         let ordering = query_obj
             .ordering
             .split(", ")
-            .map(|item| format!("u.{}", item))
+            .map(|item| format!("ce.{}", item))
             .collect::<Vec<_>>()
             .join(", ");
         query_builder.push(format!(" ORDER BY {}", ordering));
@@ -659,5 +659,5 @@ pub async fn select_content(
 
     let data: Vec<ContentSerializer> = query.fetch_all(pool).await?;
 
-    Ok(RespondObj::new(&query_obj, data))
+    Ok(RespondObj::new(query_obj, data))
 }

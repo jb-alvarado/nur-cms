@@ -42,9 +42,16 @@ VALUES
 
 CREATE TABLE content_types (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(12) UNIQUE NOT NULL, -- "BlogPost", "Page", "Event"
+    name VARCHAR(12) UNIQUE NOT NULL, -- "Article", "Page", "Event"
     slug VARCHAR(32) UNIQUE NOT NULL
 );
+
+INSERT INTO
+    content_types (id, name, slug)
+VALUES
+    (1, 'Article', 'article'),
+    (2, 'Page', 'page'),
+    (3, 'Event', 'event');
 
 CREATE TABLE content_categories (
     id SERIAL PRIMARY KEY,

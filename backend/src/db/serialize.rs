@@ -158,12 +158,14 @@ impl FromRow<'_, PgRow> for ContentSerializer {
         }
 
         let blocks = row
-            .try_get::<Option<serde_json::Value>, _>("blocks")?
+            .try_get::<Option<serde_json::Value>, _>("blocks")
+            .unwrap_or_default()
             .map(|v| serde_json::from_value::<Vec<ContentBlockSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
 
         let media = row
-            .try_get::<Option<serde_json::Value>, _>("media")?
+            .try_get::<Option<serde_json::Value>, _>("media")
+            .unwrap_or_default()
             .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
 

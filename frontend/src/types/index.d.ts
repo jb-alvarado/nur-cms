@@ -1,12 +1,17 @@
 import type { JwtPayload } from 'jwt-decode'
+import type { ContentSerializer } from './serialized.d'
 
 export {}
 
 declare global {
-    type Role = import('./Role').Role;
-    type AuthRole = import('./models.d').AuthRole;
-    type AuthUser = import('./serialized.d').AuthUserSerializer;
-    type RespondObj = import('./query.d').RespondObj;
+    type Role = import('./Role').Role
+    type AuthRole = import('./models.d').AuthRole
+    type AuthUser = import('./serialized.d').AuthUserSerializer
+    type RespondObj = import('./query.d').RespondObj
+
+    interface Content extends ContentSerializer {
+        check: boolean
+    }
 
     interface JwtPayloadExt extends JwtPayload {
         id: number

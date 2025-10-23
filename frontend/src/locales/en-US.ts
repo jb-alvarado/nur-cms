@@ -19,6 +19,9 @@ export default {
         notFound: 'Page not found',
         serverError: 'Internal server error',
     },
+    article: {
+        title: 'Article',
+    },
     user: {
         title: 'User Configuration',
         add: 'Add User',
