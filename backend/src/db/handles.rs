@@ -640,8 +640,17 @@ pub async fn select_content(
     {
         let ordering = query_obj
             .ordering
-            .split(", ")
-            .map(|item| format!("ce.{}", item))
+            .split(',')
+            .map(|item| {
+                let item = item.trim();
+                if item.contains("author") {
+                    item.replace("author", "u.last_name")
+                } else if item.contains("locale") {
+                    item.replace("locale", "l.code")
+                } else {
+                    format!("ce.{item}")
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ");
         query_builder.push(format!(" ORDER BY {}", ordering));

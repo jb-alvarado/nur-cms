@@ -2,7 +2,7 @@
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 // import { cloneDeep } from 'lodash-es'
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 
@@ -12,30 +12,34 @@ const auth = useAuth()
 const store = useIndex()
 
 const allRows = [
-    { check: true, name: 'ID', field: 'id' },
-    { check: false, name: 'Title', field: 'title' },
-    { check: false, name: 'Slug', field: 'slug' },
-    { check: false, name: 'Status', field: 'status' },
-    { check: false, name: 'Author', field: 'author' },
-    { check: false, name: 'Locale', field: 'locale' },
-    { check: false, name: 'Created At', field: 'created_at' },
-    { check: false, name: 'Updated At', field: 'updated_at' },
+    { check: true, active: true, up: true, name: 'ID', field: 'id' },
+    { check: false, active: false, up: false, name: 'Title', field: 'title' },
+    { check: false, active: false, up: false, name: 'Slug', field: 'slug' },
+    { check: false, active: false, up: false, name: 'Status', field: 'status' },
+    { check: false, active: false, up: false, name: 'Author', field: 'author' },
+    { check: false, active: false, up: false, name: 'Locale', field: 'locale' },
+    { check: false, active: false, up: false, name: 'Created At', field: 'created_at' },
+    { check: false, active: false, up: false, name: 'Updated At', field: 'updated_at' },
 ]
 
 const storedArticleFields = localStorage.getItem('articleFields')
-const visibleRows = ref((storedArticleFields ? JSON.parse(storedArticleFields) : null) || [
-    { name: 'ID', field: 'id' },
-    { name: 'Title', field: 'title' },
-    { name: 'Status', field: 'status' },
-    { name: 'Created At', field: 'created_at' },
-])
+const visibleRows = ref(
+    (storedArticleFields ? JSON.parse(storedArticleFields) : null) || [
+        { active: true, up: true, name: 'ID', field: 'id' },
+        { active: false, up: false, name: 'Title', field: 'title' },
+        { active: false, up: false, name: 'Status', field: 'status' },
+        { active: false, up: false, name: 'Created At', field: 'created_at' },
+    ]
+)
 
 const visibleSet = new Set(visibleRows.value.map((r: any) => r.field))
 for (const r of allRows) {
     r.check = visibleSet.has(r.field)
 }
 
-const limit = ref(10)
+const itemLimits = [2, 10, 25, 50, 100]
+const limit = ref(localStorage.getItem('articleLimit') ?? 10)
+const ordering = ref('id')
 const tableCols = ref<Content[]>([])
 const select = ref(false)
 // computed selected rows count
@@ -45,14 +49,23 @@ const published = ref('Publish')
 async function articleSelect() {
     const fields = visibleRows.value.map((r: any) => r.field).join(',')
 
-    await fetch(`/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=id`, {
+    await fetch(`/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`, {
         headers: auth.authHeader,
     })
-        .then((resp) => resp.json())
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = (await resp.json())?.error ?? (await resp.text())
+                throw new Error(msg)
+            }
+            return resp.json()
+        })
         .then((response: RespondObj) => {
-            if (response.results.length > 0) {
+            if (response.results?.length > 0) {
                 tableCols.value = response.results.map((o: any) => ({ check: false, ...o }))
             }
+        })
+        .catch((e) => {
+            store.msgAlert('error', e, 6)
         })
 }
 
@@ -87,9 +100,31 @@ async function setStatus() {
 }
 
 function activeFields() {
-    visibleRows.value = allRows.filter((r) => r.check).map((r) => ({ name: r.name, field: r.field }))
+    visibleRows.value = allRows
+        .filter((r) => r.check)
+        .map((r) => ({ active: r.active, up: r.up, name: r.name, field: r.field }))
 
     localStorage.setItem('articleFields', JSON.stringify(visibleRows.value))
+    articleSelect()
+}
+
+function setItemLimit() {
+    nextTick(() => {
+        localStorage.setItem('articleLimit', limit.value.toString())
+        articleSelect()
+    })
+}
+
+function orderRows(row: any) {
+    for (const r of visibleRows.value) {
+        if (r.field !== row.field) {
+            r.active = false
+        }
+    }
+
+    row.active = true
+    ordering.value = row.up ? row.field : `-${row.field}`
+
     articleSelect()
 }
 
@@ -134,10 +169,13 @@ function statusLabel() {
                 </div>
             </div>
 
-            <div>
-                <div class="dropdown dropdown-end">
-                    <div tabindex="0" role="button" class="btn p-2">
-                        <i class="bi bi-gear text-xl leading-0"></i>
+            <div class="join">
+                <select v-model="limit" class="select join-item" @change="setItemLimit()">
+                    <option v-for="lim in itemLimits" :key="lim" :value="lim">{{ lim }}</option>
+                </select>
+                <div class="join-item dropdown dropdown-end border border-base-content/20">
+                    <div tabindex="0" role="button" class="btn p-2 h-9">
+                        <i class="bi bi-gear text-lg leading-0"></i>
                     </div>
                     <ul tabindex="-1" class="dropdown-content menu bg-base-300 rounded-sm z-1 w-52 p-2 mt-1 shadow-sm">
                         <li v-for="row in allRows" :key="row.field">
@@ -158,7 +196,7 @@ function statusLabel() {
         </div>
 
         <div class="overflow-x-auto mt-4">
-            <table class="table bg-base-300 table-zebra rounded-sm">
+            <table class="table bg-base-300 table-zebra [&_td]:py-2 rounded-sm">
                 <thead>
                     <tr>
                         <th>
@@ -171,9 +209,20 @@ function statusLabel() {
                                 />
                             </label>
                         </th>
-                        <th v-for="row in visibleRows" :key="row.field">
-                            {{ row.name }}
+                        <th v-for="row in visibleRows" :key="row.field" class="min-w-16">
+                            <label class="swap" :class="{ 'text-base-content': row.active }">
+                                <input type="checkbox" v-model="row.up" @change="orderRows(row)" />
+                                <div class="swap-on">
+                                    {{ row.name }}
+                                    <i v-if="row.active" class="bi bi-caret-up-fill"></i>
+                                </div>
+                                <div class="swap-off">
+                                    {{ row.name }}
+                                    <i v-if="row.active" class="bi bi-caret-down-fill"></i>
+                                </div>
+                            </label>
                         </th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -189,7 +238,26 @@ function statusLabel() {
                             </label>
                         </th>
                         <td v-for="row in visibleRows" :key="row.field">
-                            {{ formatField(col, row.field) }}
+                            <span
+                                v-if="(col as any)[row.field] === 'published'"
+                                class="text-success bg-base-100 p-1 rounded border"
+                            >
+                                {{ formatField(col, row.field) }}
+                            </span>
+                            <span
+                                v-else-if="(col as any)[row.field] === 'draft'"
+                                class="bg-base-100 p-1 rounded border"
+                            >
+                                {{ formatField(col, row.field) }}
+                            </span>
+                            <span v-else>
+                                {{ formatField(col, row.field) }}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm p-1">
+                                <i class="bi bi-pencil-square text-lg"></i>
+                            </button>
                         </td>
                     </tr>
                 </tbody>
