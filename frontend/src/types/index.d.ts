@@ -9,6 +9,12 @@ declare global {
     type AuthUser = import('./serialized.d').AuthUserSerializer
     type RespondObj = import('./query.d').RespondObj
 
+    interface alertMessage {
+        text: string
+        variance: string
+        seconds: number
+    }
+
     interface Content extends ContentSerializer {
         check: boolean
     }
@@ -24,8 +30,8 @@ declare global {
     }
 
     declare namespace Intl {
-        type Key = "calendar" | "collation" | "currency" | "numberingSystem" | "timeZone" | "unit";
+        type Key = 'calendar' | 'collation' | 'currency' | 'numberingSystem' | 'timeZone' | 'unit'
 
-        function supportedValuesOf(input: Key): string[];
-      }
+        function supportedValuesOf(input: Key): string[]
+    }
 }

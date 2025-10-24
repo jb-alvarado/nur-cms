@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use axum::{
     Json,
     extract::{Extension, OriginalUri, Path, Query, State},
@@ -312,16 +314,14 @@ pub async fn content_select(
 
 pub async fn content_delete(
     State(pool): State<PgPool>,
-    Path((table, id)): Path<(Table, i32)>,
+    Path((table, id)): Path<(String, i32)>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
-    let content_tables: Vec<Table> = Table::iter()
-        .filter(|t| t.to_string().starts_with("content_"))
-        .collect();
+    let table = Table::from_str(&format!("content_{table}"))?;
 
     if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
         || (table != Table::ContentTypes
-            && content_tables.contains(&table)
+            && Table::iter().any(|t| t == table)
             && details.has_any_authority(&[&Role::Admin, &Role::Author]))
     {
         return match handles::delete_record(&pool, &table, id).await {
@@ -340,17 +340,15 @@ pub async fn content_delete(
 
 pub async fn content_insert(
     State(pool): State<PgPool>,
-    Path(table): Path<Table>,
+    Path(table): Path<String>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
 ) -> Result<Json<i32>, ServiceError> {
-    let content_tables: Vec<Table> = Table::iter()
-        .filter(|t| t.to_string().starts_with("content_"))
-        .collect();
+    let table = Table::from_str(&format!("content_{table}"))?;
 
     if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
         || (table != Table::ContentTypes
-            && content_tables.contains(&table)
+            && Table::iter().any(|t| t == table)
             && details.has_any_authority(&[&Role::Admin, &Role::Author]))
     {
         return match handles::insert_record(&pool, &table, &content).await {
@@ -369,17 +367,15 @@ pub async fn content_insert(
 
 pub async fn content_update(
     State(pool): State<PgPool>,
-    Path((table, id)): Path<(Table, i32)>,
+    Path((table, id)): Path<(String, i32)>,
     details: AuthDetails<Role>,
     Json(mut content): Json<Value>,
 ) -> Result<(), ServiceError> {
-    let content_tables: Vec<Table> = Table::iter()
-        .filter(|t| t.to_string().starts_with("content_"))
-        .collect();
+    let table = Table::from_str(&format!("content_{table}"))?;
 
     if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
         || (table != Table::ContentTypes
-            && content_tables.contains(&table)
+            && Table::iter().any(|t| t == table)
             && details.has_any_authority(&[&Role::Admin, &Role::Author]))
     {
         content["updated_at"] = Value::String(Utc::now().to_rfc3339());

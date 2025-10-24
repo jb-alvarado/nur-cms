@@ -63,14 +63,16 @@ async function setStatus() {
         if (item.check) {
             const status = published.value === 'Publish' ? 'published' : 'draft'
 
-            await fetch(`/api/content/content_entries/${item.id}/`, {
+            await fetch(`/api/content/entries/${item.id}/`, {
                 method: 'PUT',
                 headers: { ...store.contentType, ...auth.authHeader },
                 body: JSON.stringify({ status }),
             })
                 .then(async (resp) => {
                     if (resp.status >= 400) {
-                        store.msgAlert('error', await resp.text(), 6)
+                        const json = await resp.json()
+                        const msg = json ? json.error : await resp.text()
+                        store.msgAlert('error', msg, 6)
                     } else {
                         store.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
                     }

@@ -86,6 +86,13 @@ impl From<io::Error> for ServiceError {
     }
 }
 
+impl From<std::string::String> for ServiceError {
+    fn from(err: std::string::String) -> ServiceError {
+        error!("{err:?}");
+        Self::Conflict(err.to_string())
+    }
+}
+
 impl From<serde_json::Error> for ServiceError {
     fn from(err: serde_json::Error) -> Self {
         error!("{err:?}");

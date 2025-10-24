@@ -20,6 +20,27 @@ pub enum Table {
     TsConfig,
 }
 
+impl FromStr for Table {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "auth_roles" => Ok(Self::AuthRoles),
+            "auth_users" => Ok(Self::AuthUsers),
+            "locales" => Ok(Self::Locales),
+            "content_types" => Ok(Self::ContentTypes),
+            "content_categories" => Ok(Self::ContentCategories),
+            "content_tags" => Ok(Self::ContentTags),
+            "content_attributes" => Ok(Self::ContentAttributes),
+            "content_blocks" => Ok(Self::ContentBlocks),
+            "content_entries" => Ok(Self::ContentEntries),
+            "media" => Ok(Self::Media),
+            "ts_config" => Ok(Self::TsConfig),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
 impl fmt::Display for Table {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
