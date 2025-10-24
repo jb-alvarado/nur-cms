@@ -37,7 +37,7 @@ for (const r of allRows) {
     r.check = visibleSet.has(r.field)
 }
 
-const itemLimits = [2, 10, 25, 50, 100]
+const itemLimits = [10, 25, 50, 100]
 const limit = ref(localStorage.getItem('articleLimit') ?? 10)
 const ordering = ref('id')
 const tableCols = ref<Content[]>([])
