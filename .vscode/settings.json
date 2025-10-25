@@ -27,6 +27,7 @@
         "ansi",
         "axum",
         "cfgname",
+        "ILIKE",
         "postgres",
         "serde",
         "sqlx",

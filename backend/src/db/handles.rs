@@ -149,14 +149,14 @@ pub async fn select_auth_user(
     if let Some(search) = query_obj.search.clone() {
         where_chain.push_and_bind(
             None,
-            "u.username LIKE CONCAT('%', ",
+            "u.username ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );
 
         where_chain.push_and_bind(
             Some(" OR"),
-            "u.email LIKE CONCAT('%', ",
+            "u.email ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );
@@ -622,7 +622,7 @@ pub async fn select_content(
     if let Some(search) = query_obj.search.clone() {
         where_chain.push_and_bind(
             None,
-            "title LIKE CONCAT('%', ",
+            "title ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );

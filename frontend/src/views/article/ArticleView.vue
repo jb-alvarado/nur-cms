@@ -5,6 +5,7 @@ import localizedFormat from 'dayjs/plugin/localizedFormat'
 import { ref, computed, nextTick } from 'vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { RouterLink } from 'vue-router'
 
 dayjs.extend(localizedFormat)
 
@@ -45,11 +46,16 @@ const select = ref(false)
 // computed selected rows count
 const selectCount = computed(() => tableCols.value.reduce((acc, item: any) => acc + (item.check ? 1 : 0), 0))
 const published = ref('Publish')
+const search = ref('')
 
-async function articleSelect() {
+async function articleSelect(sr: string = '') {
     const fields = visibleRows.value.map((r: any) => r.field).join(',')
 
-    await fetch(`/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`, {
+    const url = sr
+        ? `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
+        : `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
+
+    await fetch(url, {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -62,6 +68,8 @@ async function articleSelect() {
         .then((response: RespondObj) => {
             if (response.results?.length > 0) {
                 tableCols.value = response.results.map((o: any) => ({ check: false, ...o }))
+            } else {
+                tableCols.value = []
             }
         })
         .catch((e) => {
@@ -70,6 +78,14 @@ async function articleSelect() {
 }
 
 articleSelect()
+
+async function searchItem() {
+    if (search.value.length > 2) {
+        articleSelect(search.value)
+    } else if (search.value.length === 0) {
+        articleSelect()
+    }
+}
 
 async function setStatus() {
     for (const item of tableCols.value) {
@@ -88,6 +104,7 @@ async function setStatus() {
                         store.msgAlert('error', msg, 6)
                     } else {
                         store.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
+                         await articleSelect()
                     }
                 })
                 .catch((e) => {
@@ -95,8 +112,30 @@ async function setStatus() {
                 })
         }
     }
+}
 
-    await articleSelect()
+async function deleteArticle() {
+    for (const item of tableCols.value) {
+        if (item.check) {
+            await fetch(`/api/content/entries/${item.id}/`, {
+                method: 'DELETE',
+                headers: auth.authHeader,
+            })
+                .then(async (resp) => {
+                    if (resp.status >= 400) {
+                        const json = await resp.json()
+                        const msg = json ? json.error : await resp.text()
+                        store.msgAlert('error', msg, 6)
+                    } else {
+                        store.msgAlert('success', `Deleted: ${item.title ?? item.id}`, 2)
+                        await articleSelect()
+                    }
+                })
+                .catch((e) => {
+                    store.msgAlert('error', e, 6)
+                })
+        }
+    }
 }
 
 function activeFields() {
@@ -159,12 +198,20 @@ function statusLabel() {
 
 <template>
     <div>
-        <h1 class="text-2xl">{{ $t('article.title') }}</h1>
+        <div class="flex">
+        <h1 class="text-2xl grow">{{ $t('article.title') }}</h1>
+        <button class="btn btn-sm btn-primary text-base">New Article</button>
+        </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">
-            <div class="grow">
+            <div class="grow join">
+                <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-74'">
+                    <i class="bi bi-search opacity-45"></i>
+                    <input v-model="search" type="search" placeholder="Search" @keyup="searchItem" />
+                </label>
                 <div v-if="selectCount > 0">
-                    <button class="btn" @click="setStatus()">{{ published }}</button>
+                    <button class="btn join-item" @click="setStatus()">{{ published }}</button>
+                    <button class="btn text-warning join-item" onclick="delete_modal.showModal()">Delete</button>
                     <span class="ms-2">{{ selectCount }} Selected</span>
                 </div>
             </div>
@@ -255,13 +302,25 @@ function statusLabel() {
                             </span>
                         </td>
                         <td>
-                            <button class="btn btn-sm p-1">
+                            <RouterLink :to="`/article/${col.id}`" class="btn btn-sm p-1">
                                 <i class="bi bi-pencil-square text-lg"></i>
-                            </button>
+                            </RouterLink>
                         </td>
                     </tr>
                 </tbody>
             </table>
         </div>
+        <dialog id="delete_modal" class="modal modal-bottom sm:modal-middle">
+            <div class="modal-box">
+                <h3 class="text-lg font-bold">Delete Selection</h3>
+                <p class="py-4">Are you sure you want to delete this article{{ selectCount > 1 ? 's' : '' }}?</p>
+                <div class="modal-action">
+                    <form method="dialog">
+                        <button class="btn">Cancel</button>
+                        <button class="btn" @click="deleteArticle()">Ok</button>
+                    </form>
+                </div>
+            </div>
+        </dialog>
     </div>
 </template>

@@ -11,6 +11,7 @@
 
     --color-accent: oklch(0.4089 0.2269 360);
     --color-accent-content: #fff;
+    --my-glow: #c0c0c0;
 }
 
 @plugin "daisyui/theme" {
@@ -20,6 +21,7 @@
 
     --color-accent: oklch(0.4089 0.2269 360);
     --color-accent-content: #fff;
+     --my-glow: #5d5d5d;
 }
 
 @theme {
