@@ -17,6 +17,7 @@ declare global {
 
     interface Content extends ContentSerializer {
         check: boolean
+        body: any
     }
 
     interface JwtPayloadExt extends JwtPayload {

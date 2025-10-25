@@ -102,6 +102,7 @@ pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(type = "any")]
     pub body: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,

@@ -1,8 +1,11 @@
 @import 'bootstrap-icons/font/bootstrap-icons.css';
 @import 'tailwindcss';
- @plugin "daisyui" {
-    themes: light --default, dark --prefersdark;
- }
+@plugin "@tailwindcss/typography";
+@plugin "daisyui" {
+    themes:
+        light --default,
+        dark --prefersdark;
+}
 
 @plugin "daisyui/theme" {
     name: 'light';
@@ -21,7 +24,7 @@
 
     --color-accent: oklch(0.4089 0.2269 360);
     --color-accent-content: #fff;
-     --my-glow: #5d5d5d;
+    --my-glow: #5d5d5d;
 }
 
 @theme {

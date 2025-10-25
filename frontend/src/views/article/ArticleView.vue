@@ -104,7 +104,7 @@ async function setStatus() {
                         store.msgAlert('error', msg, 6)
                     } else {
                         store.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
-                         await articleSelect()
+                        await articleSelect()
                     }
                 })
                 .catch((e) => {
@@ -199,8 +199,8 @@ function statusLabel() {
 <template>
     <div>
         <div class="flex">
-        <h1 class="text-2xl grow">{{ $t('article.title') }}</h1>
-        <button class="btn btn-sm btn-primary text-base">New Article</button>
+            <h1 class="text-2xl grow">{{ $t('article.title') }}</h1>
+            <button class="btn btn-sm btn-primary text-base">New Article</button>
         </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">
