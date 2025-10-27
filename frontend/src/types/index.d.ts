@@ -1,4 +1,5 @@
 import type { JwtPayload } from 'jwt-decode'
+import type { ContentType } from './models.d'
 import type { ContentSerializer } from './serialized.d'
 
 export {}
@@ -18,6 +19,12 @@ declare global {
     interface Content extends ContentSerializer {
         check: boolean
         body: any
+    }
+
+    interface ContentTypeExt extends ContentType {
+        active?: boolean
+        check: boolean
+        field?: string
     }
 
     interface JwtPayloadExt extends JwtPayload {

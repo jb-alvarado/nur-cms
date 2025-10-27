@@ -56,31 +56,30 @@ function toggleTheme() {
         <div class="flex flex-col justify-center items-center p-3 gap-2">
             <RouterLink
                 to="/user"
-                class="btn btn-sm bg-accent hover:bg-accent/90 text-accent-content max-w-30 rounded-full p-1 justify-normal items-center"
+                class="btn btn-sm bg-accent hover:bg-accent/90 text-accent-content w-27 p-1 justify-normal items-center"
             >
                 <i class="bi bi-person-circle text-xl leading-0"></i>
                 <span class="px-1 truncate">{{ authStore.user.first_name }} {{ authStore.user.last_name }}</span>
             </RouterLink>
 
-            <ul class="menu menu-sm menu-horizontal">
-                <li class="p-0">
-                    <label class="swap swap-rotate h-[27px] leading-5">
-                        <input
-                            type="checkbox"
-                            :checked="indexStore.darkMode"
-                            @change="toggleTheme"
-                            class="focus-within:outline-0!"
-                        />
-                        <i class="swap-on bi bi-brightness-high text-[18px]"></i>
-                        <i class="swap-off bi bi-moon text-[18px]"></i>
-                    </label>
-                </li>
-                <li class="rounded-md p-0">
-                    <button class="b h-[27px] leading-5 cursor-pointer" @click="logout()" :title="t('button.logout')">
-                        <i class="bi bi-door-closed text-[18px]" />
-                    </button>
-                </li>
-            </ul>
+            <div class="join flex">
+                <label class="join-item btn btn-sm swap swap-rotate p-2">
+                    <input
+                        type="checkbox"
+                        :checked="indexStore.darkMode"
+                        @change="toggleTheme"
+                        class="focus-within:outline-0!"
+                    />
+                    <i class="swap-on bi bi-brightness-high text-lg"></i>
+                    <i class="swap-off bi bi-moon text-lg"></i>
+                </label>
+                <RouterLink to="/configuration" class="join-item btn btn-sm p-2" :title="t('button.configure')">
+                    <i class="bi bi-gear text-lg" />
+                </RouterLink>
+                <button class="join-item btn btn-sm p-2" @click="logout()" :title="t('button.logout')">
+                    <i class="bi bi-door-closed text-lg" />
+                </button>
+            </div>
         </div>
     </div>
 </template>

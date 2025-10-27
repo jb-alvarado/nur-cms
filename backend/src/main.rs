@@ -39,7 +39,7 @@ async fn main() -> Result<(), ServiceError> {
         .with_state(pool);
 
     let listener =
-        tokio::net::TcpListener::bind(args.listen.as_deref().unwrap_or("127.0.0.1:7777"))
+        tokio::net::TcpListener::bind(args.listen.as_deref().unwrap_or("127.0.0.1:8777"))
             .await
             .map_err(|e| {
                 error!("Failed to bind TCP listener: {e:?}");

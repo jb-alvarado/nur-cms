@@ -7,11 +7,7 @@ export default {
     button: {
         login: 'Anmelden',
         home: 'Start',
-        player: 'Wiedergabe',
         media: 'Medien',
-        message: 'Nachrichten',
-        logging: 'Protokollierung',
-        channels: 'Kanäle',
         configure: 'Einstellungen',
         logout: 'Abmelden',
     },

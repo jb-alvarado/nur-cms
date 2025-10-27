@@ -7,12 +7,8 @@ export default {
     button: {
         login: 'Login',
         home: 'Home',
-        player: 'Player',
         media: 'Media',
-        message: 'Message',
-        logging: 'Logging',
-        channels: 'Channels',
-        configure: 'Configure',
+        configure: 'Configuration',
         logout: 'Logout',
     },
     error: {

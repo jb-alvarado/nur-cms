@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { ref, computed, nextTick } from 'vue'
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 // import { cloneDeep } from 'lodash-es'
-import { ref, computed, nextTick } from 'vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { RouterLink } from 'vue-router'
@@ -104,7 +104,6 @@ async function setStatus() {
                         store.msgAlert('error', msg, 6)
                     } else {
                         store.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
-                        await articleSelect()
                     }
                 })
                 .catch((e) => {
@@ -112,6 +111,8 @@ async function setStatus() {
                 })
         }
     }
+
+    await articleSelect()
 }
 
 async function deleteArticle() {
@@ -128,7 +129,6 @@ async function deleteArticle() {
                         store.msgAlert('error', msg, 6)
                     } else {
                         store.msgAlert('success', `Deleted: ${item.title ?? item.id}`, 2)
-                        await articleSelect()
                     }
                 })
                 .catch((e) => {
@@ -136,6 +136,8 @@ async function deleteArticle() {
                 })
         }
     }
+
+    await articleSelect()
 }
 
 function activeFields() {
@@ -200,7 +202,7 @@ function statusLabel() {
     <div>
         <div class="flex">
             <h1 class="text-2xl grow">{{ $t('article.title') }}</h1>
-            <button class="btn btn-sm btn-primary text-base">New Article</button>
+            <button class="btn btn-sm btn-primary text-base">New</button>
         </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">

@@ -1,6 +1,6 @@
 use std::{
+    env,
     fmt::{Debug, Display},
-    path::Path,
     str::FromStr,
 };
 
@@ -52,7 +52,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
     }
 
     if media_resp.results.is_empty() {
-        let migrations_path = Path::new("../migrations_dev");
+        let migrations_path = env::current_dir()?.join("migrations_dev");
         let mut rd = fs::read_dir(migrations_path).await?;
         let mut migrations = Vec::new();
         while let Some(entry) = rd.next_entry().await? {
@@ -76,8 +76,6 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
             info!("Executing dev migration: {:?}", path.file_name().unwrap());
 
             pool.execute(&*sql).await?;
-
-            // sqlx::query(&sql).execute(pool).await?;
         }
     }
 
