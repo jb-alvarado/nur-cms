@@ -71,12 +71,12 @@ function orderRows(row: any) {
     <table class="table bg-base-300 table-zebra [&_td]:py-2 rounded-sm">
         <thead>
             <tr>
-                <th>
+                <th class="w-10">
                     <label>
                         <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                     </label>
                 </th>
-                <th v-for="row in rows" :key="row.field" class="min-w-16">
+                <th v-for="row in rows" :key="row.field" :class="{'w-16': row.field === 'id'}">
                     <label class="swap" :class="{ 'text-base-content': row.active }">
                         <input type="checkbox" v-model="row.up" @change="orderRows(row)" />
                         <div class="swap-on">
@@ -89,7 +89,7 @@ function orderRows(row: any) {
                         </div>
                     </label>
                 </th>
-                <th></th>
+                <th class="w-10"></th>
             </tr>
         </thead>
         <tbody>
@@ -105,13 +105,10 @@ function orderRows(row: any) {
                     </label>
                 </th>
                 <td v-for="row in rows" :key="row.field">
-                    <span
-                        v-if="(col as any)[row.field] === 'published'"
-                        class="text-success bg-base-100 p-1 rounded border"
-                    >
+                    <span v-if="col[row.field] === 'published'" class="text-success bg-base-100 p-1 rounded border">
                         {{ formatField(col, row.field) }}
                     </span>
-                    <span v-else-if="(col as any)[row.field] === 'draft'" class="bg-base-100 p-1 rounded border">
+                    <span v-else-if="col[row.field] === 'draft'" class="bg-base-100 p-1 rounded border">
                         {{ formatField(col, row.field) }}
                     </span>
                     <span v-else>

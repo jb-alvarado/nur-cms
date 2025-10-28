@@ -50,6 +50,7 @@ const selectCount = computed(() => tableCols.value.reduce((acc, item: any) => ac
 const published = ref('Publish')
 const search = ref('')
 const deleteModal = ref()
+const tableRef = ref()
 
 const openDeleteModal = () => {
     deleteModal.value.showModal()
@@ -60,7 +61,7 @@ async function articleSelect(sr: string = '') {
 
     const url = sr
         ? `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
-        : `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
+        : `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`
 
     await fetch(url, {
         headers: auth.authHeader,
@@ -163,9 +164,6 @@ function setItemLimit() {
     })
 }
 
-
-
-
 function statusLabel() {
     const selected = tableCols.value.filter((c: any) => c.check)
     if (selected.length === 0) {
@@ -224,7 +222,15 @@ function statusLabel() {
         </div>
 
         <div class="overflow-x-auto mt-4">
-            <GenericTable :columns="tableCols" :row="visibleRows" :get-items="articleSelect" item-route="/article" :check-box-change="statusLabel" />
+            <GenericTable
+                ref="tableRef"
+                v-model:ordering="ordering"
+                :columns="tableCols"
+                :rows="visibleRows"
+                :get-items="articleSelect"
+                item-route="/article"
+                :check-box-change="statusLabel"
+            />
         </div>
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="deleteArticle">
             <p>Are you sure you want to delete this article{{ selectCount > 1 ? 's' : '' }}?</p>
