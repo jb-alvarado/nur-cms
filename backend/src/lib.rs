@@ -115,8 +115,11 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         )
         .route("/locale/", get(locale_select).post(locale_insert))
         .route("/locale/{id}/", delete(locale_delete))
-        .route("/content/types/", get(content_type_select))
-        .route("/content/{kind}/", get(content_select).post(content_insert))
+        .route("/content/types/", get(content_types_select))
+        .route(
+            "/content/entries/",
+            get(content_entries_select).post(content_insert),
+        )
         .route(
             "/content/{kind}/{id}/",
             delete(content_delete).put(content_update),

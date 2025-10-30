@@ -59,24 +59,6 @@ impl fmt::Display for Table {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "kebab-case")]
-pub enum TypeSlug {
-    Article,
-    Event,
-    Page,
-}
-
-impl fmt::Display for TypeSlug {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Self::Article => write!(f, "article"),
-            Self::Event => write!(f, "event"),
-            Self::Page => write!(f, "page"),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum OutputType {

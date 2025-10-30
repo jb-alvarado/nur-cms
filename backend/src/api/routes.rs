@@ -17,7 +17,7 @@ use crate::{
     db::{
         fields::{
             AuthRoleFields, AuthUserFields, ContentFields, ContentTypeFields, LocaleFields,
-            OutputType, Table, TypeSlug,
+            OutputType, Table,
         },
         handles,
         models::{AuthRole, AuthUser, AuthUserMeta, ContentType, Locale, Role, TSConfig},
@@ -262,7 +262,7 @@ pub async fn locale_update(
 CONTENT
 ---------------------------------*/
 
-pub async fn content_type_select(
+pub async fn content_types_select(
     State(pool): State<PgPool>,
     Query(mut params): Query<QueryObj<ContentTypeFields>>,
     OriginalUri(original_uri): OriginalUri,
@@ -286,16 +286,14 @@ pub async fn content_type_select(
     ))
 }
 
-pub async fn content_select(
+pub async fn content_entries_select(
     State(pool): State<PgPool>,
-    Path(type_slug): Path<TypeSlug>,
     Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
-    params.type_slug = Some(type_slug);
 
     let mut output = OUTPUT_TYPE.to_owned();
 

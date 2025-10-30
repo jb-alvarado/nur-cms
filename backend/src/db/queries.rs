@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, QueryBuilder};
 use ts_rs::TS;
 
-use crate::db::fields::{ColumnCounter, OutputType, StrCompare, TypeSlug};
+use crate::db::fields::{ColumnCounter, OutputType, StrCompare};
 
 // Default response items limit
 const DEFAULT_LIMIT: i64 = 50;
@@ -45,8 +45,8 @@ pub struct QueryObj<T> {
     #[serde(default = "default_ordering", deserialize_with = "generic_ordering")]
     pub ordering: String,
 
-    #[serde(default)]
-    pub type_slug: Option<TypeSlug>,
+    #[serde(default, rename = "type")]
+    pub type_slug: Option<String>,
 
     #[serde(default)]
     pub search: Option<String>,
