@@ -60,8 +60,8 @@ async function articleSelect(sr: string = '') {
     const fields = visibleRows.value.map((r: any) => r.field).join(',')
 
     const url = sr
-        ? `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
-        : `/api/content/article/?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`
+        ? `/api/content/entries/?type=article&fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
+        : `/api/content/entries/?type=article&fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`
 
     await fetch(url, {
         headers: auth.authHeader,
