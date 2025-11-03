@@ -1,66 +1,50 @@
+use std::{collections::HashMap, sync::LazyLock};
+
 use serde_json::{Map, Value, json};
 
 use crate::db::serialize::MediaSerializer;
 
+pub static STYLE_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    HashMap::from([
+        ("strong", "bold"),
+        ("emphasis", "italic"),
+        ("underline", "underline"),
+        ("delete", "strikethrough"),
+        ("inlineCode", "code"),
+    ])
+});
+
 // Try to find and remove a matching media node from `media` based on the AST node's start line.
 // Returns the serde_json::Value representation of the removed media if found.
 fn pop_media(map: &Map<String, Value>, media: &mut Vec<MediaSerializer>) -> Option<Value> {
-    // Extract the start line from a nested "position.start.line" structure.
     let line: i32 = map
-        .get("position")
-        .and_then(|p| p.get("start"))
-        .and_then(Value::as_object)
-        .and_then(|s| s.get("line"))
-        .and_then(Value::as_i64)
-        .unwrap_or_default()
+        .get("position")?
+        .get("start")?
+        .as_object()?
+        .get("line")?
+        .as_i64()?
         .try_into()
-        .unwrap_or_default();
+        .ok()?;
 
-    media
-        .iter_mut()
-        .position(|m| {
-            if m.ast_line == line {
-                // set to 0 to skip serialization
-                m.ast_line = 0;
-                true
-            } else {
-                false
-            }
-        })
-        .map(|pos| media.remove(pos))
-        .and_then(|m| serde_json::to_value(m).ok())
+    let pos = media.iter().position(|m| m.ast_line == line)?;
+    media[pos].ast_line = 0;
+    serde_json::to_value(media.remove(pos)).ok()
 }
 
 // Apply inline styles based on the node type onto `o` (an object representing converted node).
 // Returns true if a style was applied.
 fn apply_styles(node_type: &str, map: &Map<String, Value>, o: &mut Map<String, Value>) -> bool {
+    if let Some(&style_key) = STYLE_MAP.get(node_type) {
+        o.insert(style_key.into(), Value::Bool(true));
+        return true;
+    }
+
     match node_type {
-        "strong" => {
-            o.insert("bold".into(), Value::Bool(true));
-            true
-        }
-        "emphasis" => {
-            o.insert("italic".into(), Value::Bool(true));
-            true
-        }
-        "underline" => {
-            o.insert("underline".into(), Value::Bool(true));
-            true
-        }
-        "delete" => {
-            o.insert("strikethrough".into(), Value::Bool(true));
-            true
-        }
-        "inlineCode" => {
-            o.insert("code".into(), Value::Bool(true));
-            true
-        }
         "link" => {
-            // If link has a URL, add it. Also mark type as "text" for links.
             if let Some(href) = map.get("url").and_then(Value::as_str) {
-                o.insert("url".into(), Value::String(href.to_string()));
+                o.insert("url".into(), Value::String(href.into()));
             }
-            o.insert("type".into(), Value::String("text".to_string()));
+            o.insert("type".into(), Value::String("text".into()));
             true
         }
         "html" => {
@@ -99,8 +83,6 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
             }
 
             // If this AST node represents an image, try to pop the corresponding media entry.
-            // This uses the new `if ... && let ... && let ...` pattern chaining to ensure all conditions match.
-            // `as_object_mut()` gets a mutable view into the Value so we can insert the "type" field before returning.
             if node_type == "image"
                 && let Some(mut media_node) = pop_media(map, media)
                 && let Some(obj) = media_node.as_object_mut()
@@ -140,8 +122,7 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
                     if let Value::Object(ref mut o) = converted
                         && apply_styles(node_type, map, o)
                     {
-                        // Clone the object to return an owned Value without borrowing `converted`.
-                        return Value::Object(o.clone());
+                        return converted;
                     }
 
                     children.push(converted);
@@ -150,9 +131,10 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
 
             // Build the resulting object: always include the node type and children if any.
             let mut result = Map::new();
-            result.insert("type".into(), Value::String(node_type.to_string()));
+            result.insert("type".into(), Value::String(node_type.into()));
 
             if !children.is_empty() {
+                let children = merge_html_blocks(children);
                 result.insert("children".into(), Value::Array(children));
             }
 
@@ -170,6 +152,41 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
     }
 }
 
+fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
+    let mut merged = Vec::new();
+    let mut buffer = String::new();
+
+    for node in nodes {
+        if let Some(t) = node.get("type").and_then(Value::as_str) {
+            if t == "html" {
+                if let Some(txt) = node.get("text").and_then(Value::as_str) {
+                    buffer.push_str(txt);
+                }
+                continue;
+            }
+        }
+
+        if !buffer.is_empty() {
+            merged.push(json!({
+                "type": "html",
+                "text": buffer.clone()
+            }));
+            buffer.clear();
+        }
+
+        merged.push(node);
+    }
+
+    if !buffer.is_empty() {
+        merged.push(json!({
+            "type": "html",
+            "text": buffer
+        }));
+    }
+
+    merged
+}
+
 // Convert the AST root: if it has children, map them, otherwise wrap the single converted node in an array.
 pub fn to_structure_root(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
     if let Some(children) = ast.get("children").and_then(|v| v.as_array()) {
@@ -177,7 +194,9 @@ pub fn to_structure_root(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value
             .iter()
             .map(|child| to_structure(child, media))
             .collect();
-        Value::Array(converted)
+
+        let merged = merge_html_blocks(converted);
+        Value::Array(merged)
     } else {
         Value::Array(vec![to_structure(ast, media)])
     }

@@ -31,7 +31,7 @@ async fn main() -> Result<(), ServiceError> {
         return Ok(());
     }
 
-    let (auth_routes, api_routes) = router_entries()?;
+    let (auth_routes, api_routes) = router_entries();
 
     let app = Router::new()
         .nest("/auth", auth_routes)

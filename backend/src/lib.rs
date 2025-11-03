@@ -11,7 +11,7 @@ use axum::{
 };
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use tracing::error;
+use tracing::{error, warn};
 
 pub mod api;
 pub mod db;
@@ -30,20 +30,25 @@ use crate::{
     utils::errors::ServiceError,
 };
 
-pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| {
-    env::var("ACCESS_LIFETIME")
+// Small helper to parse env vars with a typed default.
+fn env_parse_or<T>(key: &str, default: T) -> T
+where
+    T: std::str::FromStr,
+{
+    env::var(key)
         .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(3)
+        .and_then(|v| v.parse::<T>().ok())
+        .unwrap_or(default)
+}
+
+pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 3));
+pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFRESH_LIFETIME", 30));
+
+pub static JWT_SECRET: LazyLock<Box<str>> = LazyLock::new(|| {
+    env::var("JWT_SECRET")
+        .expect("JWT_SECRET must be set")
+        .into_boxed_str()
 });
-pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| {
-    env::var("REFRESH_LIFETIME")
-        .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(30)
-});
-pub static JWT_SECRET: LazyLock<String> =
-    LazyLock::new(|| env::var("JWT_SECRET").expect("JWT_SECRET must be set"));
 
 pub static OUTPUT_TYPE: LazyLock<OutputType> = LazyLock::new(|| {
     env::var("OUTPUT_TYPE")
@@ -54,13 +59,14 @@ pub static OUTPUT_TYPE: LazyLock<OutputType> = LazyLock::new(|| {
 
 pub async fn init_db() -> Result<PgPool, ServiceError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let max_connections = env::var("MAX_CONNECTIONS")
-        .ok()
-        .and_then(|v| v.parse::<u32>().ok())
-        .unwrap_or(50);
+    let max_connections = env_parse_or("MAX_CONNECTIONS", 50u32);
 
     let pool = PgPoolOptions::new()
+        .min_connections(1)
         .max_connections(max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .idle_timeout(Some(std::time::Duration::from_secs(300)))
+        .max_lifetime(Some(std::time::Duration::from_secs(3600)))
         .connect(&database_url)
         .await?;
 
@@ -70,25 +76,23 @@ pub async fn init_db() -> Result<PgPool, ServiceError> {
 }
 
 pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
-    let mut authorities = HashSet::new();
-
     let Some(auth) = req.headers().get("authorization") else {
-        authorities.insert(Role::Guest);
-        return Ok(authorities);
+        return Ok(HashSet::from([Role::Guest]));
     };
 
     let Some((scheme, token)) = auth.to_str().ok().and_then(|s| s.trim().split_once(' ')) else {
-        error!("Malformed or invalid authorization header");
+        warn!("Malformed or invalid authorization header");
         return Err(ServiceError::Unauthorized.into_response());
     };
 
     if !scheme.eq_ignore_ascii_case("bearer") {
-        error!("Unsupported authorization scheme: {}", scheme);
+        warn!(scheme = %scheme, "Unsupported authorization scheme");
         return Err(ServiceError::Unauthorized.into_response());
     }
 
     match decode_jwt(token).await {
         Ok(t) => {
+            let mut authorities = HashSet::with_capacity(1);
             authorities.insert(t.role);
             req.extensions_mut().insert(AuthUserMeta::new(t.id));
             Ok(authorities)
@@ -100,21 +104,24 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
     }
 }
 
-pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError> {
+pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
     let auth_routes = Router::new()
         .route("/login/", post(login))
         .route("/refresh/", post(refresh));
 
+    let auth_user_routes = Router::new()
+        .route("/", get(auth_user_select).post(auth_user_insert))
+        .route("/{id}/", delete(auth_user_delete).put(auth_user_update));
+
+    let locale_routes = Router::new()
+        .route("/", get(locale_select).post(locale_insert))
+        .route("/{id}/", delete(locale_delete));
+
     let api_routes = Router::new()
         .route("/ts-language/", get(ts_language_select))
         .route("/auth-role/", get(auth_role_select))
-        .route("/auth-user/", get(auth_user_select).post(auth_user_insert))
-        .route(
-            "/auth-user/{id}/",
-            delete(auth_user_delete).put(auth_user_update),
-        )
-        .route("/locale/", get(locale_select).post(locale_insert))
-        .route("/locale/{id}/", delete(locale_delete))
+        .nest("/auth-user", auth_user_routes)
+        .nest("/locale", locale_routes)
         .route("/content/types/", get(content_types_select))
         .route("/content/entries/", get(content_entries_select))
         .route("/content/{kind}/", post(content_insert))
@@ -124,5 +131,5 @@ pub fn router_entries() -> Result<(Router<PgPool>, Router<PgPool>), ServiceError
         )
         .layer(GrantsLayer::with_extractor(extract));
 
-    Ok((auth_routes, api_routes))
+    (auth_routes, api_routes)
 }
