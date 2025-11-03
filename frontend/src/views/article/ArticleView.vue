@@ -60,8 +60,8 @@ async function articleSelect(sr: string = '') {
     const fields = visibleRows.value.map((r: any) => r.field).join(',')
 
     const url = sr
-        ? `/api/content/entries/?type=article&fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
-        : `/api/content/entries/?type=article&fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`
+        ? `/api/content/entries/article?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}&search=${sr}`
+        : `/api/content/entries/article?fields=${fields}&limit=${limit.value}&ordering=${ordering.value}`
 
     await fetch(url, {
         headers: auth.authHeader,
@@ -100,7 +100,7 @@ async function setStatus() {
         if (item.check) {
             const status = published.value === 'Publish' ? 'published' : 'draft'
 
-            await fetch(`/api/content/entries/${item.id}/`, {
+            await fetch(`/api/content/entries/${item.id}`, {
                 method: 'PUT',
                 headers: { ...store.contentType, ...auth.authHeader },
                 body: JSON.stringify({ status }),
@@ -126,7 +126,7 @@ async function setStatus() {
 async function deleteArticle() {
     for (const item of tableCols.value) {
         if (item.check) {
-            await fetch(`/api/content/entries/${item.id}/`, {
+            await fetch(`/api/content/entries/${item.id}`, {
                 method: 'DELETE',
                 headers: auth.authHeader,
             })

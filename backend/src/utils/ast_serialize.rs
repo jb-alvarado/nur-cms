@@ -155,36 +155,84 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
 fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
     let mut merged = Vec::new();
     let mut buffer = String::new();
+    let mut tag_stack: Vec<String> = Vec::new();
 
-    for node in nodes {
-        if let Some(t) = node.get("type").and_then(Value::as_str) {
-            if t == "html" {
-                if let Some(txt) = node.get("text").and_then(Value::as_str) {
-                    buffer.push_str(txt);
+    let iter = nodes.into_iter().peekable();
+
+    for node in iter {
+        let node_type = node.get("type").and_then(Value::as_str);
+        let text = node.get("text").and_then(Value::as_str).unwrap_or("");
+
+        match node_type {
+            Some("html") => {
+                if text.starts_with("</") {
+                    buffer.push_str(text);
+
+                    if let Some(close_tag_name) = extract_tag_name(text)
+                        && let Some(pos) = tag_stack.iter().rposition(|t| *t == close_tag_name)
+                    {
+                        tag_stack.truncate(pos);
+                    }
+
+                    if tag_stack.is_empty() {
+                        merged.push(json!({ "type": "html", "text": buffer.clone() }));
+                        buffer.clear();
+                    }
+                } else if text.starts_with('<') {
+                    if tag_stack.is_empty() && !buffer.is_empty() {
+                        merged.push(json!({ "type": "html", "text": buffer.clone() }));
+                        buffer.clear();
+                    }
+
+                    if let Some(open_tag_name) = extract_tag_name(text) {
+                        tag_stack.push(open_tag_name);
+                    }
+                    buffer.push_str(text);
+                } else if !tag_stack.is_empty() {
+                    buffer.push_str(text);
+                } else {
+                    merged.push(node);
                 }
-                continue;
+            }
+
+            Some("text") => {
+                if tag_stack.is_empty() {
+                    if !buffer.is_empty() {
+                        merged.push(json!({ "type": "html", "text": buffer.clone() }));
+                        buffer.clear();
+                    }
+                    merged.push(node);
+                } else {
+                    buffer.push_str(text);
+                }
+            }
+
+            _ => {
+                if !buffer.is_empty() {
+                    merged.push(json!({ "type": "html", "text": buffer.clone() }));
+                    buffer.clear();
+                    tag_stack.clear();
+                }
+                merged.push(node);
             }
         }
-
-        if !buffer.is_empty() {
-            merged.push(json!({
-                "type": "html",
-                "text": buffer.clone()
-            }));
-            buffer.clear();
-        }
-
-        merged.push(node);
     }
 
     if !buffer.is_empty() {
-        merged.push(json!({
-            "type": "html",
-            "text": buffer
-        }));
+        merged.push(json!({ "type": "html", "text": buffer }));
     }
 
     merged
+}
+
+fn extract_tag_name(tag: &str) -> Option<String> {
+    let tag = tag.trim_matches(|c| c == '<' || c == '>');
+    let tag = tag.trim_start_matches('/');
+    let name: String = tag
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != '>')
+        .collect();
+    if name.is_empty() { None } else { Some(name) }
 }
 
 // Convert the AST root: if it has children, map them, otherwise wrap the single converted node in an array.

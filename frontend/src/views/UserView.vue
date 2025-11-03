@@ -23,7 +23,7 @@ async function saveUser() {
 
     await authStore.inspectToken()
 
-    await fetch(`/api/auth-user/${authStore.id}/`, {
+    await fetch(`/api/auth-user/${authStore.id}`, {
         method: 'PUT',
         headers: { ...indexStore.contentType, ...authStore.authHeader },
         body: JSON.stringify(authStore.user),

@@ -77,6 +77,7 @@ pub async fn init_db() -> Result<PgPool, ServiceError> {
 
 pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
     let Some(auth) = req.headers().get("authorization") else {
+        req.extensions_mut().insert(AuthUserMeta::new(-1));
         return Ok(HashSet::from([Role::Guest]));
     };
 
@@ -106,29 +107,30 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
 
 pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
     let auth_routes = Router::new()
-        .route("/login/", post(login))
-        .route("/refresh/", post(refresh));
+        .route("/login", post(login))
+        .route("/refresh", post(refresh));
 
     let auth_user_routes = Router::new()
         .route("/", get(auth_user_select).post(auth_user_insert))
-        .route("/{id}/", delete(auth_user_delete).put(auth_user_update));
+        .route("/{id}", delete(auth_user_delete).put(auth_user_update));
 
     let locale_routes = Router::new()
         .route("/", get(locale_select).post(locale_insert))
-        .route("/{id}/", delete(locale_delete));
+        .route("/{id}", delete(locale_delete));
+
+    let content_routes = Router::new()
+        .route("/types", get(content_types_select))
+        .route("/entries/{type}", get(content_entries_select))
+        .route("/entries/{type}/{slug}", get(content_entry_select))
+        .route("/{kind}", post(content_insert))
+        .route("/{kind}/{id}", delete(content_delete).put(content_update));
 
     let api_routes = Router::new()
-        .route("/ts-language/", get(ts_language_select))
-        .route("/auth-role/", get(auth_role_select))
+        .route("/ts-language", get(ts_language_select))
+        .route("/auth-role", get(auth_role_select))
         .nest("/auth-user", auth_user_routes)
         .nest("/locale", locale_routes)
-        .route("/content/types/", get(content_types_select))
-        .route("/content/entries/", get(content_entries_select))
-        .route("/content/{kind}/", post(content_insert))
-        .route(
-            "/content/{kind}/{id}/",
-            delete(content_delete).put(content_update),
-        )
+        .nest("/content", content_routes)
         .layer(GrantsLayer::with_extractor(extract));
 
     (auth_routes, api_routes)

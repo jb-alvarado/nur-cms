@@ -177,24 +177,17 @@ pub async fn locale_select(
     State(pool): State<PgPool>,
     Query(mut params): Query<QueryObj<LocaleFields>>,
     OriginalUri(original_uri): OriginalUri,
-    details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<Locale>>, ServiceError> {
-    if details.has_any_authority(&[&Role::Admin]) {
-        params.path = original_uri.path().to_string();
-        params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
 
-        return match handles::select_record(&pool, &Table::Locales, params).await {
-            Ok(locale) => Ok(Json(locale)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
+    return match handles::select_record(&pool, &Table::Locales, params).await {
+        Ok(locale) => Ok(Json(locale)),
+        Err(e) => {
+            error!("{e}");
+            Err(ServiceError::InternalServerError)
+        }
+    };
 }
 
 pub async fn locale_delete(
@@ -288,12 +281,14 @@ pub async fn content_types_select(
 
 pub async fn content_entries_select(
     State(pool): State<PgPool>,
+    Path(type_slug): Path<String>,
     Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
+    params.type_slug = Some(type_slug);
 
     let mut output = OUTPUT_TYPE.to_owned();
 
@@ -332,6 +327,63 @@ pub async fn content_entries_select(
     }
 
     Ok(Json(content))
+}
+
+pub async fn content_entry_select(
+    State(pool): State<PgPool>,
+    Path((type_slug, slug)): Path<(String, String)>,
+    Query(mut params): Query<QueryObj<ContentFields>>,
+    OriginalUri(original_uri): OriginalUri,
+    details: AuthDetails<Role>,
+) -> Result<Json<ContentSerializer>, ServiceError> {
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
+    params.type_slug = Some(type_slug);
+    params.search_slug = Some(slug);
+
+    let mut output = OUTPUT_TYPE.to_owned();
+
+    if let Some(typ) = &params.output_type
+        && details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User])
+    {
+        output = typ.clone();
+    }
+
+    if let Some(c) = handles::select_content(&pool, &params)
+        .await?
+        .results
+        .first()
+    {
+        let mut content = c.clone();
+
+        if params.fields.contains(&ContentFields::Body) {
+            let text = content.text.take().unwrap_or_default();
+            content.text = None;
+
+            match output {
+                OutputType::AST => {
+                    let ast = to_mdast(&text, &ParseOptions::default())?;
+                    let json = serde_json::to_string(&ast).unwrap_or_default();
+                    let tree: Value = serde_json::from_str(&json).unwrap_or_default();
+                    // println!("{tree:#?}");
+                    let body = to_structure_root(&tree, &mut content.media);
+
+                    content.body = Some(body);
+                }
+                OutputType::HTML => {
+                    let html = to_html(&text);
+                    content.body = Some(Value::String(html));
+                }
+                _ => {
+                    content.body = Some(Value::String(text));
+                }
+            }
+        }
+
+        return Ok(Json(content));
+    };
+
+    Err(ServiceError::NoContent)
 }
 
 pub async fn content_delete(

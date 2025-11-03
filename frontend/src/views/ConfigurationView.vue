@@ -18,7 +18,7 @@ const typeRows = ref([
 ])
 
 async function typeSelect() {
-    await fetch(`/api/content/types/?ordering=${ordering.value}`, {
+    await fetch(`/api/content/types?ordering=${ordering.value}`, {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -64,7 +64,7 @@ function orderRows(row: any) {
 async function deleteType() {
     for (const item of types.value) {
         if (item.check) {
-            await fetch(`/api/content/types/${item.id}/`, {
+            await fetch(`/api/content/types/${item.id}`, {
                 method: 'DELETE',
                 headers: auth.authHeader,
             })

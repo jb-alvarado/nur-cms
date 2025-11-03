@@ -11,7 +11,7 @@ const auth = useAuth()
 const store = useIndex()
 const article = ref({} as Content)
 
-fetch(`/api/content/article/?id=${route.params.id}&output_type=markdown`, {
+fetch(`/api/content/entries/article?id=${route.params.id}&output_type=markdown`, {
     headers: auth.authHeader,
 })
     .then(async (resp) => {
