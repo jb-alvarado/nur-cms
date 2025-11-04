@@ -2,8 +2,10 @@
 import { ref, type PropType } from 'vue'
 import dayjs from 'dayjs'
 import { RouterLink } from 'vue-router'
+import { useIndex } from '@/stores/index'
 
 const emit = defineEmits(['update:ordering'])
+const store = useIndex()
 const select = ref(false)
 const ordering = ref('id')
 
@@ -16,11 +18,9 @@ const props = defineProps({
         type: Array as PropType<any[]>,
         default: [] as any[],
     },
-    getItems: {
-        type: Function,
-        default() {
-            return ''
-        },
+    type: {
+        type: String,
+        default: '',
     },
     itemRoute: {
         type: String,
@@ -63,7 +63,7 @@ function orderRows(row: any) {
     ordering.value = row.up ? row.field : `-${row.field}`
     emit('update:ordering', ordering.value)
 
-    props.getItems()
+    store.contentSelect()
 }
 </script>
 

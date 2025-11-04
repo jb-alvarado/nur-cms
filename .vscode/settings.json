@@ -18,7 +18,8 @@
     "rustfmt.edition": "2024",
     "[rust]": {
         "editor.formatOnSave": true,
-        "editor.defaultFormatter": "statiolake.vscode-rustfmt"
+        "editor.defaultFormatter": "statiolake.vscode-rustfmt",
+        "editor.autoClosingBrackets": "always"
     },
     "files.associations": {
         "*.css": "tailwindcss"

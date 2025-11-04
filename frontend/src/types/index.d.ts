@@ -25,6 +25,7 @@ declare global {
         active?: boolean
         check: boolean
         field?: string
+        icon?: string
     }
 
     interface JwtPayloadExt extends JwtPayload {

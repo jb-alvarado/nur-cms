@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onBeforeMount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
@@ -6,25 +7,34 @@ import { useIndex } from '@/stores/index'
 
 const { t } = useI18n()
 const router = useRouter()
-const authStore = useAuth()
-const indexStore = useIndex()
+const auth = useAuth()
+const store = useIndex()
 
-const menuItems = [
-    { icon: 'bi-pencil-square', name: 'Article', link: '/article' },
-    { icon: 'bi-file-earmark-text', name: 'Page', link: '/page' },
-    { icon: 'bi-card-image', name: 'Media', link: '/media' },
-    // { icon: 'bi-card-list', name: 'Blocks', link: '/blocks' },
-]
+onBeforeMount(async () => {
+    await store.selectTypes()
+
+    for (const type of store.types) {
+        if (type.name === 'Article') {
+            type.icon = 'bi-card-list'
+        } else if (type.name === 'Page') {
+            type.icon = 'bi-card-heading'
+        } else if (type.name === 'Event') {
+            type.icon = 'bi-calendar-event'
+        } else {
+            type.icon = 'bi-card-text'
+        }
+    }
+})
 
 function logout() {
-    authStore.removeToken()
+    auth.removeToken()
     router.push('/')
 }
 
 function toggleTheme() {
-    indexStore.darkMode = !indexStore.darkMode
+    store.darkMode = !store.darkMode
 
-    if (indexStore.darkMode) {
+    if (store.darkMode) {
         localStorage.setItem('theme', 'dark')
         document.documentElement.setAttribute('data-theme', 'dark')
     } else {
@@ -42,13 +52,20 @@ function toggleTheme() {
         <div class="flex justify-center p-6">
             <div class="join join-vertical w-40">
                 <RouterLink
-                    v-for="item in menuItems"
+                    v-for="item in store.types"
                     :key="item.name"
-                    :to="item.link"
+                    :to="`/${item.slug}`"
                     class="btn join-item w-28 p-1 justify-normal items-center"
                 >
-                    <i class="bi p-1 text-xl leading-0" :class="item.icon"></i>
+                    <i class="bi p-1 text-2xl leading-0" :class="item.icon"></i>
                     {{ item.name }}
+                </RouterLink>
+                <RouterLink
+                    to="/media"
+                    class="btn join-item w-28 p-1 justify-normal items-center"
+                >
+                    <i class="bi bi-card-image p-1 text-2xl leading-0"></i>
+                    Media
                 </RouterLink>
             </div>
         </div>
@@ -59,14 +76,14 @@ function toggleTheme() {
                 class="btn btn-sm bg-accent hover:bg-accent/90 text-accent-content w-27 p-1 justify-normal items-center"
             >
                 <i class="bi bi-person-circle text-xl leading-0"></i>
-                <span class="px-1 truncate">{{ authStore.user.first_name }} {{ authStore.user.last_name }}</span>
+                <span class="px-1 truncate">{{ auth.user.first_name }} {{ auth.user.last_name }}</span>
             </RouterLink>
 
             <div class="join flex">
                 <label class="join-item btn btn-sm swap swap-rotate p-2">
                     <input
                         type="checkbox"
-                        :checked="indexStore.darkMode"
+                        :checked="store.darkMode"
                         @change="toggleTheme"
                         class="focus-within:outline-0!"
                     />

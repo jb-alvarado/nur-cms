@@ -18,7 +18,7 @@ const router = createRouter({
         },
         {
             path: '/article/:id',
-            name: 'edit',
+            name: 'article edit',
             component: () => import('../views/article/ArticleEdit.vue'),
         },
         {
@@ -30,6 +30,16 @@ const router = createRouter({
             path: '/page',
             name: 'page',
             component: () => import('../views/page/PageView.vue'),
+        },
+        {
+            path: '/page/:id',
+            name: 'page edit',
+            component: () => import('../views/page/PageEdit.vue'),
+        },
+        {
+            path: '/event',
+            name: 'event',
+            component: () => import('../views/event/EventView.vue'),
         },
         {
             path: '/media',

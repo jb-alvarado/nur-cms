@@ -259,24 +259,17 @@ pub async fn content_types_select(
     State(pool): State<PgPool>,
     Query(mut params): Query<QueryObj<ContentTypeFields>>,
     OriginalUri(original_uri): OriginalUri,
-    details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentType>>, ServiceError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
-        params.path = original_uri.path().to_string();
-        params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
 
-        return match handles::select_record(&pool, &Table::ContentTypes, params).await {
-            Ok(types) => Ok(Json(types)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
+    match handles::select_record(&pool, &Table::ContentTypes, params).await {
+        Ok(types) => Ok(Json(types)),
+        Err(e) => {
+            error!("{e}");
+            Err(ServiceError::InternalServerError)
+        }
     }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
 }
 
 pub async fn content_entries_select(
