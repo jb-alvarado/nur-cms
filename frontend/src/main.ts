@@ -31,8 +31,8 @@ app.use(head)
 app.use(createPinia())
 app.use(router)
 
-const indexStore = useIndex()
+const store = useIndex()
 
-indexStore.darkMode = (theme === 'dark')
+store.darkMode = (theme === 'dark')
 
 app.mount('#app')

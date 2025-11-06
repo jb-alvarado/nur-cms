@@ -11,36 +11,46 @@ const router = createRouter({
             name: 'home',
             component: HomeView,
         },
-        {
-            path: '/article',
-            name: 'article',
-            component: () => import('../views/article/ArticleView.vue'),
-        },
-        {
-            path: '/article/:id',
-            name: 'article edit',
-            component: () => import('../views/article/ArticleEdit.vue'),
-        },
+        // {
+        //     path: '/article',
+        //     name: 'article',
+        //     component: () => import('../views/article/ArticleView.vue'),
+        // },
+        // {
+        //     path: '/article/:id',
+        //     name: 'article edit',
+        //     component: () => import('../views/article/ArticleEdit.vue'),
+        // },
         {
             path: '/configuration',
             name: 'configuration',
             component: () => import('../views/ConfigurationView.vue'),
         },
         {
-            path: '/page',
-            name: 'page',
-            component: () => import('../views/page/PageView.vue'),
+            path: '/:type',
+            name: 'content type',
+            component: () => import('../views/content/IndexView.vue'),
         },
         {
-            path: '/page/:id',
-            name: 'page edit',
-            component: () => import('../views/page/PageEdit.vue'),
+            path: '/:type/:id',
+            name: 'content edit',
+            component: () => import('../views/content/EditView.vue'),
         },
-        {
-            path: '/event',
-            name: 'event',
-            component: () => import('../views/event/EventView.vue'),
-        },
+        // {
+        //     path: '/page',
+        //     name: 'page',
+        //     component: () => import('../views/page/PageView.vue'),
+        // },
+        // {
+        //     path: '/page/:id',
+        //     name: 'page edit',
+        //     component: () => import('../views/page/PageEdit.vue'),
+        // },
+        // {
+        //     path: '/event',
+        //     name: 'event',
+        //     component: () => import('../views/event/EventView.vue'),
+        // },
         {
             path: '/media',
             name: 'media',

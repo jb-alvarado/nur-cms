@@ -196,6 +196,15 @@ VALUES
     );
 
 INSERT INTO
+    content_meta (entry_id, start_time, end_time)
+VALUES
+    (10, '2025-11-03T08:00:00Z', '2025-11-05T19:00:00Z'),
+    (11, '2025-12-11T08:30:00Z', '2025-12-11T18:30:00Z'),
+    (12, '2025-11-18T09:00:00Z', '2025-11-21T17:00:00Z'),
+    (13, '2026-01-13T08:30:00Z', '2026-01-15T13:00:00Z'),
+    (14, '2026-02-10T10:15:00Z', '2026-02-12T12:15:00Z');
+
+INSERT INTO
     content_blocks (entry_id, type, order_index, data)
 VALUES
     (
@@ -254,8 +263,20 @@ VALUES
 INSERT INTO
     media (alt, filename, path, type, uploaded_by)
 VALUES
-    ('Cover', 'cover.jpg', '/uploads/2025/10/cover.jpg', 'image', 1),
-    ('Block', 'block.jpg', '/uploads/2025/10/block.jpg', 'image', 1);
+    (
+        'Cover',
+        'cover.jpg',
+        '/uploads/2025/10/cover.jpg',
+        'image',
+        1
+    ),
+    (
+        'Block',
+        'block.jpg',
+        '/uploads/2025/10/block.jpg',
+        'image',
+        1
+    );
 
 INSERT INTO
     media_variants (media_id, resolution, format, filename)

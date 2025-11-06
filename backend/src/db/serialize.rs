@@ -85,12 +85,12 @@ pub struct ContentSerializer {
     pub status: Option<String>, // draft, published, archived
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<AuthUserSerializer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<ContentMetaSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<ContentCategorySerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<ContentTagSerializer>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attributes: Vec<ContentAttributeSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<ContentBlockSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,9 +117,9 @@ pub struct ContentSerializer {
 impl FromRow<'_, PgRow> for ContentSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         let mut author = None;
+        let mut meta = None;
         let mut categories = vec![];
         let mut tags = vec![];
-        let mut attributes = vec![];
         if let Ok((id, first_name, last_name)) =
             row.try_get::<(i32, String, String), &str>("author")
         {
@@ -128,6 +128,18 @@ impl FromRow<'_, PgRow> for ContentSerializer {
                 first_name: Some(first_name),
                 last_name: Some(last_name),
                 ..Default::default()
+            });
+        };
+
+        if let Ok((data, start_time, end_time)) =
+            row.try_get::<(Option<Value>, Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>(
+                "meta",
+            )
+        {
+            meta = Some(ContentMetaSerializer {
+                data,
+                start_time,
+                end_time,
             });
         };
 
@@ -149,15 +161,6 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             tags.push(ContentTagSerializer { id, name, slug });
         }
 
-        for (id, name, value) in row
-            .try_get::<Vec<Option<(i32, String, Value)>>, &str>("attributes")
-            .unwrap_or_default()
-            .into_iter()
-            .flatten()
-        {
-            attributes.push(ContentAttributeSerializer { id, name, value });
-        }
-
         let blocks = row
             .try_get::<Option<serde_json::Value>, _>("blocks")
             .unwrap_or_default()
@@ -175,9 +178,9 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
             author,
+            meta,
             categories,
             tags,
-            attributes,
             blocks,
             locale: row.try_get("locale").ok(),
             title: row.try_get("title").ok(),
@@ -222,13 +225,13 @@ pub struct ContentTagSerializer {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
-pub struct ContentAttributeSerializer {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub id: i32,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
-    #[serde(default)]
-    pub value: Value,
+pub struct ContentMetaSerializer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]

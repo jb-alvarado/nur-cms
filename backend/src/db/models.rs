@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row, postgres::PgRow};
 use ts_rs::TS;
 
-use crate::db::{fields::ColumnCounter, is_null, is_zero};
+use crate::db::{
+    fields::{ColumnCounter, OutputType},
+    is_zero,
+};
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -45,6 +48,18 @@ impl fmt::Display for Role {
             Self::Guest => write!(f, "guest"),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, FromRow, Deserialize, Serialize, TS)]
+pub struct Configuration {
+    pub id: i32,
+    pub jwt_secret: String,
+    pub output_type: OutputType,
+    pub storage: Option<String>,
+    pub mail_smtp: Option<String>,
+    pub mail_user: Option<String>,
+    pub mail_password: Option<String>,
+    pub mail_starttls: bool,
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow, TS)]
@@ -338,32 +353,35 @@ impl ColumnCounter for ContentEntry {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
-pub struct ContentAttribute {
+pub struct ContentMeta {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub content_entry_id: i32,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
-    #[serde(default, skip_serializing_if = "is_null")]
-    pub value: serde_json::Value,
+    pub entry_id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for ContentAttribute {
+impl FromRow<'_, PgRow> for ContentMeta {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
-            content_entry_id: row.try_get("content_entry_id").unwrap_or_default(),
-            name: row.try_get("name").unwrap_or_default(),
-            value: row.try_get("value").unwrap_or_default(),
+            entry_id: row.try_get("entry_id").unwrap_or_default(),
+            data: row.try_get("data").unwrap_or_default(),
+            start_time: row.try_get("start_time").ok(),
+            end_time: row.try_get("end_time").ok(),
             total_count: row.try_get("total_count").ok(),
         })
     }
 }
 
-impl ColumnCounter for ContentAttribute {
+impl ColumnCounter for ContentMeta {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

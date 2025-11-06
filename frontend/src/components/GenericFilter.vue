@@ -6,6 +6,20 @@ const store = useIndex()
 
 <template>
     <div class="join">
+        <button
+            class="btn border border-base-content/20 join-item"
+            @click="store.contentSelect(null, store.previous)"
+            :disabled="!store.previous"
+        >
+            <i class="bi bi-caret-left"></i>
+        </button>
+        <button
+            class="btn border border-base-content/20 join-item"
+            @click="store.contentSelect(null, store.next)"
+            :disabled="!store.next"
+        >
+            <i class="bi bi-caret-right"></i>
+        </button>
         <select v-model="store.limit" class="select join-item" @change="store.setItemLimit()">
             <option v-for="lim in store.limits" :key="lim" :value="lim">{{ lim }}</option>
         </select>

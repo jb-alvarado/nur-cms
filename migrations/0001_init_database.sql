@@ -86,12 +86,12 @@ CREATE TABLE content_entries (
     UNIQUE (slug, locale_id, type_id)
 );
 
-CREATE TABLE content_attributes (
+CREATE TABLE content_meta (
     id SERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    value JSONB NOT NULL,
-    UNIQUE (entry_id, name)
+    data JSONB,
+    start_time TIMESTAMPTZ,
+    end_time TIMESTAMPTZ
 );
 
 CREATE TABLE content_blocks (
@@ -114,6 +114,19 @@ CREATE TABLE content_entry_tags (
     PRIMARY KEY (entry_id, tag_id)
 );
 
+CREATE TABLE comments (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+    parent_id INT REFERENCES comments (id) ON DELETE CASCADE, -- for Threading
+    user_id INT REFERENCES auth_users (id) ON DELETE SET NULL,
+    author_name TEXT,
+    author_email TEXT,
+    text TEXT NOT NULL,
+    status VARCHAR(16) CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE media (
     id SERIAL PRIMARY KEY,
     alt TEXT,
@@ -125,7 +138,7 @@ CREATE TABLE media (
 );
 
 CREATE TABLE media_variants (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     media_id INT REFERENCES media (id) ON DELETE CASCADE,
     resolution INT NOT NULL,
     format TEXT NOT NULL DEFAULT 'jpg',
@@ -142,6 +155,17 @@ CREATE TABLE content_media (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (entry_id, media_id, ast_line)
+);
+
+CREATE TABLE configuration (
+    id SERIAL PRIMARY KEY,
+    jwt_secret VARCHAR(255) NOT NULL,
+    output_type VARCHAR(16) NOT NULL CHECK (output_type IN ('ast', 'html', 'markdown')) DEFAULT 'ast',
+    storage VARCHAR(255),
+    mail_smtp VARCHAR(160),
+    mail_user VARCHAR(160),
+    mail_password VARCHAR(255),
+    mail_starttls BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE OR REPLACE FUNCTION content_text_vector_update () RETURNS trigger AS $$

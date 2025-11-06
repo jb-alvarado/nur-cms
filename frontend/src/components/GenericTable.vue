@@ -22,10 +22,6 @@ const props = defineProps({
         type: String,
         default: '',
     },
-    itemRoute: {
-        type: String,
-        default: '',
-    },
     checkBoxChange: {
         type: Function,
         default() {
@@ -116,7 +112,7 @@ function orderRows(row: any) {
                     </span>
                 </td>
                 <td>
-                    <RouterLink :to="`${itemRoute}/${col.id}`" class="btn btn-sm p-1">
+                    <RouterLink :to="`/${type}/${col.id}`" class="btn btn-sm p-1">
                         <i class="bi bi-pencil-square text-lg"></i>
                     </RouterLink>
                 </td>

@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
-// import { cloneDeep } from 'lodash-es'
+import { useRoute } from 'vue-router'
 import { useIndex } from '@/stores/index'
 
 import GenericFilter from '@/components/GenericFilter.vue'
@@ -11,8 +11,12 @@ import GenericTable from '@/components/GenericTable.vue'
 
 dayjs.extend(localizedFormat)
 
+const route = useRoute()
 const store = useIndex()
-store.initContent('page')
+
+const typeParam = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
+
+store.initContent(typeParam ?? '')
 store.search = ''
 store.contentSelect()
 
@@ -46,7 +50,7 @@ function statusLabel() {
 <template>
     <div>
         <div class="flex">
-            <h1 class="text-2xl grow">Pages</h1>
+            <h1 class="text-2xl grow">{{ typeParam }}</h1>
             <button class="btn btn-sm btn-primary text-base">New</button>
         </div>
 
@@ -72,13 +76,12 @@ function statusLabel() {
                 v-model:ordering="store.ordering"
                 :columns="store.tableCols"
                 :rows="store.visibleRows"
-                type="page"
-                item-route="/page"
+                :type="typeParam"
                 :check-box-change="statusLabel"
             />
         </div>
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="store.contentDelete">
-            <p>Are you sure you want to delete this article{{ selectCount > 1 ? 's' : '' }}?</p>
+            <p>Are you sure you want to delete this {{ typeParam }}{{ selectCount > 1 ? 's' : '' }}?</p>
         </GenericModal>
     </div>
 </template>

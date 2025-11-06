@@ -7,8 +7,10 @@ export const useIndex = defineStore('index', {
         msgList: [] as alertMessage[],
         contentType: { 'content-type': 'application/json;charset=UTF-8' },
         limit: localStorage.getItem('limit') ?? 10,
-        limits: [10, 25, 50, 100],
+        limits: [2, 10, 25, 50, 100],
         ordering: 'id',
+        next: null as null | string,
+        previous: null as null | string,
         allRows: [
             { check: true, active: true, up: true, name: 'ID', field: 'id' },
             { check: false, active: false, up: false, name: 'Title', field: 'title' },
@@ -101,13 +103,15 @@ export const useIndex = defineStore('index', {
             }
         },
 
-        async contentSelect(sr: string = '') {
+        async contentSelect(sr: string | null = null, u: string | null = null) {
             const fields = this.visibleRows.map((r: any) => r.field).join(',')
             const auth = useAuth()
 
-            const url = sr
-                ? `/api/content/entries/${this.type}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}&search=${sr}`
-                : `/api/content/entries/${this.type}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
+            const url = u
+                ? u
+                : sr
+                  ? `/api/content/entries/${this.type}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}&search=${sr}`
+                  : `/api/content/entries/${this.type}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
 
             await fetch(url, {
                 headers: auth.authHeader,
@@ -121,6 +125,8 @@ export const useIndex = defineStore('index', {
                 })
                 .then((response: RespondObj) => {
                     if (response.results?.length > 0) {
+                        this.next = response.next
+                        this.previous = response.previous
                         this.tableCols = response.results.map((o: any) => ({ check: false, ...o }))
                     } else {
                         this.tableCols = []
@@ -142,9 +148,16 @@ export const useIndex = defineStore('index', {
                         body: JSON.stringify({ status }),
                     })
                         .then(async (resp) => {
+                            const text = await resp.text()
+                            let msg: string
+
                             if (resp.status >= 400) {
-                                const json = await resp.json()
-                                const msg = json ? json.error : await resp.text()
+                                try {
+                                    const json = JSON.parse(text)
+                                    msg = json?.error ?? (typeof json === 'string' ? json : JSON.stringify(json))
+                                } catch {
+                                    msg = text
+                                }
                                 this.msgAlert('error', msg, 6)
                             } else {
                                 this.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
@@ -169,9 +182,20 @@ export const useIndex = defineStore('index', {
                         headers: auth.authHeader,
                     })
                         .then(async (resp) => {
+                            const text = await resp.text()
+                            let msg: string
+
                             if (resp.status >= 400) {
-                                const json = await resp.json()
-                                const msg = json ? json.error : await resp.text()
+                                try {
+                                    const json = JSON.parse(text)
+                                    msg = json?.error ?? (typeof json === 'string' ? json : JSON.stringify(json))
+                                } catch {
+                                    msg = text
+                                }
+
+                                if (!msg) {
+                                    msg = resp.statusText
+                                }
                                 this.msgAlert('error', msg, 6)
                             } else {
                                 this.msgAlert('success', `Deleted: ${item.title ?? item.id}`, 2)

@@ -66,6 +66,11 @@ pub struct QueryObj<T> {
     pub output_type: Option<OutputType>,
 
     #[serde(default)]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub end_time: Option<DateTime<Utc>>,
+
+    #[serde(default)]
     pub created_after: Option<DateTime<Utc>>,
     #[serde(default)]
     pub created_before: Option<DateTime<Utc>>,
@@ -93,6 +98,8 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             search_slug: None,
             search_status: None,
             output_type: None,
+            start_time: None,
+            end_time: None,
             created_after: None,
             created_before: None,
             fields: default_fields(),

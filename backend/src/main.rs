@@ -5,6 +5,8 @@ use dotenvy::{dotenv, from_filename};
 use tracing::{debug, error};
 
 use nur_cms::{
+    CONFIG,
+    db::handles,
     init_db, router_entries,
     utils::{
         cmd_args::{Args, add_user},
@@ -24,6 +26,12 @@ async fn main() -> Result<(), ServiceError> {
     init_tracing(args.log_level, args.log_timestamp);
 
     let pool = init_db().await?;
+
+    {
+        let config = handles::select_configuration(&pool).await?;
+        let mut cfg = CONFIG.write().await;
+        *cfg = config;
+    }
 
     if args.add_user {
         add_user(&pool).await?;

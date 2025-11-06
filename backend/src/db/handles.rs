@@ -10,6 +10,7 @@ use argon2::{
 };
 use chrono::{DateTime, Utc};
 use colored::Colorize;
+use rand::{Rng, distr::Alphanumeric};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Execute, Postgres, QueryBuilder, postgres::PgPool};
@@ -24,7 +25,7 @@ use crate::{
             TSLanguage, Table,
         },
         format_sql,
-        models::{AuthUser, Media, TSConfig},
+        models::{AuthUser, Configuration, Media, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
@@ -52,7 +53,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
     }
 
     if media_resp.results.is_empty() {
-        let migrations_path = env::current_dir()?.join("migrations_dev");
+        let migrations_path = env::current_dir()?.join("../migrations_dev");
         let mut rd = fs::read_dir(migrations_path).await?;
         let mut migrations = Vec::new();
         while let Some(entry) = rd.next_entry().await? {
@@ -85,10 +86,33 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
 pub async fn db_migrate(pool: &PgPool) -> Result<(), ServiceError> {
     sqlx::migrate!("../migrations").run(pool).await?;
 
+    if select_configuration(pool).await.is_err() {
+        let secret: String = rand::rng()
+            .sample_iter(&Alphanumeric)
+            .take(80)
+            .map(char::from)
+            .collect();
+
+        const QUERY: &str = "INSERT INTO configuration(jwt_secret) VALUES($1);";
+
+        sqlx::query(QUERY).bind(secret).execute(pool).await?;
+    }
+
     #[cfg(debug_assertions)]
     dev_migrate(pool).await?;
 
     Ok(())
+}
+
+pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, ServiceError> {
+    const QUERY: &str = "select * from configuration;";
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(QUERY).bright_black());
+
+    let data: Configuration = sqlx::query_as(QUERY).fetch_one(pool).await?;
+
+    Ok(data)
 }
 
 pub async fn select_ts_language(pool: &PgPool) -> Result<RespondObj<TSConfig>, ServiceError> {
@@ -473,7 +497,7 @@ pub async fn select_content(
             CF::Author => sep.push(format!("(u.id, u.first_name, u.last_name) AS {f}")),
             CF::Categories => sep.push(format!("COALESCE(cats.data, ARRAY[]::record[]) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
-            CF::Attributes => sep.push(format!("COALESCE(att.data, ARRAY[]::record[]) AS {f}")),
+            CF::Meta => sep.push(format!("(m.data, m.start_time, m.end_time) AS {f}")),
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
             CF::Body => sep.push("ce.text".to_string()),
             CF::Locale => sep.push(format!("l.code as {f}")),
@@ -517,16 +541,11 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&CF::Attributes) {
-        query_builder.push(
-            r#"LEFT JOIN LATERAL (
-                SELECT ARRAY_AGG(
-                    (a.id, a.name, a.value)
-                ) AS data
-                FROM content_attributes a
-                WHERE a.entry_id = ce.id
-            ) AS att ON TRUE "#,
-        );
+    if query_obj.fields.contains(&CF::Meta)
+        || query_obj.start_time.is_some()
+        || query_obj.end_time.is_some()
+    {
+        query_builder.push("LEFT JOIN content_meta m ON m.entry_id = ce.id ");
     }
 
     if query_obj.fields.contains(&CF::Blocks) {
@@ -617,6 +636,14 @@ pub async fn select_content(
         where_chain.push_and_bind(None, "ce.status = ", status, None);
     }
 
+    if let Some(start) = &query_obj.start_time {
+        where_chain.push_and_bind(None, "m.start_time >= ", start, None);
+    }
+
+    if let Some(end) = &query_obj.end_time {
+        where_chain.push_and_bind(None, "m.end_time <= ", end, None);
+    }
+
     if let Some(search) = query_obj.search.clone() {
         where_chain.push_and_bind(
             None,
@@ -631,28 +658,30 @@ pub async fn select_content(
     // take builder back from where_chain
     query_builder = where_chain.into_inner();
 
-    if query_obj
-        .fields
-        .iter()
-        .any(|f| query_obj.ordering.contains(&f.to_string()))
-    {
-        let ordering = query_obj
-            .ordering
-            .split(',')
-            .map(|item| {
-                let item = item.trim();
-                if item.contains("author") {
-                    item.replace("author", "u.last_name")
-                } else if item.contains("locale") {
-                    item.replace("locale", "l.code")
-                } else {
-                    format!("ce.{item}")
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        query_builder.push(format!(" ORDER BY {}", ordering));
-    }
+    let ordering = query_obj
+        .ordering
+        .split(',')
+        .filter_map(|item| {
+            let item = item.trim();
+            if item.contains("author") {
+                Some(item.replace("author", "u.last_name"))
+            } else if item.contains("locale") {
+                Some(item.replace("locale", "l.code"))
+            } else if item.contains("start_time") {
+                Some(item.replace("start_time", "m.start_time"))
+            } else if query_obj
+                .fields
+                .iter()
+                .any(|f| item.contains(&f.to_string()))
+            {
+                Some(format!("ce.{item}"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    query_builder.push(format!(" ORDER BY {}", ordering));
 
     query_builder.push(format!(
         " LIMIT {} OFFSET {}",

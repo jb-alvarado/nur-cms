@@ -13,7 +13,7 @@ pub enum Table {
     ContentTypes,
     ContentCategories,
     ContentTags,
-    ContentAttributes,
+    ContentMeta,
     ContentBlocks,
     ContentEntries,
     Media,
@@ -31,7 +31,7 @@ impl FromStr for Table {
             "content_types" => Ok(Self::ContentTypes),
             "content_categories" => Ok(Self::ContentCategories),
             "content_tags" => Ok(Self::ContentTags),
-            "content_attributes" => Ok(Self::ContentAttributes),
+            "content_meta" => Ok(Self::ContentMeta),
             "content_blocks" => Ok(Self::ContentBlocks),
             "content_entries" => Ok(Self::ContentEntries),
             "media" => Ok(Self::Media),
@@ -50,7 +50,7 @@ impl fmt::Display for Table {
             Self::ContentTypes => write!(f, "content_types"),
             Self::ContentCategories => write!(f, "content_categories"),
             Self::ContentTags => write!(f, "content_tags"),
-            Self::ContentAttributes => write!(f, "content_attributes"),
+            Self::ContentMeta => write!(f, "content_meta"),
             Self::ContentBlocks => write!(f, "content_blocks"),
             Self::ContentEntries => write!(f, "content_entries"),
             Self::Media => write!(f, "media"),
@@ -59,9 +59,11 @@ impl fmt::Display for Table {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, TS, sqlx::Type)]
+#[sqlx(type_name = "VARCHAR")]
+#[sqlx(rename_all = "lowercase")]
 pub enum OutputType {
+    #[default]
     AST,
     HTML,
     Markdown,
@@ -315,7 +317,7 @@ pub enum ContentFields {
     Author,
     Categories,
     Tags,
-    Attributes,
+    Meta,
     Blocks,
     Locale,
     Title,
@@ -335,7 +337,7 @@ impl StrCompare for ContentFields {
             Self::Author => other == "author",
             Self::Categories => other == "categories",
             Self::Tags => other == "tags",
-            Self::Attributes => other == "attributes",
+            Self::Meta => other == "meta",
             Self::Blocks => other == "blocks",
             Self::Locale => other == "locale",
             Self::Title => other == "title",
@@ -359,7 +361,7 @@ impl FromStr for ContentFields {
             "author" => Ok(Self::Author),
             "categories" => Ok(Self::Categories),
             "tags" => Ok(Self::Tags),
-            "attributes" => Ok(Self::Attributes),
+            "meta" => Ok(Self::Meta),
             "blocks" => Ok(Self::Blocks),
             "locale" => Ok(Self::Locale),
             "title" => Ok(Self::Title),
@@ -382,7 +384,7 @@ impl fmt::Display for ContentFields {
             Self::Author => write!(f, "author"),
             Self::Categories => write!(f, "categories"),
             Self::Tags => write!(f, "tags"),
-            Self::Attributes => write!(f, "attributes"),
+            Self::Meta => write!(f, "meta"),
             Self::Blocks => write!(f, "blocks"),
             Self::Locale => write!(f, "locale"),
             Self::Title => write!(f, "title"),

@@ -8,7 +8,7 @@ use tokio::task;
 use tracing::{error, info};
 
 use crate::{
-    ACCESS_LIFETIME, JWT_SECRET, REFRESH_LIFETIME,
+    ACCESS_LIFETIME, CONFIG, REFRESH_LIFETIME,
     db::{
         fields::{AuthUserFields, Table},
         handles,
@@ -48,7 +48,7 @@ pub struct TokenRefreshRequest {
 
 /// Create a json web token (JWT)
 pub async fn encode_jwt(claims: Claims) -> Result<String, ServiceError> {
-    let encoding_key = EncodingKey::from_secret(JWT_SECRET.as_bytes());
+    let encoding_key = EncodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
     Ok(jsonwebtoken::encode(
         &Header::default(),
         &claims,
@@ -58,7 +58,7 @@ pub async fn encode_jwt(claims: Claims) -> Result<String, ServiceError> {
 
 /// Decode a json web token (JWT)
 pub async fn decode_jwt(token: &str) -> Result<Claims, ServiceError> {
-    let decoding_key = DecodingKey::from_secret(JWT_SECRET.as_bytes());
+    let decoding_key = DecodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
     jsonwebtoken::decode::<Claims>(token, &decoding_key, &Validation::default())
         .map(|data| data.claims)
         .map_err(|_| ServiceError::Unauthorized)

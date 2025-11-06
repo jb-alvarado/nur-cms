@@ -32,6 +32,7 @@ http-body-util = "0.1"
 inquire = "0.9"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 markdown = { version = "1", features = ["serde"] }
+rand = "0.9"
 regex = "1"
 protect-axum = "0.2"
 protect-endpoints-core = { version = "0.2", features = ["tower"] }

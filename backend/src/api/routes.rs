@@ -13,7 +13,7 @@ use strum::IntoEnumIterator;
 use tracing::error;
 
 use crate::{
-    OUTPUT_TYPE,
+    CONFIG,
     db::{
         fields::{
             AuthRoleFields, AuthUserFields, ContentFields, ContentTypeFields, LocaleFields,
@@ -272,7 +272,7 @@ pub async fn content_types_select(
     }
 }
 
-pub async fn content_entries_select(
+pub async fn entries_select(
     State(pool): State<PgPool>,
     Path(type_slug): Path<String>,
     Query(mut params): Query<QueryObj<ContentFields>>,
@@ -283,10 +283,10 @@ pub async fn content_entries_select(
     params.query = original_uri.query().unwrap_or("").to_string();
     params.type_slug = Some(type_slug);
 
-    let mut output = OUTPUT_TYPE.to_owned();
+    let mut output = CONFIG.read().await.output_type.clone();
 
     if let Some(typ) = &params.output_type
-        && details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User])
+        && details.has_any_authority(&[&Role::Admin, &Role::Author])
     {
         output = typ.clone();
     }
@@ -322,7 +322,7 @@ pub async fn content_entries_select(
     Ok(Json(content))
 }
 
-pub async fn content_entry_select(
+pub async fn entry_select(
     State(pool): State<PgPool>,
     Path((type_slug, slug)): Path<(String, String)>,
     Query(mut params): Query<QueryObj<ContentFields>>,
@@ -334,10 +334,10 @@ pub async fn content_entry_select(
     params.type_slug = Some(type_slug);
     params.search_slug = Some(slug);
 
-    let mut output = OUTPUT_TYPE.to_owned();
+    let mut output = CONFIG.read().await.output_type.clone();
 
     if let Some(typ) = &params.output_type
-        && details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User])
+        && details.has_any_authority(&[&Role::Admin, &Role::Author])
     {
         output = typ.clone();
     }
@@ -377,6 +377,49 @@ pub async fn content_entry_select(
     };
 
     Err(ServiceError::NoContent)
+}
+
+pub async fn entry_update(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(mut content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+
+        return match handles::update_record(&pool, &Table::ContentEntries, id, &content).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn entry_delete(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::delete_record(&pool, &Table::ContentEntries, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
 }
 
 pub async fn content_delete(

@@ -1,6 +1,8 @@
 use std::collections::HashSet;
-use std::str::FromStr;
-use std::{env, sync::LazyLock};
+use std::{
+    env,
+    sync::{Arc, LazyLock},
+};
 
 use axum::response::IntoResponse;
 use axum::{
@@ -11,6 +13,7 @@ use axum::{
 };
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use tokio::sync::RwLock;
 use tracing::{error, warn};
 
 pub mod api;
@@ -23,9 +26,8 @@ use crate::{
         routes::*,
     },
     db::{
-        fields::OutputType,
         handles,
-        models::{AuthUserMeta, Role},
+        models::{AuthUserMeta, Configuration, Role},
     },
     utils::errors::ServiceError,
 };
@@ -44,18 +46,8 @@ where
 pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 3));
 pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFRESH_LIFETIME", 30));
 
-pub static JWT_SECRET: LazyLock<Box<str>> = LazyLock::new(|| {
-    env::var("JWT_SECRET")
-        .expect("JWT_SECRET must be set")
-        .into_boxed_str()
-});
-
-pub static OUTPUT_TYPE: LazyLock<OutputType> = LazyLock::new(|| {
-    env::var("OUTPUT_TYPE")
-        .ok()
-        .and_then(|v| OutputType::from_str(&v.to_ascii_lowercase()).ok())
-        .unwrap_or(OutputType::AST)
-});
+pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
 
 pub async fn init_db() -> Result<PgPool, ServiceError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -120,8 +112,11 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
 
     let content_routes = Router::new()
         .route("/types", get(content_types_select))
-        .route("/entries/{type}", get(content_entries_select))
-        .route("/entries/{type}/{slug}", get(content_entry_select))
+        .route(
+            "/entries/{param}",
+            get(entries_select).put(entry_update).delete(entry_delete),
+        )
+        .route("/entries/{param}/{slug}", get(entry_select))
         .route("/{kind}", post(content_insert))
         .route("/{kind}/{id}", delete(content_delete).put(content_update));
 

@@ -6,8 +6,8 @@ import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores'
 
 const { t } = useI18n()
-const authStore = useAuth()
-const indexStore = useIndex()
+const auth = useAuth()
+const store = useIndex()
 
 const confirmPass = ref('')
 
@@ -16,22 +16,22 @@ useHead({
 })
 
 async function saveUser() {
-    if (authStore.user.password && authStore.user.password !== confirmPass.value) {
-        indexStore.msgAlert('error', t('user.mismatch'), 3)
+    if (auth.user.password && auth.user.password !== confirmPass.value) {
+        store.msgAlert('error', t('user.mismatch'), 3)
         return
     }
 
-    await authStore.inspectToken()
+    await auth.inspectToken()
 
-    await fetch(`/api/auth-user/${authStore.id}`, {
+    await fetch(`/api/auth-user/${auth.id}`, {
         method: 'PUT',
-        headers: { ...indexStore.contentType, ...authStore.authHeader },
-        body: JSON.stringify(authStore.user),
+        headers: { ...store.contentType, ...auth.authHeader },
+        body: JSON.stringify(auth.user),
     }).then((resp) => {
         if (resp.status === 200) {
-            indexStore.msgAlert('success', t('user.updateSuccess'), 3)
+            store.msgAlert('success', t('user.updateSuccess'), 3)
         } else {
-            indexStore.msgAlert('error', t('user.updateFailed'), 6)
+            store.msgAlert('error', t('user.updateFailed'), 6)
         }
     })
 }
@@ -43,25 +43,25 @@ async function saveUser() {
         <form class="w-80 mt-8" @submit.prevent="saveUser">
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.name') }}</legend>
-                <input v-model="authStore.user.username" type="text" name="username" class="input w-full" />
+                <input v-model="auth.user.username" type="text" name="username" class="input w-full" />
             </fieldset>
 
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.firstName') }}</legend>
-                <input v-model="authStore.user.first_name" type="text" name="firstName" class="input w-full" />
+                <input v-model="auth.user.first_name" type="text" name="firstName" class="input w-full" />
             </fieldset>
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.lastName') }}</legend>
-                <input v-model="authStore.user.last_name" type="text" name="lastName" class="input w-full" />
+                <input v-model="auth.user.last_name" type="text" name="lastName" class="input w-full" />
             </fieldset>
 
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.mail') }}</legend>
-                <input v-model="authStore.user.email" type="email" name="mail" class="input w-full" />
+                <input v-model="auth.user.email" type="email" name="mail" class="input w-full" />
             </fieldset>
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.newPass') }}</legend>
-                <input v-model="authStore.user.password" type="password" name="password" class="input w-full" />
+                <input v-model="auth.user.password" type="password" name="password" class="input w-full" />
             </fieldset>
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.confirmPass') }}</legend>

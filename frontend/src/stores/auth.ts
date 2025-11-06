@@ -126,7 +126,17 @@ export const useAuth = defineStore('auth', {
             await fetch('/api/auth-user', {
                 headers: this.authHeader,
             })
-                .then((resp) => resp.json())
+                .then(async (resp) => {
+                    if (resp.status >= 400) {
+                        const msg = (await resp.json())?.error ?? (await resp.text())
+
+                        if (msg.includes('Unauthorized')) {
+                            this.removeToken()
+                        }
+                        throw new Error(msg)
+                    }
+                    return resp.json()
+                })
                 .then((response: RespondObj) => {
                     if (response.results.length > 0) {
                         this.user = response.results[0]
