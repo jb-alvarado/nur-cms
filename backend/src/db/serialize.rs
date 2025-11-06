@@ -116,32 +116,30 @@ pub struct ContentSerializer {
 
 impl FromRow<'_, PgRow> for ContentSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
-        let mut author = None;
-        let mut meta = None;
         let mut categories = vec![];
         let mut tags = vec![];
-        if let Ok((id, first_name, last_name)) =
-            row.try_get::<(i32, String, String), &str>("author")
-        {
-            author = Some(AuthUserSerializer {
-                id: Some(id),
-                first_name: Some(first_name),
-                last_name: Some(last_name),
+
+        let author = row
+            .try_get::<(Option<i32>, Option<String>, Option<String>), &str>("author")
+            .ok()
+            .map(|(id, first_name, last_name)| AuthUserSerializer {
+                id,
+                first_name,
+                last_name,
                 ..Default::default()
             });
-        };
 
-        if let Ok((data, start_time, end_time)) =
-            row.try_get::<(Option<Value>, Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>(
-                "meta",
-            )
-        {
-            meta = Some(ContentMetaSerializer {
+        let meta = row
+            .try_get::<(Option<Value>, Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>("meta")
+            .ok()
+            .filter(|(data, start_time, end_time)| {
+                data.is_some() || start_time.is_some() || end_time.is_some()
+            })
+            .map(|(data, start_time, end_time)| ContentMetaSerializer {
                 data,
                 start_time,
                 end_time,
             });
-        };
 
         for (id, name, slug) in row
             .try_get::<Vec<Option<(i32, String, String)>>, &str>("categories")
