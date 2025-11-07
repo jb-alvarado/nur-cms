@@ -17,14 +17,22 @@ fetch(`/api/content/entries/${typeParam}?id=${route.params.id}&output_type=markd
 })
     .then(async (resp) => {
         if (resp.status >= 400) {
-            const msg = (await resp.json())?.error ?? (await resp.text())
+            const text = await resp.text()
+            let msg: string
+
+            try {
+                const json = JSON.parse(text)
+                msg = json?.error ?? (typeof json === 'string' ? json : JSON.stringify(json))
+            } catch {
+                msg = text
+            }
             throw new Error(msg)
         }
+
         return resp.json()
     })
     .then((response: RespondObj) => {
         content.value = response.results[0]
-
     })
     .catch((e) => {
         store.msgAlert('error', e, 6)
@@ -37,9 +45,8 @@ fetch(`/api/content/entries/${typeParam}?id=${route.params.id}&output_type=markd
             <h1 class="text-2xl grow">{{ content.title }}</h1>
         </div>
         <div class="flex gap-8">
-        <textarea v-model="content.body" class="textarea w-full xl:w-1/2"></textarea>
-        <MarkdownRender :content="content.body" class="prose hidden xl:block w-1/2 bg-base-200 p-4 rounded" />
+            <textarea v-model="content.body" class="textarea w-full xl:w-1/2"></textarea>
+            <MarkdownRender :content="content.body" class="prose hidden xl:block w-1/2 bg-base-200 p-4 rounded" />
         </div>
-
     </div>
 </template>

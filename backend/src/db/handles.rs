@@ -669,11 +669,9 @@ pub async fn select_content(
                 Some(item.replace("locale", "l.code"))
             } else if item.contains("start_time") {
                 Some(item.replace("start_time", "m.start_time"))
-            } else if query_obj
-                .fields
-                .iter()
-                .any(|f| item.contains(&f.to_string()))
-            {
+            } else if item.contains("end_time") {
+                Some(item.replace("end_time", "m.end_time"))
+            } else if CF::iter().any(|f| item.contains(&f.to_string())) {
                 Some(format!("ce.{item}"))
             } else {
                 None
@@ -681,7 +679,9 @@ pub async fn select_content(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    query_builder.push(format!(" ORDER BY {}", ordering));
+    if !ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", ordering));
+    }
 
     query_builder.push(format!(
         " LIMIT {} OFFSET {}",

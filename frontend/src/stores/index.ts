@@ -18,6 +18,8 @@ export const useIndex = defineStore('index', {
             { check: false, active: false, up: false, name: 'Status', field: 'status' },
             { check: false, active: false, up: false, name: 'Author', field: 'author' },
             { check: false, active: false, up: false, name: 'Locale', field: 'locale' },
+            { check: false, active: false, up: false, name: 'Start Time', field: 'start_time' },
+            { check: false, active: false, up: false, name: 'End Time', field: 'end_time' },
             { check: false, active: false, up: false, name: 'Created At', field: 'created_at' },
             { check: false, active: false, up: false, name: 'Updated At', field: 'updated_at' },
         ],
@@ -104,7 +106,16 @@ export const useIndex = defineStore('index', {
         },
 
         async contentSelect(sr: string | null = null, u: string | null = null) {
-            const fields = this.visibleRows.map((r: any) => r.field).join(',')
+            const fields = this.visibleRows
+                .map((r: any) => r.field)
+                .map((field: string) => {
+                    if (field === 'start_time' || field === 'end_time') {
+                        return 'meta'
+                    }
+                    return field
+                })
+                .filter((field: string, index: number, arr: string[]) => arr.indexOf(field) === index)
+                .join(',')
             const auth = useAuth()
 
             const url = u

@@ -2,6 +2,7 @@ use axum::Router;
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, error};
 
 use nur_cms::{
@@ -39,11 +40,20 @@ async fn main() -> Result<(), ServiceError> {
         return Ok(());
     }
 
+    // TODO: embed files: https://dev.to/konstantin/bundle-frontend-with-axum-build-using-includedir-g8i
+    //                    https://github.com/informationsea/axum-embed
+    let static_dir = "../frontend/dist";
+    let static_service = ServeDir::new(static_dir);
+
     let (auth_routes, api_routes) = router_entries();
 
     let app = Router::new()
         .nest("/auth", auth_routes)
         .nest("/api", api_routes)
+        .nest_service(
+            "/admin",
+            static_service.fallback(ServeFile::new(format!("{static_dir}/index.html"))),
+        )
         .with_state(pool);
 
     let listener =

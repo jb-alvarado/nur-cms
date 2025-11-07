@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, type PropType } from 'vue'
 import dayjs from 'dayjs'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useIndex } from '@/stores/index'
 
 const emit = defineEmits(['update:ordering'])
+const route = useRoute()
 const store = useIndex()
 const select = ref(false)
 const ordering = ref('id')
@@ -41,6 +42,8 @@ function selectAll() {
 function formatField(col: any, field: string) {
     if (['created_at', 'updated_at'].includes(field)) {
         return dayjs(col[field] as string).format('llll')
+    } else if (col['meta'] && (field === 'start_time' || field === 'end_time')) {
+        return dayjs(col['meta'][field]).format('llll')
     } else if (field === 'author') {
         return `${col[field]?.first_name} ${col[field]?.last_name}`
     } else {
@@ -72,7 +75,7 @@ function orderRows(row: any) {
                         <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                     </label>
                 </th>
-                <th v-for="row in rows" :key="row.field" :class="{'w-16': row.field === 'id'}">
+                <th v-for="row in rows.filter(r => route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))" :key="row.field" :class="{'w-16': row.field === 'id'}">
                     <label class="swap" :class="{ 'text-base-content': row.active }">
                         <input type="checkbox" v-model="row.up" @change="orderRows(row)" />
                         <div class="swap-on">
@@ -100,7 +103,7 @@ function orderRows(row: any) {
                         />
                     </label>
                 </th>
-                <td v-for="row in rows" :key="row.field">
+                <td v-for="row in rows.filter(r => route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))" :key="row.field">
                     <span v-if="col[row.field] === 'published'" class="text-success bg-base-100 p-1 rounded border">
                         {{ formatField(col, row.field) }}
                     </span>
