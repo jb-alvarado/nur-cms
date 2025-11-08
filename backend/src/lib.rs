@@ -18,6 +18,7 @@ use tracing::{error, warn};
 
 pub mod api;
 pub mod db;
+pub mod serve;
 pub mod utils;
 
 use crate::{

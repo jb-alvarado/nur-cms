@@ -1,5 +1,4 @@
 use std::{
-    env,
     fmt::{Debug, Display},
     str::FromStr,
 };
@@ -13,23 +12,31 @@ use colored::Colorize;
 use rand::{Rng, distr::Alphanumeric};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{Execute, Postgres, QueryBuilder, postgres::PgPool};
+use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
-use tokio::{fs, task};
-use tracing::{debug, error, info, warn};
+use tokio::task;
+use tracing::{debug, error, warn};
 
 use crate::{
     db::{
         fields::{
-            AuthUserFields, ColumnCounter, ContentFields as CF, MediaFields, StrCompare,
-            TSLanguage, Table,
+            AuthUserFields, ColumnCounter, ContentFields as CF, StrCompare, TSLanguage, Table,
         },
-        format_sql,
-        models::{AuthUser, Configuration, Media, TSConfig},
+        models::{Configuration, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
     utils::errors::ServiceError,
+};
+
+#[cfg(debug_assertions)]
+use {sqlx::Execute, std::env, tokio::fs, tracing::info};
+
+#[cfg(debug_assertions)]
+use crate::db::{
+    fields::MediaFields,
+    format_sql,
+    models::{AuthUser, Media},
 };
 
 #[cfg(debug_assertions)]
