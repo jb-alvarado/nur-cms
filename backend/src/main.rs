@@ -8,14 +8,13 @@ use nur_cms::{
     CONFIG,
     db::handles,
     init_db, router_entries,
+    serve::routes::admin_routes,
     utils::{
         cmd_args::{Args, add_user},
         errors::ServiceError,
         logging::init_tracing,
     },
 };
-
-use nur_cms::serve::routes::admin_routes;
 
 #[tokio::main]
 async fn main() -> Result<(), ServiceError> {
