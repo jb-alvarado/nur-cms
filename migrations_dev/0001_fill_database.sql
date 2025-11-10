@@ -194,6 +194,17 @@ VALUES
         1,
         1
     );
+    (
+        15,
+        1,
+        2,
+        'blocks-article',
+        'Blocks Article',
+        'An article with blocks.',
+        '',
+        1,
+        1
+    );
 
 INSERT INTO
     content_meta (entry_id, start_time, end_time)
@@ -208,31 +219,31 @@ INSERT INTO
     content_blocks (entry_id, type, order_index, data)
 VALUES
     (
-        1,
+        15,
         'paragraph',
         0,
         '{"children":[{"text":"This is the first block of content.","type":"text"}]}'
     ),
     (
-        1,
+        15,
         'paragraph',
         1,
         '{"children":[{"text":"Here is another paragraph with some bold text.","type":"text","bold":true}]}'
     ),
     (
-        1,
+        15,
         'image',
         2,
         '{"alt":"Cover Image","filename":"cover.jpg","path":"/uploads/2025/10/cover.jpg","type":"image"}'
     ),
     (
-        1,
+        15,
         'paragraph',
         3,
         '{"children":[{"text":"Yet another text block with italic text.","type":"text","italic":true}]}'
     ),
     (
-        1,
+        15,
         'list',
         4,
         '{"items":[{"text":"First list item"},{"text":"Second list item"}],"type":"unordered"}'
