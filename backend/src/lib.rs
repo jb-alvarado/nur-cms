@@ -117,15 +117,15 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
             "/entries/{param}",
             get(entries_select).put(entry_update).delete(entry_delete),
         )
-        .route("/entries/{param}/{slug}", get(entry_select))
-        .route("/{kind}", post(content_insert))
-        .route("/{kind}/{id}", delete(content_delete).put(content_update));
+        .route("/entries/{param}/{slug}", get(entry_select));
+    // .route("/{kind}", post(content_insert))
+    // .route("/{kind}/{id}", delete(content_delete).put(content_update));
 
     let api_routes = Router::new()
         .route("/ts-language", get(ts_language_select))
         .route("/auth-role", get(auth_role_select))
         .nest("/auth-user", auth_user_routes)
-        .nest("/locale", locale_routes)
+        .nest("/locales", locale_routes)
         .nest("/content", content_routes)
         .layer(GrantsLayer::with_extractor(extract));
 

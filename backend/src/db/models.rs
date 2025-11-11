@@ -189,7 +189,7 @@ impl FromRow<'_, PgRow> for Locale {
             id: row.try_get("id").unwrap_or_default(),
             code: row.try_get("code").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
-            tsv_dict: row.try_get("name").unwrap_or_default(),
+            tsv_dict: row.try_get("tsv_dict").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -299,6 +299,8 @@ impl ColumnCounter for ContentTag {
 pub struct ContentEntry {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<i64>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub locale_id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -329,6 +331,7 @@ impl FromRow<'_, PgRow> for ContentEntry {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
+            group_id: row.try_get("group_id").ok(),
             locale_id: row.try_get("locale_id").unwrap_or_default(),
             type_id: row.try_get("type_id").unwrap_or_default(),
             slug: row.try_get("slug").unwrap_or_default(),

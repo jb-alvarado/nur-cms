@@ -329,6 +329,8 @@ impl fmt::Display for ContentTypeFields {
 #[serde(rename_all = "snake_case")]
 pub enum ContentFields {
     ID,
+    GroupID,
+    LocaleID,
     #[default]
     Slug,
     Status,
@@ -337,12 +339,12 @@ pub enum ContentFields {
     Tags,
     Meta,
     Blocks,
-    Locale,
     Title,
     Description,
     Body,
     CreatedAt,
     UpdatedAt,
+    GroupMembers,
     Media,
 }
 
@@ -350,6 +352,8 @@ impl StrCompare for ContentFields {
     fn is_equal_to_str(&self, other: &str) -> bool {
         match self {
             Self::ID => other == "id",
+            Self::GroupID => other == "group_id",
+            Self::LocaleID => other == "locale_id",
             Self::Slug => other == "slug",
             Self::Status => other == "status",
             Self::Author => other == "author",
@@ -357,12 +361,12 @@ impl StrCompare for ContentFields {
             Self::Tags => other == "tags",
             Self::Meta => other == "meta",
             Self::Blocks => other == "blocks",
-            Self::Locale => other == "locale",
             Self::Title => other == "title",
             Self::Description => other == "description",
             Self::Body => other == "body",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
+            Self::GroupMembers => other == "group_members",
             Self::Media => other == "media",
         }
     }
@@ -374,6 +378,8 @@ impl FromStr for ContentFields {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
             "id" => Ok(Self::ID),
+            "group_id" => Ok(Self::GroupID),
+            "locale_id" => Ok(Self::LocaleID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
             "author" => Ok(Self::Author),
@@ -381,12 +387,12 @@ impl FromStr for ContentFields {
             "tags" => Ok(Self::Tags),
             "meta" => Ok(Self::Meta),
             "blocks" => Ok(Self::Blocks),
-            "locale" => Ok(Self::Locale),
             "title" => Ok(Self::Title),
             "description" => Ok(Self::Description),
             "body" => Ok(Self::Body),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
+            "group_members" => Ok(Self::GroupMembers),
             "media" => Ok(Self::Media),
             _ => Err(format!("Field '{input}' not found!")),
         }
@@ -397,6 +403,8 @@ impl fmt::Display for ContentFields {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Self::ID => write!(f, "id"),
+            Self::GroupID => write!(f, "group_id"),
+            Self::LocaleID => write!(f, "locale_id"),
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
             Self::Author => write!(f, "author"),
@@ -404,12 +412,12 @@ impl fmt::Display for ContentFields {
             Self::Tags => write!(f, "tags"),
             Self::Meta => write!(f, "meta"),
             Self::Blocks => write!(f, "blocks"),
-            Self::Locale => write!(f, "locale"),
             Self::Title => write!(f, "title"),
             Self::Description => write!(f, "description"),
             Self::Body => write!(f, "body"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
+            Self::GroupMembers => write!(f, "group_members"),
             Self::Media => write!(f, "media"),
         }
     }

@@ -63,7 +63,11 @@ pub struct QueryObj<T> {
     #[serde(default, rename = "status")]
     pub search_status: Option<String>,
 
+    #[serde(default)]
     pub output_type: Option<OutputType>,
+
+    #[serde(default)]
+    pub group_id: Option<i64>,
 
     #[serde(default)]
     pub start_time: Option<DateTime<Utc>>,
@@ -98,6 +102,7 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             search_slug: None,
             search_status: None,
             output_type: None,
+            group_id: None,
             start_time: None,
             end_time: None,
             created_after: None,

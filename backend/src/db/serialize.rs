@@ -80,6 +80,10 @@ pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>, // draft, published, archived
@@ -93,8 +97,6 @@ pub struct ContentSerializer {
     pub tags: Vec<ContentTagSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocks: Vec<ContentBlockSerializer>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locale: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,6 +112,8 @@ pub struct ContentSerializer {
     pub updated_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub media: Vec<MediaSerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group_members: Vec<GroupMemberSerializer>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -165,6 +169,12 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             .map(|v| serde_json::from_value::<Vec<ContentBlockSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
 
+        let group_members = row
+            .try_get::<Option<serde_json::Value>, _>("group_members")
+            .unwrap_or_default()
+            .map(|v| serde_json::from_value::<Vec<GroupMemberSerializer>>(v).unwrap_or_default())
+            .unwrap_or_default();
+
         let media = row
             .try_get::<Option<serde_json::Value>, _>("media")
             .unwrap_or_default()
@@ -173,6 +183,8 @@ impl FromRow<'_, PgRow> for ContentSerializer {
 
         Ok(Self {
             id: row.try_get("id").ok(),
+            group_id: row.try_get("group_id").ok(),
+            locale_id: row.try_get("locale_id").ok(),
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
             author,
@@ -180,13 +192,13 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             categories,
             tags,
             blocks,
-            locale: row.try_get("locale").ok(),
             title: row.try_get("title").ok(),
             description: row.try_get("description").ok(),
             text: row.try_get("text").ok(),
             body: None,
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
+            group_members,
             media,
             total_count: row.try_get("total_count").ok(),
         })
@@ -241,6 +253,13 @@ pub struct ContentBlockSerializer {
     pub r#type: String,
     #[serde(default)]
     pub data: Value,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct GroupMemberSerializer {
+    pub id: i32,
+    pub locale_id: i32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]

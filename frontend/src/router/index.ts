@@ -36,6 +36,11 @@ const router = createRouter({
             name: 'content edit',
             component: () => import('../views/content/EditView.vue'),
         },
+        {
+            path: '/:type/:id/:group_id',
+            name: 'group content edit',
+            component: () => import('../views/content/EditView.vue'),
+        },
         // {
         //     path: '/page',
         //     name: 'page',

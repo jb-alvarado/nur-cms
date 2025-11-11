@@ -11,6 +11,7 @@ const auth = useAuth()
 const store = useIndex()
 
 onBeforeMount(async () => {
+    await store.selectLocales()
     await store.selectTypes()
 
     for (const type of store.types) {

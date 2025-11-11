@@ -388,6 +388,13 @@ pub async fn entry_update(
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         content["updated_at"] = Value::String(Utc::now().to_rfc3339());
 
+        if content.get("body").is_some() && content.get("text").is_some() {
+            content["body"].take();
+        } else if let Some(body) = content.get("body") {
+            content["text"] = body.clone();
+            content["body"].take();
+        }
+
         return match handles::update_record(&pool, &Table::ContentEntries, id, &content).await {
             Ok(_) => Ok(()),
             Err(e) => {

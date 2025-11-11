@@ -69,8 +69,11 @@ CREATE TABLE content_tags (
     UNIQUE (slug, locale_id)
 );
 
+CREATE SEQUENCE content_group_seq START 10000;
+
 CREATE TABLE content_entries (
     id SERIAL PRIMARY KEY,
+    group_id BIGINT NOT NULL DEFAULT nextval('content_group_seq'),
     type_id INT NOT NULL REFERENCES content_types (id) ON DELETE CASCADE,
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     slug TEXT NOT NULL,
@@ -85,6 +88,8 @@ CREATE TABLE content_entries (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (slug, locale_id, type_id)
 );
+
+CREATE INDEX idx_content_entries_group_id ON content_entries (group_id);
 
 CREATE TABLE content_meta (
     id SERIAL PRIMARY KEY,

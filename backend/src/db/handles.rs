@@ -507,7 +507,7 @@ pub async fn select_content(
             CF::Meta => sep.push(format!("(m.data, m.start_time, m.end_time) AS {f}")),
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
             CF::Body => sep.push("ce.text".to_string()),
-            CF::Locale => sep.push(format!("l.code as {f}")),
+            CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
             CF::Media => sep.push(format!("COALESCE(media_data.media, '[]') AS {f}")),
             _ => sep.push(format!("ce.{f}")),
         };
@@ -572,8 +572,20 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&CF::Locale) || query_obj.search_locale.is_some() {
-        query_builder.push("JOIN locales l ON l.id = ce.locale_id ");
+    if query_obj.fields.contains(&CF::GroupMembers) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'id', ge.id,
+                        'locale_id', ge.locale_id
+                    )
+                ) AS data
+                FROM content_entries ge
+                WHERE ge.group_id = ce.group_id
+                  AND ge.id != ce.id
+            ) AS group_members ON TRUE "#,
+        );
     }
 
     if query_obj.fields.contains(&CF::Media) {
@@ -641,6 +653,10 @@ pub async fn select_content(
 
     if let Some(status) = &query_obj.search_status {
         where_chain.push_and_bind(None, "ce.status = ", status, None);
+    }
+
+    if let Some(id) = &query_obj.group_id {
+        where_chain.push_and_bind(None, "ce.group_id = ", id, None);
     }
 
     if let Some(start) = &query_obj.start_time {

@@ -15,6 +15,7 @@ VALUES
 INSERT INTO
     content_entries (
         id,
+        group_id,
         type_id,
         locale_id,
         slug,
@@ -28,6 +29,20 @@ INSERT INTO
 VALUES
     (
         1,
+        10001,
+        1,
+        1,
+        'erster-artikel',
+        'Willkommen auf meinem Blog',
+        'Dies ist mein erster Artikel in Markdown.',
+        E'# Hallo Welt\nDies ist mein erster Artikel in **Markdown**.\n\nUnd wir haben einen _zweiten_ Absatz!\n\nUnd ein eingebettetes Bild: ![Cover](/uploads/2025/10/cover.jpg)\n\nAber auch ein Block-Bild:\n\n![Cover Block](/uploads/2025/10/block.jpg)\n\nHier einige HTML-Tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://example.org/image1.jpg" alt="image1" />\n\n<img src="https://example.org/image2.jpg" alt="image2" />\n\n<img src="https://example.org/image3.jpg" alt="image3" />\n\n</div></div>\n\nHier haben wir <i>inline</i> HTML.',
+        'published',
+        1,
+        1
+    ),
+    (
+        2,
+        10001,
         1,
         2,
         'first-article',
@@ -39,7 +54,8 @@ VALUES
         1
     ),
     (
-        2,
+        3,
+        10002,
         2,
         1,
         'about-us',
@@ -51,7 +67,8 @@ VALUES
         1
     ),
     (
-        3,
+        4,
+        10003,
         1,
         3,
         'second-article',
@@ -63,7 +80,8 @@ VALUES
         1
     ),
     (
-        4,
+        5,
+        10004,
         1,
         4,
         'third-article',
@@ -75,7 +93,8 @@ VALUES
         1
     ),
     (
-        5,
+        6,
+        10005,
         2,
         2,
         'privacy-policy',
@@ -87,7 +106,8 @@ VALUES
         1
     ),
     (
-        6,
+        7,
+        10006,
         2,
         1,
         'terms-of-service',
@@ -99,7 +119,8 @@ VALUES
         1
     ),
     (
-        7,
+        8,
+        10007,
         2,
         3,
         'faq',
@@ -111,7 +132,8 @@ VALUES
         1
     ),
     (
-        8,
+        9,
+        10008,
         2,
         4,
         'team',
@@ -123,7 +145,8 @@ VALUES
         1
     ),
     (
-        9,
+        10,
+        10009,
         2,
         2,
         'contact',
@@ -135,7 +158,8 @@ VALUES
         1
     ),
     (
-        10,
+        11,
+        10010,
         3,
         2,
         'rust-meetup-1',
@@ -147,7 +171,8 @@ VALUES
         1
     ),
     (
-        11,
+        12,
+        10011,
         3,
         3,
         'rust-meetup-2',
@@ -159,7 +184,8 @@ VALUES
         1
     ),
     (
-        12,
+        13,
+        10012,
         3,
         1,
         'opensource-conference',
@@ -171,7 +197,8 @@ VALUES
         1
     ),
     (
-        13,
+        14,
+        10013,
         3,
         4,
         'web-dev-workshop',
@@ -183,7 +210,8 @@ VALUES
         1
     ),
     (
-        14,
+        15,
+        10014,
         3,
         2,
         'ai-seminar',
@@ -193,15 +221,17 @@ VALUES
         'published',
         1,
         1
-    );
+    ),
     (
-        15,
+        16,
+        10015,
         1,
         2,
         'blocks-article',
         'Blocks Article',
         'An article with blocks.',
         '',
+        'published',
         1,
         1
     );
@@ -219,31 +249,31 @@ INSERT INTO
     content_blocks (entry_id, type, order_index, data)
 VALUES
     (
-        15,
+        16,
         'paragraph',
         0,
         '{"children":[{"text":"This is the first block of content.","type":"text"}]}'
     ),
     (
-        15,
+        16,
         'paragraph',
         1,
         '{"children":[{"text":"Here is another paragraph with some bold text.","type":"text","bold":true}]}'
     ),
     (
-        15,
+        16,
         'image',
         2,
         '{"alt":"Cover Image","filename":"cover.jpg","path":"/uploads/2025/10/cover.jpg","type":"image"}'
     ),
     (
-        15,
+        16,
         'paragraph',
         3,
         '{"children":[{"text":"Yet another text block with italic text.","type":"text","italic":true}]}'
     ),
     (
-        15,
+        16,
         'list',
         4,
         '{"items":[{"text":"First list item"},{"text":"Second list item"}],"type":"unordered"}'

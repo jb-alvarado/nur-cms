@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useAuth } from '@/stores/auth'
+import { errMsg } from '@/utils/error'
 
 export const useIndex = defineStore('index', {
     state: () => ({
@@ -31,6 +32,7 @@ export const useIndex = defineStore('index', {
         ],
         search: '',
         tableCols: [] as Content[],
+        locales: [] as Locale[],
         types: [] as ContentTypeExt[],
         type: 'article',
     }),
@@ -50,11 +52,30 @@ export const useIndex = defineStore('index', {
             }, seconds * 1000)
         },
 
+        async selectLocales() {
+            await fetch('/api/locales')
+                .then(async (resp) => {
+                    if (resp.status >= 400) {
+                        const msg = await errMsg(resp)
+                        throw new Error(msg)
+                    }
+                    return resp.json()
+                })
+                .then((response: RespondObj) => {
+                    if (response.results?.length > 0) {
+                        this.locales = response.results
+                    }
+                })
+                .catch((e) => {
+                    this.msgAlert('error', e, 6)
+                })
+        },
+
         async selectTypes() {
             await fetch('/api/content/types')
                 .then(async (resp) => {
                     if (resp.status >= 400) {
-                        const msg = (await resp.json())?.error ?? (await resp.text())
+                        const msg = await errMsg(resp)
                         throw new Error(msg)
                     }
                     return resp.json()
@@ -129,7 +150,7 @@ export const useIndex = defineStore('index', {
             })
                 .then(async (resp) => {
                     if (resp.status >= 400) {
-                        const msg = (await resp.json())?.error ?? (await resp.text())
+                        const msg = await errMsg(resp)
                         throw new Error(msg)
                     }
                     return resp.json()
@@ -159,17 +180,9 @@ export const useIndex = defineStore('index', {
                         body: JSON.stringify({ status }),
                     })
                         .then(async (resp) => {
-                            const text = await resp.text()
-                            let msg: string
-
                             if (resp.status >= 400) {
-                                try {
-                                    const json = JSON.parse(text)
-                                    msg = json?.error ?? (typeof json === 'string' ? json : JSON.stringify(json))
-                                } catch {
-                                    msg = text
-                                }
-                                this.msgAlert('error', msg, 6)
+                                const msg = await errMsg(resp)
+                                throw new Error(msg)
                             } else {
                                 this.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
                             }
@@ -193,21 +206,9 @@ export const useIndex = defineStore('index', {
                         headers: auth.authHeader,
                     })
                         .then(async (resp) => {
-                            const text = await resp.text()
-                            let msg: string
-
                             if (resp.status >= 400) {
-                                try {
-                                    const json = JSON.parse(text)
-                                    msg = json?.error ?? (typeof json === 'string' ? json : JSON.stringify(json))
-                                } catch {
-                                    msg = text
-                                }
-
-                                if (!msg) {
-                                    msg = resp.statusText
-                                }
-                                this.msgAlert('error', msg, 6)
+                                const msg = await errMsg(resp)
+                                throw new Error(msg)
                             } else {
                                 this.msgAlert('success', `Deleted: ${item.title ?? item.id}`, 2)
                             }

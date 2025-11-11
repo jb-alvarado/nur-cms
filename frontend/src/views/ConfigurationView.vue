@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 
@@ -23,7 +24,7 @@ async function typeSelect() {
     })
         .then(async (resp) => {
             if (resp.status >= 400) {
-                const msg = (await resp.json())?.error ?? (await resp.text())
+                const msg = await errMsg(resp)
                 throw new Error(msg)
             }
             return resp.json()
@@ -70,9 +71,8 @@ async function deleteType() {
             })
                 .then(async (resp) => {
                     if (resp.status >= 400) {
-                        const json = await resp.json()
-                        const msg = json ? json.error : await resp.text()
-                        store.msgAlert('error', msg, 6)
+                        const msg = await errMsg(resp)
+                        throw new Error(msg)
                     } else {
                         store.msgAlert('success', `Deleted: ${item.name ?? item.id}`, 2)
                     }
