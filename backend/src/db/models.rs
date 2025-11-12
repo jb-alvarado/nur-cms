@@ -356,6 +356,51 @@ impl ColumnCounter for ContentEntry {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
+pub struct ContentAuthor {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub first_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for ContentAuthor {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").unwrap_or_default(),
+            first_name: row.try_get("first_name").unwrap_or_default(),
+            last_name: row.try_get("last_name").unwrap_or_default(),
+            slug: row.try_get("slug").unwrap_or_default(),
+            bio: row.try_get("bio").ok(),
+            photo: row.try_get("photo").ok(),
+            created_at: row.try_get("created_at").ok(),
+            updated_at: row.try_get("updated_at").ok(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for ContentAuthor {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
 pub struct ContentMeta {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,

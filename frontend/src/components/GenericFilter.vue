@@ -4,6 +4,13 @@ import { useIndex } from '@/stores/index'
 
 const route = useRoute()
 const store = useIndex()
+
+defineProps({
+    hideFields: {
+        type: Boolean,
+        default: false,
+    },
+})
 </script>
 
 <template>
@@ -25,7 +32,7 @@ const store = useIndex()
         <select v-model="store.limit" class="select join-item" @change="store.setItemLimit()">
             <option v-for="lim in store.limits" :key="lim" :value="lim">{{ lim }}</option>
         </select>
-        <div class="join-item dropdown dropdown-end border border-base-content/20">
+        <div v-if="!hideFields" class="join-item dropdown dropdown-end border border-base-content/20">
             <div tabindex="0" role="button" class="btn p-2 h-9">
                 <i class="bi bi-gear text-lg leading-0"></i>
             </div>

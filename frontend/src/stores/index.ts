@@ -30,11 +30,12 @@ export const useIndex = defineStore('index', {
             { active: false, up: false, name: 'Status', field: 'status' },
             { active: false, up: false, name: 'Created At', field: 'created_at' },
         ],
+        baseURL: '/api/content/entries/article',
         search: '',
         tableCols: [] as Content[],
+        authors: [] as ContentAuthor[],
         locales: [] as Locale[],
         types: [] as ContentTypeExt[],
-        type: 'article',
     }),
 
     getters: {},
@@ -50,6 +51,25 @@ export const useIndex = defineStore('index', {
                     this.msgList.splice(index, 1)
                 }
             }, seconds * 1000)
+        },
+
+        async selectAuthors() {
+            await fetch('/api/content/authors?fields=id,first_name,last_name&limit=1000')
+                .then(async (resp) => {
+                    if (resp.status >= 400) {
+                        const msg = await errMsg(resp)
+                        throw new Error(msg)
+                    }
+                    return resp.json()
+                })
+                .then((response: RespondObj) => {
+                    if (response.results?.length > 0) {
+                        this.authors = response.results
+                    }
+                })
+                .catch((e) => {
+                    this.msgAlert('error', e, 6)
+                })
         },
 
         async selectLocales() {
@@ -90,11 +110,11 @@ export const useIndex = defineStore('index', {
                 })
         },
 
-        initContent(type: string) {
-            this.type = type
+        initContent(baseURL: string, fromStorage = true) {
+            this.baseURL = baseURL
             const visibleFields = localStorage.getItem('visibleFields')
 
-            if (visibleFields) {
+            if (fromStorage && visibleFields) {
                 this.visibleRows = JSON.parse(visibleFields)
             }
 
@@ -139,11 +159,13 @@ export const useIndex = defineStore('index', {
                 .join(',')
             const auth = useAuth()
 
-            const url = u
-                ? u
-                : sr
-                  ? `/api/content/entries/${this.type}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}&search=${sr}`
-                  : `/api/content/entries/${this.type}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
+            let url = u
+                  ? u
+                  : `${this.baseURL}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
+
+            if (sr) {
+                url = `${url}&search=${sr}`
+            }
 
             await fetch(url, {
                 headers: auth.authHeader,

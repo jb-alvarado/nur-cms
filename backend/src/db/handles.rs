@@ -501,7 +501,9 @@ pub async fn select_content(
 
     for f in &query_obj.fields {
         match *f {
-            CF::Author => sep.push(format!("(u.id, u.first_name, u.last_name) AS {f}")),
+            CF::Author => sep.push(format!(
+                "(ca.id, ca.first_name, ca.last_name, ca.slug, ca.bio, ca.photo) AS {f}"
+            )),
             CF::Categories => sep.push(format!("COALESCE(cats.data, ARRAY[]::record[]) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(m.data, m.start_time, m.end_time) AS {f}")),
@@ -518,8 +520,14 @@ pub async fn select_content(
     query_builder.push("FROM content_entries ce ");
     query_builder.push("JOIN content_types ct ON ct.id = ce.type_id ");
 
-    if query_obj.fields.contains(&CF::Author) {
-        query_builder.push("LEFT JOIN auth_users u ON u.id = ce.created_by ");
+    if query_obj.fields.contains(&CF::Author)
+        || query_obj.author.is_some()
+        || query_obj.search.is_some()
+    {
+        query_builder.push(
+            r#"JOIN content_entry_authors cea ON cea.entry_id = ce.id
+            JOIN content_authors ca ON ca.id = cea.author_id "#,
+        );
     }
 
     if query_obj.fields.contains(&CF::Categories) {
@@ -655,6 +663,10 @@ pub async fn select_content(
         where_chain.push_and_bind(None, "ce.status = ", status, None);
     }
 
+    if let Some(id) = &query_obj.author {
+        where_chain.push_and_bind(None, "ca.id = ", id, None);
+    }
+
     if let Some(id) = &query_obj.group_id {
         where_chain.push_and_bind(None, "ce.group_id = ", id, None);
     }
@@ -670,9 +682,23 @@ pub async fn select_content(
     if let Some(search) = query_obj.search.clone() {
         where_chain.push_and_bind(
             None,
-            "title ILIKE CONCAT('%', ",
+            "(ce.title ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
+        );
+
+        where_chain.push_and_bind(
+            Some("OR"),
+            "ca.first_name ILIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%')"),
+        );
+
+        where_chain.push_and_bind(
+            Some("OR"),
+            "ca.last_name ILIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%'))"),
         );
 
         // TODO: add full text search

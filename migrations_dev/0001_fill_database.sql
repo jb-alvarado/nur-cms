@@ -237,6 +237,19 @@ VALUES
     );
 
 INSERT INTO
+    content_authors (id, first_name, last_name, slug, bio)
+VALUES
+    (1, 'Max', 'Mustermann', 'max-mustermann', 'Max likes hiking, music and church planting.'),
+    (2, 'Lisa', 'Musterfrau', 'lisa-musterfrau', 'Lisa likes praying, walking and cats.');
+
+INSERT INTO
+    content_entry_authors (entry_id, author_id)
+VALUES
+    (1, 1),
+    (2, 1),
+    (4, 2);
+
+INSERT INTO
     content_meta (entry_id, start_time, end_time)
 VALUES
     (10, '2025-11-03T08:00:00Z', '2025-11-05T19:00:00Z'),

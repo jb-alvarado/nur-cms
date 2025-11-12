@@ -16,7 +16,20 @@ const store = useIndex()
 
 const typeParam = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
 
-store.initContent(typeParam ?? '')
+const authorRows = ref([
+    { active: true, up: true, name: 'ID', field: 'id' },
+    { active: false, up: false, name: 'First Name', field: 'first_name' },
+    { active: false, up: false, name: 'Last Name', field: 'last_name' },
+    { active: false, up: false, name: 'Created At', field: 'created_at' },
+])
+
+if (typeParam === 'author') {
+    store.visibleRows = authorRows.value
+    store.initContent('/api/content/authors', false)
+} else {
+    store.initContent(`/api/content/entries/${typeParam ?? 'article'}`)
+}
+
 store.search = ''
 store.contentSelect()
 
@@ -67,7 +80,7 @@ function statusLabel() {
                 </div>
             </div>
 
-            <GenericFilter />
+            <GenericFilter :hide-fields="typeParam === 'author'" />
         </div>
 
         <div class="overflow-x-auto mt-4">

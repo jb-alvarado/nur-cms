@@ -11,6 +11,7 @@ const auth = useAuth()
 const store = useIndex()
 
 onBeforeMount(async () => {
+    store.selectAuthors()
     await store.selectLocales()
     await store.selectTypes()
 
@@ -52,6 +53,11 @@ function toggleTheme() {
         </div>
         <div class="flex justify-center p-6">
             <div class="join join-vertical w-40">
+                <RouterLink to="/author" class="btn w-28 p-1 justify-normal items-center mb-2">
+                    <i class="bi bi-person-vcard p-1 text-2xl leading-0"></i>
+                    Author
+                </RouterLink>
+
                 <RouterLink
                     v-for="item in store.types"
                     :key="item.name"
@@ -61,10 +67,7 @@ function toggleTheme() {
                     <i class="bi p-1 text-2xl leading-0" :class="item.icon"></i>
                     {{ item.name }}
                 </RouterLink>
-                <RouterLink
-                    to="/media"
-                    class="btn join-item w-28 p-1 justify-normal items-center"
-                >
+                <RouterLink to="/media" class="btn join-item w-28 p-1 justify-normal items-center">
                     <i class="bi bi-card-image p-1 text-2xl leading-0"></i>
                     Media
                 </RouterLink>

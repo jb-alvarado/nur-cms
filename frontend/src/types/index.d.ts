@@ -8,6 +8,7 @@ declare global {
     type Role = import('./Role').Role
     type AuthRole = import('./models.d').AuthRole
     type AuthUser = import('./serialized.d').AuthUserSerializer
+    type ContentAuthor = import('./models.d').ContentAuthor
     type Locale = import('./models.d').Locale
     type GroupMember = import('./serialized.d').GroupMemberSerializer
     type RespondObj = import('./query.d').RespondObj

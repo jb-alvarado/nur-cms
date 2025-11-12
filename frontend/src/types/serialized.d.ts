@@ -4,13 +4,15 @@ import type { JsonValue } from "./serde_json/JsonValue";
 
 export type AuthUserSerializer = { id?: number | null, email?: string | null, username?: string | null, first_name?: string | null, last_name?: string | null, password?: string | null, role_id?: number | null, role?: AuthRole | null, created_at?: string | null, updated_at?: string | null, last_login?: string | null, total_count?: bigint | null, };
 
+export type AuthorSerializer = { id?: number | null, first_name?: string | null, last_name?: string | null, slug?: string | null, bio?: string | null, photo?: string | null, total_count?: bigint | null, };
+
 export type ContentBlockSerializer = { id?: number, type?: string, data: JsonValue, };
 
 export type ContentCategorySerializer = { id?: number, name?: string, slug?: string, };
 
 export type ContentMetaSerializer = { data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
 
-export type ContentSerializer = { id?: number | null, group_id?: bigint | null, locale_id?: number | null, slug?: string | null, status?: string | null, author?: AuthUserSerializer | null, meta?: ContentMetaSerializer | null, categories?: Array<ContentCategorySerializer>, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, body?: any, created_at?: string | null, updated_at?: string | null, media?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
+export type ContentSerializer = { id?: number | null, group_id?: bigint | null, locale_id?: number | null, slug?: string | null, status?: string | null, author?: AuthorSerializer | null, meta?: ContentMetaSerializer | null, categories?: Array<ContentCategorySerializer>, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, body?: any, created_at?: string | null, updated_at?: string | null, media?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 
 export type ContentTagSerializer = { id?: number, name?: string, slug?: string, };
 

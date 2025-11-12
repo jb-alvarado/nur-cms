@@ -16,11 +16,13 @@ use crate::{
     CONFIG,
     db::{
         fields::{
-            AuthRoleFields, AuthUserFields, ContentFields, ContentTypeFields, LocaleFields,
-            OutputType, Table,
+            AuthRoleFields, AuthUserFields, ContentAuthorFields, ContentFields, ContentTypeFields,
+            LocaleFields, OutputType, Table,
         },
         handles,
-        models::{AuthRole, AuthUser, AuthUserMeta, ContentType, Locale, Role, TSConfig},
+        models::{
+            AuthRole, AuthUser, AuthUserMeta, ContentAuthor, ContentType, Locale, Role, TSConfig,
+        },
         queries::{QueryObj, RespondObj},
         serialize::{AuthUserSerializer, ContentSerializer},
     },
@@ -83,7 +85,7 @@ pub async fn auth_user_select(
         params.fields = vec![
             AuthUserFields::Email,
             AuthUserFields::FirstName,
-            AuthUserFields::Lastname,
+            AuthUserFields::LastName,
             AuthUserFields::Username,
         ];
         params.query = format!("id={}", user.id);
@@ -249,6 +251,27 @@ pub async fn locale_update(
     Err(ServiceError::Forbidden(
         "You do not have permission to access this resource.".to_string(),
     ))
+}
+
+/* ------------------------------
+CONTENT AUTHOR
+---------------------------------*/
+
+pub async fn authors_select(
+    State(pool): State<PgPool>,
+    Query(mut params): Query<QueryObj<ContentAuthorFields>>,
+    OriginalUri(original_uri): OriginalUri,
+) -> Result<Json<RespondObj<ContentAuthor>>, ServiceError> {
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
+
+    return match handles::select_record(&pool, &Table::ContentAuthors, params).await {
+        Ok(authors) => Ok(Json(authors)),
+        Err(e) => {
+            error!("{e}");
+            Err(ServiceError::InternalServerError)
+        }
+    };
 }
 
 /* ------------------------------

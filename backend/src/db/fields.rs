@@ -10,6 +10,7 @@ pub enum Table {
     AuthRoles,
     AuthUsers,
     Locales,
+    ContentAuthors,
     ContentTypes,
     ContentCategories,
     ContentTags,
@@ -28,6 +29,7 @@ impl FromStr for Table {
             "auth_roles" => Ok(Self::AuthRoles),
             "auth_users" => Ok(Self::AuthUsers),
             "locales" => Ok(Self::Locales),
+            "content_authors" => Ok(Self::ContentAuthors),
             "content_types" => Ok(Self::ContentTypes),
             "content_categories" => Ok(Self::ContentCategories),
             "content_tags" => Ok(Self::ContentTags),
@@ -47,6 +49,7 @@ impl fmt::Display for Table {
             Self::AuthRoles => write!(f, "auth_roles"),
             Self::AuthUsers => write!(f, "auth_users"),
             Self::Locales => write!(f, "locales"),
+            Self::ContentAuthors => write!(f, "content_authors"),
             Self::ContentTypes => write!(f, "content_types"),
             Self::ContentCategories => write!(f, "content_categories"),
             Self::ContentTags => write!(f, "content_tags"),
@@ -179,7 +182,7 @@ pub enum AuthUserFields {
     Email,
     Username,
     FirstName,
-    Lastname,
+    LastName,
     Password,
     CreatedAt,
     UpdatedAt,
@@ -194,7 +197,7 @@ impl StrCompare for AuthUserFields {
             Self::Email => other == "email",
             Self::Username => other == "username",
             Self::FirstName => other == "first_name",
-            Self::Lastname => other == "last_name",
+            Self::LastName => other == "last_name",
             Self::Password => other == "password",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
@@ -213,7 +216,7 @@ impl FromStr for AuthUserFields {
             "email" => Ok(Self::Email),
             "username" => Ok(Self::Username),
             "first_name" => Ok(Self::FirstName),
-            "last_name" => Ok(Self::Lastname),
+            "last_name" => Ok(Self::LastName),
             "password" => Ok(Self::Password),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
@@ -231,7 +234,7 @@ impl fmt::Display for AuthUserFields {
             Self::Email => write!(f, "email"),
             Self::Username => write!(f, "username"),
             Self::FirstName => write!(f, "first_name"),
-            Self::Lastname => write!(f, "last_name"),
+            Self::LastName => write!(f, "last_name"),
             Self::Password => write!(f, "password"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
@@ -321,6 +324,60 @@ impl fmt::Display for ContentTypeFields {
             Self::ID => write!(f, "id"),
             Self::Name => write!(f, "name"),
             Self::Slug => write!(f, "slug"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentAuthorFields {
+    ID,
+    #[default]
+    FirstName,
+    LastName,
+    Slug,
+    Bio,
+    Photo,
+}
+
+impl StrCompare for ContentAuthorFields {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::ID => other == "id",
+            Self::FirstName => other == "first_name",
+            Self::LastName => other == "last_name",
+            Self::Slug => other == "slug",
+            Self::Bio => other == "bio",
+            Self::Photo => other == "photo",
+        }
+    }
+}
+
+impl FromStr for ContentAuthorFields {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "id" => Ok(Self::ID),
+            "first_name" => Ok(Self::FirstName),
+            "last_name" => Ok(Self::LastName),
+            "slug" => Ok(Self::Slug),
+            "bio" => Ok(Self::Bio),
+            "photo" => Ok(Self::Photo),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for ContentAuthorFields {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::ID => write!(f, "id"),
+            Self::FirstName => write!(f, "first_name"),
+            Self::LastName => write!(f, "last_name"),
+            Self::Slug => write!(f, "slug"),
+            Self::Bio => write!(f, "bio"),
+            Self::Photo => write!(f, "photo"),
         }
     }
 }

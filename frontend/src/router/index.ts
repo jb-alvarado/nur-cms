@@ -12,9 +12,9 @@ const router = createRouter({
             component: HomeView,
         },
         // {
-        //     path: '/article',
-        //     name: 'article',
-        //     component: () => import('../views/article/ArticleView.vue'),
+        //     path: '/author',
+        //     name: 'author lists',
+        //     component: () => import('../views/author/IndexView.vue'),
         // },
         // {
         //     path: '/article/:id',

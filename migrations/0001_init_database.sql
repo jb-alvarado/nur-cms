@@ -89,6 +89,23 @@ CREATE TABLE content_entries (
     UNIQUE (slug, locale_id, type_id)
 );
 
+CREATE TABLE content_authors (
+    id SERIAL PRIMARY KEY,
+    first_name VARCHAR(160) NOT NULL,
+    last_name VARCHAR(160) NOT NULL,
+    slug VARCHAR(320) NOT NULL UNIQUE,
+    bio TEXT,
+    photo VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE content_entry_authors (
+    entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+    author_id INT NOT NULL REFERENCES content_authors (id) ON DELETE CASCADE,
+    PRIMARY KEY (entry_id, author_id)
+);
+
 CREATE INDEX idx_content_entries_group_id ON content_entries (group_id);
 
 CREATE TABLE content_meta (

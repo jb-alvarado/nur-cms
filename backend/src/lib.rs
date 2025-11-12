@@ -113,6 +113,7 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
 
     let content_routes = Router::new()
         .route("/types", get(content_types_select))
+        .route("/authors", get(authors_select))
         .route(
             "/entries/{param}",
             get(entries_select).put(entry_update).delete(entry_delete),

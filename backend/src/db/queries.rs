@@ -64,6 +64,9 @@ pub struct QueryObj<T> {
     pub search_status: Option<String>,
 
     #[serde(default)]
+    pub author: Option<i32>,
+
+    #[serde(default)]
     pub output_type: Option<OutputType>,
 
     #[serde(default)]
@@ -101,6 +104,7 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             search_locale: None,
             search_slug: None,
             search_status: None,
+            author: None,
             output_type: None,
             group_id: None,
             start_time: None,
