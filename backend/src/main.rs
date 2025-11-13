@@ -2,8 +2,10 @@ use axum::Router;
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
-use tower_http::services::ServeDir;
 use tracing::{debug, error};
+
+#[cfg(debug_assertions)]
+use tower_http::services::ServeDir;
 
 use nur_cms::{
     CONFIG,
