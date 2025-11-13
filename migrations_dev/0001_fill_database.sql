@@ -1,20 +1,68 @@
 INSERT INTO
-    content_categories (id, locale_id, name, slug)
+    media (alt, filename, path, type, uploaded_by)
 VALUES
-    (1, 2, 'World Wide IT', 'world-wide-it'),
-    (2, 2, 'Newest Rust Projects', 'newest-rust-projects'),
-    (3, 2, 'Open Source Meetings', 'open-source-meetings');
+    (
+        'Cover',
+        'cover.jpg',
+        '/uploads/2025/10/cover.jpg',
+        'image',
+        1
+    ),
+    (
+        'Block',
+        'block.jpg',
+        '/uploads/2025/10/block.jpg',
+        'image',
+        1
+    ),
+    ('Cat', 'cat.jpg', '/uploads/2025/11/cat.jpg', 'image', 1),
+    (
+        'Flower',
+        'flower.jpg',
+        '/uploads/2025/11/flower.jpg',
+        'image',
+        1
+    );
 
 INSERT INTO
-    content_tags (id, locale_id, name, slug)
+    media_variants (media_id, resolution, format, filename)
 VALUES
-    (1, 2, 'IT', 'it'),
-    (2, 2, 'Rust', 'rust'),
-    (3, 2, 'Open Source', 'open-source');
+    (1, 960, 'jpg', 'cover_960.jpg'),
+    (1, 480, 'jpg', 'cover_480.jpg'),
+    (1, 960, 'avif', 'cover_960.avif'),
+    (1, 480, 'avif', 'cover_480.avif'),
+    (1, 960, 'webp', 'cover_960.webp'),
+    (1, 480, 'webp', 'cover_480.webp'),
+    (2, 960, 'jpg', 'block_960.jpg'),
+    (2, 480, 'jpg', 'block_480.jpg'),
+    (2, 960, 'avif', 'block_960.avif'),
+    (2, 480, 'avif', 'block_480.avif'),
+    (2, 960, 'webp', 'block_960.webp'),
+    (2, 480, 'webp', 'block_480.webp');
+
+INSERT INTO
+    content_categories (group_id, locale_id, name, slug, media_id)
+VALUES
+    (nextval('category_group_seq'), 1, 'Weltweite IT', 'weltweite-it', 1),
+    (10001, 2, 'World Wide IT', 'world-wide-it', 1),
+    (nextval('category_group_seq'), 2, 'Newest Rust Projects', 'newest-rust-projects', 2),
+    (
+        10003,
+        2,
+        'Open Source Meetings',
+        'open-source-meetings',
+        NULL
+    );
+
+INSERT INTO
+    content_tags (locale_id, name, slug)
+VALUES
+    (2, 'IT', 'it'),
+    (2, 'Rust', 'rust'),
+    (2, 'Open Source', 'open-source');
 
 INSERT INTO
     content_entries (
-        id,
         group_id,
         type_id,
         locale_id,
@@ -28,8 +76,7 @@ INSERT INTO
     )
 VALUES
     (
-        1,
-        10001,
+        nextval('entry_group_seq'),
         1,
         1,
         'erster-artikel',
@@ -41,7 +88,6 @@ VALUES
         1
     ),
     (
-        2,
         10001,
         1,
         2,
@@ -54,8 +100,7 @@ VALUES
         1
     ),
     (
-        3,
-        10002,
+        nextval('entry_group_seq'),
         2,
         1,
         'about-us',
@@ -67,8 +112,7 @@ VALUES
         1
     ),
     (
-        4,
-        10003,
+        nextval('entry_group_seq'),
         1,
         3,
         'second-article',
@@ -80,8 +124,7 @@ VALUES
         1
     ),
     (
-        5,
-        10004,
+        nextval('entry_group_seq'),
         1,
         4,
         'third-article',
@@ -93,8 +136,7 @@ VALUES
         1
     ),
     (
-        6,
-        10005,
+        nextval('entry_group_seq'),
         2,
         2,
         'privacy-policy',
@@ -106,8 +148,7 @@ VALUES
         1
     ),
     (
-        7,
-        10006,
+        nextval('entry_group_seq'),
         2,
         1,
         'terms-of-service',
@@ -119,8 +160,7 @@ VALUES
         1
     ),
     (
-        8,
-        10007,
+        nextval('entry_group_seq'),
         2,
         3,
         'faq',
@@ -132,8 +172,7 @@ VALUES
         1
     ),
     (
-        9,
-        10008,
+        nextval('entry_group_seq'),
         2,
         4,
         'team',
@@ -145,8 +184,7 @@ VALUES
         1
     ),
     (
-        10,
-        10009,
+        nextval('entry_group_seq'),
         2,
         2,
         'contact',
@@ -158,8 +196,7 @@ VALUES
         1
     ),
     (
-        11,
-        10010,
+        nextval('entry_group_seq'),
         3,
         2,
         'rust-meetup-1',
@@ -171,8 +208,7 @@ VALUES
         1
     ),
     (
-        12,
-        10011,
+        nextval('entry_group_seq'),
         3,
         3,
         'rust-meetup-2',
@@ -184,8 +220,7 @@ VALUES
         1
     ),
     (
-        13,
-        10012,
+        nextval('entry_group_seq'),
         3,
         1,
         'opensource-conference',
@@ -197,8 +232,7 @@ VALUES
         1
     ),
     (
-        14,
-        10013,
+        nextval('entry_group_seq'),
         3,
         4,
         'web-dev-workshop',
@@ -210,8 +244,7 @@ VALUES
         1
     ),
     (
-        15,
-        10014,
+        nextval('entry_group_seq'),
         3,
         2,
         'ai-seminar',
@@ -223,8 +256,7 @@ VALUES
         1
     ),
     (
-        16,
-        10015,
+        nextval('entry_group_seq'),
         1,
         2,
         'blocks-article',
@@ -237,10 +269,22 @@ VALUES
     );
 
 INSERT INTO
-    content_authors (id, first_name, last_name, slug, bio)
+    content_authors (first_name, last_name, slug, bio, media_id)
 VALUES
-    (1, 'Max', 'Mustermann', 'max-mustermann', 'Max likes hiking, music and church planting.'),
-    (2, 'Lisa', 'Musterfrau', 'lisa-musterfrau', 'Lisa likes praying, walking and cats.');
+    (
+        'Max',
+        'Mustermann',
+        'max-mustermann',
+        'Max likes hiking, music and church planting.',
+        3
+    ),
+    (
+        'Lisa',
+        'Musterfrau',
+        'lisa-musterfrau',
+        'Lisa likes praying, walking and cats.',
+        4
+    );
 
 INSERT INTO
     content_entry_authors (entry_id, author_id)
@@ -297,11 +341,11 @@ INSERT INTO
 VALUES
     (1, 1),
     (3, 1),
-    (4, 2),
-    (5, 3),
-    (6, 3),
-    (10, 2),
-    (11, 2);
+    (4, 3),
+    (5, 4),
+    (6, 4),
+    (10, 3),
+    (11, 3);
 
 INSERT INTO
     content_entry_tags (entry_id, tag_id)
@@ -313,40 +357,6 @@ VALUES
     (4, 2),
     (10, 2),
     (12, 3);
-
-INSERT INTO
-    media (alt, filename, path, type, uploaded_by)
-VALUES
-    (
-        'Cover',
-        'cover.jpg',
-        '/uploads/2025/10/cover.jpg',
-        'image',
-        1
-    ),
-    (
-        'Block',
-        'block.jpg',
-        '/uploads/2025/10/block.jpg',
-        'image',
-        1
-    );
-
-INSERT INTO
-    media_variants (media_id, resolution, format, filename)
-VALUES
-    (1, 960, 'jpg', 'cover_960.jpg'),
-    (1, 480, 'jpg', 'cover_480.jpg'),
-    (1, 960, 'avif', 'cover_960.avif'),
-    (1, 480, 'avif', 'cover_480.avif'),
-    (1, 960, 'webp', 'cover_960.webp'),
-    (1, 480, 'webp', 'cover_480.webp'),
-    (2, 960, 'jpg', 'block_960.jpg'),
-    (2, 480, 'jpg', 'block_480.jpg'),
-    (2, 960, 'avif', 'block_960.avif'),
-    (2, 480, 'avif', 'block_480.avif'),
-    (2, 960, 'webp', 'block_960.webp'),
-    (2, 480, 'webp', 'block_480.webp');
 
 INSERT INTO
     content_media (entry_id, media_id, ast_line)

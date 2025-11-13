@@ -9,7 +9,7 @@ use axum::{
     Router,
     extract::Request,
     response::Response,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -113,10 +113,14 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
 
     let content_routes = Router::new()
         .route("/types", get(content_types_select))
-        .route("/authors", get(authors_select))
+        .route("/authors", get(authors_select).post(author_insert))
+        .route("/authors/{id}", put(author_update).delete(author_delete))
         .route(
             "/entries/{param}",
-            get(entries_select).put(entry_update).delete(entry_delete),
+            get(entries_select)
+                .put(entry_update)
+                .delete(entry_delete)
+                .post(entry_insert),
         )
         .route("/entries/{param}/{slug}", get(entry_select));
     // .route("/{kind}", post(content_insert))

@@ -88,20 +88,28 @@ pub struct AuthorSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bio: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub photo: Option<String>,
+    pub media_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<MediaSerializer>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
 impl FromRow<'_, PgRow> for AuthorSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        let media = row
+            .try_get::<Option<serde_json::Value>, _>("media")
+            .unwrap_or_default()
+            .map(|v| serde_json::from_value::<MediaSerializer>(v).unwrap_or_default());
+
         Ok(Self {
             id: row.try_get("id").ok(),
             first_name: row.try_get("first_name").ok(),
             last_name: row.try_get("last_name").ok(),
             slug: row.try_get("slug").ok(),
             bio: row.try_get("bio").ok(),
-            photo: row.try_get("photo").ok(),
+            media_id: row.try_get("media_id").ok(),
+            media,
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -118,6 +126,7 @@ impl ColumnCounter for AuthorSerializer {
 pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
+    #[ts(as = "Option<i32>")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -163,26 +172,15 @@ impl FromRow<'_, PgRow> for ContentSerializer {
         let mut tags = vec![];
 
         let author = row
-            .try_get::<(
-                Option<i32>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-            ), &str>("author")
+            .try_get::<(Option<i32>, Option<String>, Option<String>, Option<i32>), &str>("author")
             .ok()
-            .map(
-                |(id, first_name, last_name, slug, bio, photo)| AuthorSerializer {
-                    id,
-                    first_name,
-                    last_name,
-                    slug,
-                    bio,
-                    photo,
-                    ..Default::default()
-                },
-            );
+            .map(|(id, first_name, last_name, media_id)| AuthorSerializer {
+                id,
+                first_name,
+                last_name,
+                media_id,
+                ..Default::default()
+            });
 
         let meta = row
             .try_get::<(Option<Value>, Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>("meta")

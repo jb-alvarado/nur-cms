@@ -64,7 +64,7 @@ function statusLabel() {
     <div>
         <div class="flex">
             <h1 class="text-2xl grow">{{ typeParam }}</h1>
-            <button class="btn btn-sm btn-primary text-base">New</button>
+            <RouterLink :to="`/${typeParam}/0`" class="btn btn-sm btn-primary text-base">New</RouterLink>
         </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">
@@ -74,7 +74,7 @@ function statusLabel() {
                     <input v-model="store.search" type="search" placeholder="Search" @keyup="store.searchItem" />
                 </label>
                 <div v-if="selectCount > 0">
-                    <button class="btn join-item" @click="setStatus()">{{ published }}</button>
+                    <button v-if="typeParam !== 'author'" class="btn join-item" @click="setStatus()">{{ published }}</button>
                     <button class="btn text-warning join-item" @click="openDeleteModal">Delete</button>
                     <span class="ms-2">{{ selectCount }} Selected</span>
                 </div>
@@ -93,7 +93,7 @@ function statusLabel() {
                 :check-box-change="statusLabel"
             />
         </div>
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="store.contentDelete">
+        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="() => store.contentDelete('/api/content/entries')">
             <p>Are you sure you want to delete this {{ typeParam }}{{ selectCount > 1 ? 's' : '' }}?</p>
         </GenericModal>
     </div>

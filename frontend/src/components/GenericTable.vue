@@ -110,6 +110,9 @@ function orderRows(row: any) {
                     <span v-else-if="col[row.field] === 'draft'" class="bg-base-100 p-1 rounded border">
                         {{ formatField(col, row.field) }}
                     </span>
+                    <span v-else-if="col[row.field] === 'archived'" class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60">
+                        {{ formatField(col, row.field) }}
+                    </span>
                     <span v-else>
                         {{ formatField(col, row.field) }}
                     </span>

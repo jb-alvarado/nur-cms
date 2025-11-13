@@ -235,12 +235,18 @@ impl ColumnCounter for ContentType {
 pub struct ContentCategory {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
+    #[ts(as = "i32")]
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub group_id: i64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub locale_id: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<String>,
+    #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
@@ -248,9 +254,11 @@ impl FromRow<'_, PgRow> for ContentCategory {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
+            group_id: row.try_get("group_id").unwrap_or_default(),
             locale_id: row.try_get("locale_id").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
             slug: row.try_get("slug").unwrap_or_default(),
+            media_id: row.try_get("media_id").ok(),
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -267,12 +275,16 @@ impl ColumnCounter for ContentCategory {
 pub struct ContentTag {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
+    #[ts(as = "i32")]
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub group_id: i64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub locale_id: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
+    #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 
@@ -280,6 +292,7 @@ impl FromRow<'_, PgRow> for ContentTag {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
+            group_id: row.try_get("group_id").unwrap_or_default(),
             locale_id: row.try_get("locale_id").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
             slug: row.try_get("slug").unwrap_or_default(),
@@ -299,6 +312,7 @@ impl ColumnCounter for ContentTag {
 pub struct ContentEntry {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub id: i32,
+    #[ts(as = "Option<i32>")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<i64>,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -368,7 +382,7 @@ pub struct ContentAuthor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bio: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub photo: Option<String>,
+    pub media_id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -385,7 +399,7 @@ impl FromRow<'_, PgRow> for ContentAuthor {
             last_name: row.try_get("last_name").unwrap_or_default(),
             slug: row.try_get("slug").unwrap_or_default(),
             bio: row.try_get("bio").ok(),
-            photo: row.try_get("photo").ok(),
+            media_id: row.try_get("media_id").ok(),
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
             total_count: row.try_get("total_count").ok(),

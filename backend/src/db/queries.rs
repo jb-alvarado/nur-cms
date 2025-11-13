@@ -69,6 +69,7 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub output_type: Option<OutputType>,
 
+    #[ts(as = "Option<i32>")]
     #[serde(default)]
     pub group_id: Option<i64>,
 

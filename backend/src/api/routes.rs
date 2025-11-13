@@ -20,11 +20,9 @@ use crate::{
             LocaleFields, OutputType, Table,
         },
         handles,
-        models::{
-            AuthRole, AuthUser, AuthUserMeta, ContentAuthor, ContentType, Locale, Role, TSConfig,
-        },
+        models::{AuthRole, AuthUser, AuthUserMeta, ContentType, Locale, Role, TSConfig},
         queries::{QueryObj, RespondObj},
-        serialize::{AuthUserSerializer, ContentSerializer},
+        serialize::{AuthUserSerializer, AuthorSerializer, ContentSerializer},
     },
     utils::{ast_serialize::to_structure_root, errors::ServiceError},
 };
@@ -261,11 +259,11 @@ pub async fn authors_select(
     State(pool): State<PgPool>,
     Query(mut params): Query<QueryObj<ContentAuthorFields>>,
     OriginalUri(original_uri): OriginalUri,
-) -> Result<Json<RespondObj<ContentAuthor>>, ServiceError> {
+) -> Result<Json<RespondObj<AuthorSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
 
-    return match handles::select_record(&pool, &Table::ContentAuthors, params).await {
+    return match handles::select_content_author(&pool, params).await {
         Ok(authors) => Ok(Json(authors)),
         Err(e) => {
             error!("{e}");
@@ -406,16 +404,21 @@ pub async fn entry_update(
     State(pool): State<PgPool>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
+    Extension(user): Extension<AuthUserMeta>,
     Json(mut content): Json<Value>,
 ) -> Result<(), ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+        content["updated_by"] = user.id.into();
 
-        if content.get("body").is_some() && content.get("text").is_some() {
-            content["body"].take();
-        } else if let Some(body) = content.get("body") {
+        if let Some(body) = content.get("body")
+            && content.get("text").is_none()
+        {
             content["text"] = body.clone();
-            content["body"].take();
+        }
+
+        if let Some(obj) = content.as_object_mut() {
+            obj.remove("body");
         }
 
         return match handles::update_record(&pool, &Table::ContentEntries, id, &content).await {
@@ -452,6 +455,56 @@ pub async fn entry_delete(
     ))
 }
 
+pub async fn entry_insert(
+    State(pool): State<PgPool>,
+    Path(type_slug): Path<String>,
+    details: AuthDetails<Role>,
+    Extension(user): Extension<AuthUserMeta>,
+    Json(mut content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    let params: QueryObj<ContentTypeFields> = QueryObj {
+        fields: vec![ContentTypeFields::ID, ContentTypeFields::Slug],
+        ..Default::default()
+    };
+
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        let resp: RespondObj<ContentType> =
+            handles::select_record(&pool, &Table::ContentTypes, params).await?;
+        let id = resp
+            .results
+            .iter()
+            .find(|ct| ct.slug == type_slug)
+            .map(|ct| ct.id)
+            .ok_or(ServiceError::NoContent)?;
+
+        content["type_id"] = id.into();
+        content["created_by"] = user.id.into();
+        content["updated_by"] = user.id.into();
+
+        if let Some(body) = content.get("body")
+            && content.get("text").is_none()
+        {
+            content["text"] = body.clone();
+        }
+
+        if let Some(obj) = content.as_object_mut() {
+            obj.remove("body");
+        }
+
+        return match handles::insert_record(&pool, &Table::ContentEntries, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
 pub async fn content_delete(
     State(pool): State<PgPool>,
     Path((table, id)): Path<(String, i32)>,
@@ -465,6 +518,71 @@ pub async fn content_delete(
             && details.has_any_authority(&[&Role::Admin, &Role::Author]))
     {
         return match handles::delete_record(&pool, &table, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn author_insert(
+    State(pool): State<PgPool>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    let table = Table::ContentAuthors;
+
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::insert_record(&pool, &table, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn author_delete(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::delete_record(&pool, &Table::ContentAuthors, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn author_update(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(mut content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+
+        return match handles::update_record(&pool, &Table::ContentAuthors, id, &content).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");

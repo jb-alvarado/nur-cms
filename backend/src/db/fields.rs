@@ -330,6 +330,60 @@ impl fmt::Display for ContentTypeFields {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
+pub enum ContentCategoryFields {
+    ID,
+    GroupID,
+    LocaleID,
+    #[default]
+    Name,
+    Slug,
+    MediaID,
+}
+
+impl StrCompare for ContentCategoryFields {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::ID => other == "id",
+            Self::GroupID => other == "group_id",
+            Self::LocaleID => other == "locale_id",
+            Self::Name => other == "name",
+            Self::Slug => other == "slug",
+            Self::MediaID => other == "media_id",
+        }
+    }
+}
+
+impl FromStr for ContentCategoryFields {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "id" => Ok(Self::ID),
+            "group_id" => Ok(Self::GroupID),
+            "locale_id" => Ok(Self::LocaleID),
+            "name" => Ok(Self::Name),
+            "slug" => Ok(Self::Slug),
+            "media_id" => Ok(Self::MediaID),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for ContentCategoryFields {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::ID => write!(f, "id"),
+            Self::GroupID => write!(f, "group_id"),
+            Self::LocaleID => write!(f, "locale_id"),
+            Self::Name => write!(f, "name"),
+            Self::Slug => write!(f, "slug"),
+            Self::MediaID => write!(f, "media_id"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
+#[serde(rename_all = "snake_case")]
 pub enum ContentAuthorFields {
     ID,
     #[default]
@@ -337,7 +391,8 @@ pub enum ContentAuthorFields {
     LastName,
     Slug,
     Bio,
-    Photo,
+    MediaID,
+    Media,
 }
 
 impl StrCompare for ContentAuthorFields {
@@ -348,7 +403,8 @@ impl StrCompare for ContentAuthorFields {
             Self::LastName => other == "last_name",
             Self::Slug => other == "slug",
             Self::Bio => other == "bio",
-            Self::Photo => other == "photo",
+            Self::MediaID => other == "media_id",
+            Self::Media => other == "media",
         }
     }
 }
@@ -363,7 +419,8 @@ impl FromStr for ContentAuthorFields {
             "last_name" => Ok(Self::LastName),
             "slug" => Ok(Self::Slug),
             "bio" => Ok(Self::Bio),
-            "photo" => Ok(Self::Photo),
+            "media_id" => Ok(Self::MediaID),
+            "media" => Ok(Self::Media),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -377,7 +434,8 @@ impl fmt::Display for ContentAuthorFields {
             Self::LastName => write!(f, "last_name"),
             Self::Slug => write!(f, "slug"),
             Self::Bio => write!(f, "bio"),
-            Self::Photo => write!(f, "photo"),
+            Self::MediaID => write!(f, "media_id"),
+            Self::Media => write!(f, "media"),
         }
     }
 }

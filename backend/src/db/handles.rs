@@ -20,11 +20,12 @@ use tracing::{debug, error, warn};
 use crate::{
     db::{
         fields::{
-            AuthUserFields, ColumnCounter, ContentFields as CF, StrCompare, TSLanguage, Table,
+            AuthUserFields, ColumnCounter, ContentAuthorFields, ContentFields as CF, StrCompare,
+            TSLanguage, Table,
         },
         models::{Configuration, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
-        serialize::{AuthUserSerializer, ContentSerializer},
+        serialize::{AuthUserSerializer, AuthorSerializer, ContentSerializer},
     },
     utils::errors::ServiceError,
 };
@@ -85,6 +86,10 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
 
             pool.execute(&*sql).await?;
         }
+
+        sqlx::query("UPDATE configuration SET storage = '../uploads' WHERE id = 1;")
+            .execute(pool)
+            .await?;
     }
 
     Ok(())
@@ -193,18 +198,27 @@ pub async fn select_auth_user(
 
     query_builder = where_chain.into_inner();
 
-    if query_obj
-        .fields
-        .iter()
-        .any(|f| query_obj.ordering.contains(&f.to_string()))
-    {
-        let ordering = query_obj
-            .ordering
-            .split(", ")
-            .map(|item| format!("u.{}", item))
-            .collect::<Vec<_>>()
-            .join(", ");
-        query_builder.push(format!(" ORDER BY {}", ordering));
+    let ordering: Vec<String> = query_obj
+        .ordering
+        .split(',')
+        .filter_map(|part| {
+            let mut split = part.split_whitespace();
+            let column = split.next()?;
+            let direction = split.next().unwrap_or("ASC").to_uppercase();
+
+            if query_obj.fields.iter().any(|f| f.to_string() == column)
+                && (direction == "ASC" || direction == "DESC")
+            {
+                Some(format!("{column} {direction}"))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !ordering.is_empty() {
+        query_builder.push(" ORDER BY ");
+        query_builder.push(ordering.join(", "));
     }
 
     query_builder.push(format!(
@@ -278,6 +292,8 @@ where
     if keys.is_empty() {
         return Err(ServiceError::NoContent);
     }
+
+    // TODO COALESCE(:group_id, nextval('entry_group_seq'))
 
     qb.push(keys.join(", "));
     qb.push(") VALUES (");
@@ -368,18 +384,27 @@ where
 
     query_builder = where_chain.into_inner();
 
-    if query_obj
-        .fields
-        .iter()
-        .any(|f| query_obj.ordering.contains(&f.to_string()))
-    {
-        let ordering = query_obj
-            .ordering
-            .split(", ")
-            .map(std::string::ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        query_builder.push(format!(" ORDER BY {ordering}"));
+    let ordering: Vec<String> = query_obj
+        .ordering
+        .split(',')
+        .filter_map(|part| {
+            let mut split = part.split_whitespace();
+            let column = split.next()?;
+            let direction = split.next().unwrap_or("ASC").to_uppercase();
+
+            if query_obj.fields.iter().any(|f| f.to_string() == column)
+                && (direction == "ASC" || direction == "DESC")
+            {
+                Some(format!("{column} {direction}"))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !ordering.is_empty() {
+        query_builder.push(" ORDER BY ");
+        query_builder.push(ordering.join(", "));
     }
 
     query_builder.push(format!(
@@ -492,6 +517,132 @@ where
 Content
 --------------------------------------- */
 
+pub async fn select_content_author(
+    pool: &PgPool,
+    query_obj: QueryObj<ContentAuthorFields>,
+) -> Result<RespondObj<AuthorSerializer>, ServiceError> {
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
+    let mut separated = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        match *f {
+            ContentAuthorFields::Media => {
+                separated.push("COALESCE(media.data, '{}'::json) AS \"media\"")
+            }
+            ContentAuthorFields::MediaID => {
+                if !query_obj.fields.contains(&ContentAuthorFields::Media) {
+                    separated.push(format!("ca.{f}"));
+                }
+                continue;
+            }
+            _ => separated.push(format!("ca.{f}")),
+        };
+    }
+
+    separated.push("count(*) OVER() AS total_count");
+
+    separated.push_unseparated(" ");
+    query_builder.push("FROM content_authors ca ");
+
+    if query_obj.fields.contains(&ContentAuthorFields::Media) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_build_object(
+                    'id', m.id,
+                    'alt', m.alt,
+                    'path', m.path,
+                    'variants', COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', mv.id,
+                                    'resolution', mv.resolution,
+                                    'format', mv.format,
+                                    'filename', mv.filename
+                                )
+                            )
+                            FROM media_variants mv
+                            WHERE mv.media_id = m.id
+                        ),
+                        '[]'
+                    )
+                ) AS data
+                FROM media m
+                WHERE m.id = ca.media_id
+            ) AS media ON TRUE "#,
+        );
+    }
+
+    let mut where_chain = WhereBuilder::new(query_builder);
+
+    if let Some(id) = &query_obj.search_id {
+        where_chain.push_and_bind(None, "ca.id = ", id, None);
+    }
+
+    if let Some(after) = &query_obj.created_after {
+        where_chain.push_and_bind(None, "ca.created_at >= ", after, None);
+    }
+
+    if let Some(before) = &query_obj.created_before {
+        where_chain.push_and_bind(None, "ca.created_at < ", before, None);
+    }
+
+    if let Some(search) = query_obj.search.clone() {
+        where_chain.push_and_bind(
+            None,
+            "(ca.first_name ILIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%')"),
+        );
+
+        where_chain.push_and_bind(
+            Some(" OR"),
+            "ca.last_name ILIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%'))"),
+        );
+    }
+
+    query_builder = where_chain.into_inner();
+
+    let ordering: Vec<String> = query_obj
+        .ordering
+        .split(',')
+        .filter_map(|part| {
+            let mut split = part.split_whitespace();
+            let column = split.next()?;
+            let direction = split.next().unwrap_or("ASC").to_uppercase();
+
+            if query_obj.fields.iter().any(|f| f.to_string() == column)
+                && (direction == "ASC" || direction == "DESC")
+            {
+                Some(format!("{column} {direction}"))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !ordering.is_empty() {
+        query_builder.push(" ORDER BY ");
+        query_builder.push(ordering.join(", "));
+    }
+
+    query_builder.push(format!(
+        " LIMIT {} OFFSET {}",
+        query_obj.limit, query_obj.offset
+    ));
+
+    let query = query_builder.build_query_as::<AuthorSerializer>();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    let data: Vec<AuthorSerializer> = query.fetch_all(pool).await?;
+
+    Ok(RespondObj::new(&query_obj, data))
+}
+
 pub async fn select_content(
     pool: &PgPool,
     query_obj: &QueryObj<CF>,
@@ -502,11 +653,11 @@ pub async fn select_content(
     for f in &query_obj.fields {
         match *f {
             CF::Author => sep.push(format!(
-                "(ca.id, ca.first_name, ca.last_name, ca.slug, ca.bio, ca.photo) AS {f}"
+                "(ca.id, ca.first_name, ca.last_name, ca.media_id) AS {f}"
             )),
             CF::Categories => sep.push(format!("COALESCE(cats.data, ARRAY[]::record[]) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
-            CF::Meta => sep.push(format!("(m.data, m.start_time, m.end_time) AS {f}")),
+            CF::Meta => sep.push(format!("(cm.data, cm.start_time, cm.end_time) AS {f}")),
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
             CF::Body => sep.push("ce.text".to_string()),
             CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
@@ -525,8 +676,8 @@ pub async fn select_content(
         || query_obj.search.is_some()
     {
         query_builder.push(
-            r#"JOIN content_entry_authors cea ON cea.entry_id = ce.id
-            JOIN content_authors ca ON ca.id = cea.author_id "#,
+            r#"LEFT JOIN content_entry_authors cea ON cea.entry_id = ce.id
+            LEFT JOIN content_authors ca ON ca.id = cea.author_id "#,
         );
     }
 
@@ -550,8 +701,8 @@ pub async fn select_content(
                     (t.id, t.name, t.slug)
                 ) AS data
                 FROM content_tags t
-                JOIN content_entry_tags ct ON ct.tag_id = t.id
-                WHERE ct.entry_id = ce.id
+                JOIN content_entry_tags cet ON cet.tag_id = t.id
+                WHERE cet.entry_id = ce.id
             ) AS tags ON TRUE "#,
         );
     }
@@ -560,7 +711,7 @@ pub async fn select_content(
         || query_obj.start_time.is_some()
         || query_obj.end_time.is_some()
     {
-        query_builder.push("LEFT JOIN content_meta m ON m.entry_id = ce.id ");
+        query_builder.push("LEFT JOIN content_meta cm ON cm.entry_id = ce.id ");
     }
 
     if query_obj.fields.contains(&CF::Blocks) {
@@ -672,11 +823,11 @@ pub async fn select_content(
     }
 
     if let Some(start) = &query_obj.start_time {
-        where_chain.push_and_bind(None, "m.start_time >= ", start, None);
+        where_chain.push_and_bind(None, "cm.start_time >= ", start, None);
     }
 
     if let Some(end) = &query_obj.end_time {
-        where_chain.push_and_bind(None, "m.end_time <= ", end, None);
+        where_chain.push_and_bind(None, "cm.end_time <= ", end, None);
     }
 
     if let Some(search) = query_obj.search.clone() {

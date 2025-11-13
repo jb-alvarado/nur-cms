@@ -218,12 +218,12 @@ export const useIndex = defineStore('index', {
             await this.contentSelect()
         },
 
-        async contentDelete() {
+        async contentDelete(url: null | string = null) {
             const auth = useAuth()
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`/api/content/entries/${item.id}`, {
+                    await fetch(`${url ? url : this.baseURL}/${item.id}`, {
                         method: 'DELETE',
                         headers: auth.authHeader,
                     })

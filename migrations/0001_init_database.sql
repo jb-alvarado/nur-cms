@@ -40,6 +40,24 @@ VALUES
     ('fr-FR', 'French', 'french'),
     ('es-ES', 'Spanish', 'spanish');
 
+CREATE TABLE media (
+    id SERIAL PRIMARY KEY,
+    alt TEXT,
+    filename TEXT NOT NULL,
+    path TEXT NOT NULL,
+    type TEXT,
+    uploaded_by INT REFERENCES auth_users (id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE media_variants (
+    id BIGSERIAL PRIMARY KEY,
+    media_id INT REFERENCES media (id) ON DELETE CASCADE,
+    resolution INT NOT NULL,
+    format TEXT NOT NULL DEFAULT 'jpg',
+    filename TEXT NOT NULL
+);
+
 CREATE TABLE content_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(12) UNIQUE NOT NULL, -- "Article", "Page", "Event"
@@ -53,27 +71,38 @@ VALUES
     (2, 'Page', 'page'),
     (3, 'Event', 'event');
 
+CREATE SEQUENCE category_group_seq START 10001;
+
 CREATE TABLE content_categories (
     id SERIAL PRIMARY KEY,
+    group_id BIGINT NOT NULL DEFAULT nextval('category_group_seq'),
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     name VARCHAR(160) NOT NULL,
     slug VARCHAR(160) NOT NULL,
+    media_id INT REFERENCES media (id) ON DELETE SET NULL,
     UNIQUE (slug, locale_id)
 );
+
+CREATE INDEX idx_category_group_id ON content_categories (group_id);
+
+CREATE SEQUENCE tag_group_seq START 10001;
 
 CREATE TABLE content_tags (
     id SERIAL PRIMARY KEY,
+    group_id BIGINT NOT NULL DEFAULT nextval('tag_group_seq'),
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     name VARCHAR(160) NOT NULL,
     slug VARCHAR(160) NOT NULL,
     UNIQUE (slug, locale_id)
 );
 
-CREATE SEQUENCE content_group_seq START 10000;
+CREATE INDEX idx_tag_group_id ON content_categories (group_id);
+
+CREATE SEQUENCE entry_group_seq START 10001;
 
 CREATE TABLE content_entries (
     id SERIAL PRIMARY KEY,
-    group_id BIGINT NOT NULL DEFAULT nextval('content_group_seq'),
+    group_id BIGINT NOT NULL DEFAULT nextval('entry_group_seq'),
     type_id INT NOT NULL REFERENCES content_types (id) ON DELETE CASCADE,
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     slug TEXT NOT NULL,
@@ -89,13 +118,15 @@ CREATE TABLE content_entries (
     UNIQUE (slug, locale_id, type_id)
 );
 
+CREATE INDEX idx_entries_group_id ON content_entries (group_id);
+
 CREATE TABLE content_authors (
     id SERIAL PRIMARY KEY,
     first_name VARCHAR(160) NOT NULL,
     last_name VARCHAR(160) NOT NULL,
     slug VARCHAR(320) NOT NULL UNIQUE,
     bio TEXT,
-    photo VARCHAR(255),
+    media_id INT REFERENCES media (id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -105,8 +136,6 @@ CREATE TABLE content_entry_authors (
     author_id INT NOT NULL REFERENCES content_authors (id) ON DELETE CASCADE,
     PRIMARY KEY (entry_id, author_id)
 );
-
-CREATE INDEX idx_content_entries_group_id ON content_entries (group_id);
 
 CREATE TABLE content_meta (
     id SERIAL PRIMARY KEY,
@@ -136,6 +165,18 @@ CREATE TABLE content_entry_tags (
     PRIMARY KEY (entry_id, tag_id)
 );
 
+CREATE TABLE content_media (
+    id SERIAL PRIMARY KEY,
+    entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+    media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+    ast_line INT NOT NULL DEFAULT 0,
+    start_offset INT,
+    end_offset INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (entry_id, media_id, ast_line)
+);
+
 CREATE TABLE comments (
     id BIGSERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
@@ -147,36 +188,6 @@ CREATE TABLE comments (
     status VARCHAR(16) CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE media (
-    id SERIAL PRIMARY KEY,
-    alt TEXT,
-    filename TEXT NOT NULL,
-    path TEXT NOT NULL,
-    type TEXT,
-    uploaded_by INT REFERENCES auth_users (id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE media_variants (
-    id BIGSERIAL PRIMARY KEY,
-    media_id INT REFERENCES media (id) ON DELETE CASCADE,
-    resolution INT NOT NULL,
-    format TEXT NOT NULL DEFAULT 'jpg',
-    filename TEXT NOT NULL
-);
-
-CREATE TABLE content_media (
-    id SERIAL PRIMARY KEY,
-    entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
-    media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
-    ast_line INT NOT NULL DEFAULT 0,
-    start_offset INT,
-    end_offset INT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (entry_id, media_id, ast_line)
 );
 
 CREATE TABLE configuration (

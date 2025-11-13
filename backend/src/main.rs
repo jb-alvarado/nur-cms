@@ -2,6 +2,7 @@ use axum::Router;
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
+use tower_http::services::ServeDir;
 use tracing::{debug, error};
 
 use nur_cms::{
@@ -42,11 +43,18 @@ async fn main() -> Result<(), ServiceError> {
 
     let (auth_routes, api_routes) = router_entries();
 
-    let app = Router::new()
+    let mut app = Router::new()
         .nest("/auth", auth_routes)
         .nest("/api", api_routes)
         .merge(admin_routes())
         .with_state(pool);
+
+    #[cfg(debug_assertions)]
+    {
+        debug!("Dev mode: serving static files from ../uploads");
+        let uploads_service = ServeDir::new("../uploads");
+        app = app.nest_service("/uploads", uploads_service);
+    }
 
     let listener =
         tokio::net::TcpListener::bind(args.listen.as_deref().unwrap_or("127.0.0.1:8777"))
