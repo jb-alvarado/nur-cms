@@ -8,12 +8,15 @@ import { closeDropdown } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
 import { slugify } from '@/utils/slugify.js'
 
+import GenericModal from '@/components/GenericModal.vue'
+
 const auth = useAuth()
 const store = useIndex()
 const route = useRoute()
 const router = useRouter()
 const categoryId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
+const deleteModal = ref()
 const category = ref({
     id: 0,
     group_id: groupID,
@@ -67,6 +70,10 @@ if (categoryId > 0) {
     }, 1000)
 }
 
+const openDeleteModal = () => {
+    deleteModal.value.showModal()
+}
+
 async function getCategory() {
     await fetch(`/api/content/categories?id=${categoryId}`, {
         headers: auth.authHeader,
@@ -104,6 +111,30 @@ function memberLink(id: number): string {
     const member = category.value.group_members?.find((member: GroupMember) => member.locale_id === id)
 
     return `/category/${member?.id ?? category.value.id}`
+}
+
+function contentDelete() {
+    const auth = useAuth()
+
+    if (categoryId > 0) {
+        fetch(`/api/content/categories/${categoryId}`, {
+            method: 'DELETE',
+            headers: auth.authHeader,
+        })
+            .then(async (resp) => {
+                if (resp.status >= 400) {
+                    const msg = await errMsg(resp)
+                    throw new Error(msg)
+                } else {
+                    store.msgAlert('success', `Deleted: ${category.value.title ?? category.value.id}`, 2)
+
+                     router.push(`/category`)
+                }
+            })
+            .catch((e) => {
+                store.msgAlert('error', e, 6)
+            })
+    }
 }
 
 async function save() {
@@ -173,7 +204,7 @@ async function save() {
                         />
                     </fieldset>
 
-                    <fieldset class="fieldset w-full max-w-80">
+                    <fieldset class="fieldset w-full max-w-64">
                         <legend class="fieldset-legend">Slug</legend>
                         <input v-model="category.slug" type="text" class="input" placeholder="Last Name" />
                     </fieldset>
@@ -236,9 +267,17 @@ async function save() {
                         </details>
                     </div>
 
-                    <button class="btn" :class="{ 'btn-primary': needsSave }" @click="save()">Save</button>
+                     <div class="join">
+                        <button class="btn btn-warning join-item" @click="openDeleteModal()">Delete</button>
+                        <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
+                            Save
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
+        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
+            <p>Are you sure you want to delete this category?</p>
+        </GenericModal>
     </div>
 </template>
