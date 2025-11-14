@@ -99,9 +99,6 @@ function statusLabel() {
         <div class="overflow-x-auto mt-4">
             <GenericTable
                 ref="tableRef"
-                v-model:ordering="store.ordering"
-                :columns="store.tableCols"
-                :rows="store.visibleRows"
                 :type="typeParam"
                 :check-box-change="statusLabel"
             />

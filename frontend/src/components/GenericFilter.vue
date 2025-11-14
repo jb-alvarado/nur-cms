@@ -37,7 +37,15 @@ defineProps({
                 <i class="bi bi-gear text-lg leading-0"></i>
             </div>
             <ul tabindex="-1" class="dropdown-content menu bg-base-300 rounded-sm z-1 w-52 p-2 mt-1 shadow-sm">
-                <li v-for="row in store.allRows.filter(r => route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))" :key="row.field">
+                <li
+                    v-for="row in store.allRows.filter(
+                        (r) =>
+                            r.field !== 'locale_id' &&
+                            r.field !== 'group_id' &&
+                            (route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                    )"
+                    :key="row.field"
+                >
                     <label>
                         <input
                             v-model="row.check"

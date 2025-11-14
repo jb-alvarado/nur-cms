@@ -23,12 +23,15 @@ export const useIndex = defineStore('index', {
             { check: false, active: false, up: false, name: 'End Time', field: 'end_time' },
             { check: false, active: false, up: false, name: 'Created At', field: 'created_at' },
             { check: false, active: false, up: false, name: 'Updated At', field: 'updated_at' },
+            { check: false, active: false, up: false, name: 'Group ID', field: 'group_id' },
         ],
         visibleRows: [
             { active: true, up: true, name: 'ID', field: 'id' },
             { active: false, up: false, name: 'Title', field: 'title' },
             { active: false, up: false, name: 'Status', field: 'status' },
             { active: false, up: false, name: 'Created At', field: 'created_at' },
+            { active: false, up: false, name: 'Language', field: 'locale_id' },
+            { active: false, up: false, name: 'Group ID', field: 'group_id' },
         ],
         baseURL: '/api/content/entries/article',
         search: '',
@@ -191,10 +194,11 @@ export const useIndex = defineStore('index', {
 
         async updateStatus(status: string) {
             const auth = useAuth()
+            const url = this.baseURL.includes('entries') ? this.baseURL.replace(/\/[^/]+$/, '') : this.baseURL
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`${this.baseURL}/${item.id}`, {
+                    await fetch(`${url}/${item.id}`, {
                         method: 'PUT',
                         headers: { ...this.contentType, ...auth.authHeader },
                         body: JSON.stringify({ status }),

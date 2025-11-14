@@ -42,8 +42,10 @@ defineExpose({
             </div>
             <div class="modal-action">
                 <form method="dialog">
-                    <button class="btn" @click="cancelAction()">Cancel</button>
-                    <button class="btn" @click="okAction()">Ok</button>
+                    <div class="join">
+                        <button class="btn join-item" @click="cancelAction()">Cancel</button>
+                        <button class="btn join-item" @click="okAction()">Ok</button>
+                    </div>
                 </form>
             </div>
         </div>

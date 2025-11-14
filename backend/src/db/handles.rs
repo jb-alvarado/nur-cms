@@ -736,7 +736,7 @@ pub async fn select_categories(
     if let Some(search) = query_obj.search.clone() {
         where_chain.push_and_bind(
             None,
-            "(cc.name ILIKE CONCAT('%', ",
+            "cc.name ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );

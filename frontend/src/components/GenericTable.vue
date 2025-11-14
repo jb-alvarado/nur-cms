@@ -1,24 +1,16 @@
 <script setup lang="ts">
-import { ref, type PropType } from 'vue'
+import { ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { RouterLink, useRoute } from 'vue-router'
 import { useIndex } from '@/stores/index'
+import { closeDropdown } from '@/utils/helper'
 
-const emit = defineEmits(['update:ordering'])
 const route = useRoute()
 const store = useIndex()
 const select = ref(false)
-const ordering = ref('id')
+const groupedColumns = ref<any[]>([])
 
 const props = defineProps({
-    columns: {
-        type: Array as PropType<any[]>,
-        default: [] as any[],
-    },
-    rows: {
-        type: Array as PropType<any[]>,
-        default: [] as any[],
-    },
     type: {
         type: String,
         default: '',
@@ -31,8 +23,86 @@ const props = defineProps({
     },
 })
 
+watch(
+    () => store.tableCols,
+    (newVal) => {
+        groupedColumns.value = groupColumns(newVal)
+    },
+    { deep: true, immediate: true }
+)
+
+function groupColumns(columns: any[]) {
+    const groups: Record<string, any[]> = {}
+
+    // 1. Create groups
+    for (const item of columns) {
+        const key = String(item.group_id ?? item.id) // if no group_id exists -> its own group
+
+        if (!groups[key]) groups[key] = []
+        groups[key].push(item)
+    }
+
+    const result = []
+
+    // 2. Show only the object with the smallest id AND add an array of all IDs in the group
+    for (const key in groups) {
+        const group = groups[key]
+
+        if (group?.length === 1) {
+            // no group, just include as-is
+            result.push({
+                ...group[0],
+                locale_ids: group[0].locale_id ? [{ id: group[0].id, locale_id: group[0].locale_id }] : [],
+            })
+        } else {
+            // group → determine the object with the smallest ID
+            const sortedGroup = [...(group ?? [])].sort((a, b) => a.locale_id - b.locale_id) // sort by ID for minObj
+            const minObj = sortedGroup[0]
+
+            // sort locale_ids by id or locale_id
+            const sortedLocaleIds = sortedGroup
+                .map((g) => ({ id: g.id, locale_id: g.locale_id }))
+                .sort((a, b) => {
+                    // z. B. nach locale_id alphabetisch
+                    if (a.locale_id < b.locale_id) return -1
+                    if (a.locale_id > b.locale_id) return 1
+                    return 0
+                })
+
+            result.push({
+                ...minObj,
+                locale_ids: sortedLocaleIds,
+            })
+        }
+    }
+
+    // 3. apply sorting
+    if (store.ordering) {
+        const field = store.ordering.replace('-', '')
+        const asc = !store.ordering.startsWith('-')
+
+        result.sort((a, b) => {
+            let aValue = a[field]
+            let bValue = b[field]
+
+            // Wenn nach locale_id sortiert werden soll
+            if (field === 'locale_id') {
+                // Nimm die kleinste locale_id (oder id, je nach Bedarf)
+                aValue = a.locale_ids?.[0]?.locale_id ?? ''
+                bValue = b.locale_ids?.[0]?.locale_id ?? ''
+            }
+
+            if (aValue < bValue) return asc ? -1 : 1
+            if (aValue > bValue) return asc ? 1 : -1
+            return 0
+        })
+    }
+
+    return result
+}
+
 function selectAll() {
-    for (const item of props.columns) {
+    for (const item of store.tableCols) {
         item.check = select.value
     }
 
@@ -46,25 +116,42 @@ function formatField(col: any, field: string) {
         return dayjs(col['meta'][field]).format('llll')
     } else if (field === 'author') {
         return `${col[field]?.first_name} ${col[field]?.last_name}`
-    } else if (field === 'locale_id') {
-        return store.locales.find(locale => locale.id === col[field])?.name || col[field]
     } else {
         return col[field]
     }
 }
 
 function orderRows(row: any) {
-    for (const r of props.rows) {
+    for (const r of store.visibleRows) {
         if (r.field !== row.field) {
             r.active = false
         }
     }
 
     row.active = true
-    ordering.value = row.up ? row.field : `-${row.field}`
-    emit('update:ordering', ordering.value)
-
+    store.ordering = row.up ? row.field : `-${row.field}`
     store.contentSelect()
+}
+
+function onChangeCheckbox() {
+    const colMap = new Map<number, any>()
+    for (const col of store.tableCols) {
+        if (col.id !== null && col.id !== undefined) {
+            colMap.set(col.id, col)
+        }
+    }
+
+    for (const item of groupedColumns.value) {
+        const mainCol = colMap.get(item.id)
+        if (mainCol) mainCol.check = item.check
+
+        for (const loc of item.locale_ids) {
+            const locCol = colMap.get(loc.id)
+            if (locCol) locCol.check = loc.check ?? item.check
+        }
+    }
+
+    props.checkBoxChange()
 }
 </script>
 
@@ -77,7 +164,16 @@ function orderRows(row: any) {
                         <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                     </label>
                 </th>
-                <th v-for="row in rows.filter(r => route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))" :key="row.field" :class="{'w-16': row.field === 'id'}">
+                <th
+                    v-for="row in store.visibleRows.filter(
+                        (r) =>
+                            r.field !== 'locale_id' &&
+                            r.field !== 'group_id' &&
+                            (route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                    )"
+                    :key="row.field"
+                    :class="{ 'w-16': row.field === 'id' }"
+                >
                     <label class="swap" :class="{ 'text-base-content': row.active }">
                         <input type="checkbox" v-model="row.up" @change="orderRows(row)" />
                         <div class="swap-on">
@@ -90,37 +186,67 @@ function orderRows(row: any) {
                         </div>
                     </label>
                 </th>
+                <th v-if="type !== 'author'">Languages</th>
                 <th class="w-10"></th>
             </tr>
         </thead>
         <tbody>
-            <tr v-for="(col, i) in columns" :key="i">
+            <tr v-for="(col, i) in groupedColumns" :key="i">
                 <th>
                     <label>
                         <input
                             v-model="col.check"
                             type="checkbox"
                             class="checkbox checkbox-sm"
-                            @change="checkBoxChange()"
+                            @change="onChangeCheckbox()"
                         />
                     </label>
                 </th>
-                <td v-for="row in rows.filter(r => route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))" :key="row.field">
+                <td
+                    v-for="row in store.visibleRows.filter(
+                        (r) =>
+                            r.field !== 'locale_id' &&
+                            r.field !== 'group_id' &&
+                            (route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                    )"
+                    :key="row.field"
+                >
                     <span v-if="col[row.field] === 'published'" class="text-success bg-base-100 p-1 rounded border">
                         {{ formatField(col, row.field) }}
                     </span>
                     <span v-else-if="col[row.field] === 'draft'" class="bg-base-100 p-1 rounded border">
                         {{ formatField(col, row.field) }}
                     </span>
-                    <span v-else-if="col[row.field] === 'archived'" class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60">
-                        {{ formatField(col, row.field) }}
-                    </span>
-                    <span v-else-if="col[row.field] === 'locale_id'" class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60">
+                    <span
+                        v-else-if="col[row.field] === 'archived'"
+                        class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60"
+                    >
                         {{ formatField(col, row.field) }}
                     </span>
                     <span v-else>
                         {{ formatField(col, row.field) }}
                     </span>
+                </td>
+                <td v-if="col.locale_ids.length > 0">
+                    <details
+                        v-if="col.locale_ids.length > 1"
+                        class="dropdown"
+                        :class="{ 'dropdown-top': groupedColumns.length - 3 < i }"
+                    >
+                        <summary class="btn font-normal" @blur="closeDropdown">
+                            {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
+                        </summary>
+                        <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-28 p-0 shadow-sm">
+                            <li v-for="lo in col.locale_ids" :key="lo.id">
+                                <RouterLink :to="`/${type}/${lo.id}`" class="rounded-box">
+                                    {{ store.locales.find((l) => l.id === lo.locale_id)?.name }}
+                                </RouterLink>
+                            </li>
+                        </ul>
+                    </details>
+                    <div class="btn font-normal btn-disabled text-base-content" v-else>
+                        {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
+                    </div>
                 </td>
                 <td>
                     <RouterLink :to="`/${type}/${col.id}`" class="btn btn-sm p-1">

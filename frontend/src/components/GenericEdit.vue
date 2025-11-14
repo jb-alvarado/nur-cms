@@ -8,6 +8,7 @@ import { errMsg } from '@/utils/error'
 import { closeDropdown } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 
+import GenericModal from '@/components/GenericModal.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
 const route = useRoute()
@@ -18,6 +19,7 @@ const groupID = Number(route.params.group_id ?? 0)
 
 const auth = useAuth()
 const store = useIndex()
+const deleteModal = ref()
 const content = ref({
     id: 0,
     group_id: groupID,
@@ -55,7 +57,8 @@ if (contentId > 0) {
         .then((response: RespondObj) => {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
-                    (result: RespondObj) => result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
+                    (result: RespondObj) =>
+                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
                 )
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
@@ -102,6 +105,10 @@ function updateSlug() {
     if (content.value.title) {
         content.value.slug = slugify(content.value.title)
     }
+}
+
+const openDeleteModal = () => {
+    deleteModal.value.showModal()
 }
 
 function updateDescription() {
@@ -175,6 +182,31 @@ function save() {
             store.msgAlert('error', e, 6)
         })
 }
+
+function contentDelete() {
+    const auth = useAuth()
+    const url = store.baseURL.replace(/\/[^/]+$/, '')
+
+    if (contentId > 0) {
+        fetch(`${url}/${contentId}`, {
+            method: 'DELETE',
+            headers: auth.authHeader,
+        })
+            .then(async (resp) => {
+                if (resp.status >= 400) {
+                    const msg = await errMsg(resp)
+                    throw new Error(msg)
+                } else {
+                    store.msgAlert('success', `Deleted: ${content.value.title ?? content.value.id}`, 2)
+
+                     router.push(`/${typeParam}`)
+                }
+            })
+            .catch((e) => {
+                store.msgAlert('error', e, 6)
+            })
+    }
+}
 </script>
 
 <template>
@@ -191,7 +223,7 @@ function save() {
             <!-- Form inputs -->
             <div class="flex items-center flex-wrap gap-4 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">
-                    <fieldset class="fieldset w-80">
+                    <fieldset class="fieldset w-64">
                         <legend class="fieldset-legend">Title</legend>
                         <input
                             v-model="content.title"
@@ -202,13 +234,13 @@ function save() {
                         />
                     </fieldset>
 
-                    <fieldset class="fieldset w-80">
+                    <fieldset class="fieldset w-64">
                         <legend class="fieldset-legend">Slug</legend>
                         <input v-model="content.slug" type="text" class="input" placeholder="Slug" />
                     </fieldset>
                 </div>
 
-                <div class="mt-7 flex gap-2 flex-none">
+                <div class="md:mt-7 flex gap-2 flex-none">
                     <div class="join">
                         <details v-if="content.id === 0" class="dropdown">
                             <summary class="btn join-item" @blur="closeDropdown">
@@ -267,7 +299,12 @@ function save() {
                         </details>
                     </div>
 
-                    <button class="btn" :class="{ 'btn-primary': needsSave }" @click="save()">Save</button>
+                    <div class="join">
+                        <button class="btn btn-warning join-item" @click="openDeleteModal()">Delete</button>
+                        <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
+                            Save
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -285,5 +322,9 @@ function save() {
             <!-- Toolbar -->
             <TextEditor v-model="content.body" :update="updateDescription" />
         </div>
+
+        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
+            <p>Are you sure you want to delete this {{ typeParam }}?</p>
+        </GenericModal>
     </div>
 </template>
