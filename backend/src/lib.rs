@@ -115,6 +115,11 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
         .route("/types", get(content_types_select))
         .route("/authors", get(authors_select).post(author_insert))
         .route("/authors/{id}", put(author_update).delete(author_delete))
+        .route("/categories", get(categories_select).post(category_insert))
+        .route(
+            "/categories/{id}",
+            put(category_update).delete(category_delete),
+        )
         .route(
             "/entries/{param}",
             get(entries_select)

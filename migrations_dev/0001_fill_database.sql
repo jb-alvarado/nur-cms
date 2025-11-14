@@ -41,16 +41,31 @@ VALUES
     (2, 480, 'webp', 'block_480.webp');
 
 INSERT INTO
-    content_categories (group_id, locale_id, name, slug, media_id)
+    content_categories (group_id, locale_id, name, slug, status, media_id)
 VALUES
-    (nextval('category_group_seq'), 1, 'Weltweite IT', 'weltweite-it', 1),
-    (10001, 2, 'World Wide IT', 'world-wide-it', 1),
-    (nextval('category_group_seq'), 2, 'Newest Rust Projects', 'newest-rust-projects', 2),
     (
-        10003,
+        nextval('category_group_seq'),
+        1,
+        'Weltweite IT',
+        'weltweite-it',
+        'published',
+        1
+    ),
+    (1001, 2, 'World Wide IT', 'world-wide-it', 'published', 1),
+    (
+        nextval('category_group_seq'),
+        2,
+        'Newest Rust Projects',
+        'newest-rust-projects',
+        'published',
+        2
+    ),
+    (
+        nextval('category_group_seq'),
         2,
         'Open Source Meetings',
         'open-source-meetings',
+        'draft',
         NULL
     );
 
@@ -88,7 +103,7 @@ VALUES
         1
     ),
     (
-        10001,
+        1001,
         1,
         2,
         'first-article',

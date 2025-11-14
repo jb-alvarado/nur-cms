@@ -46,6 +46,8 @@ function formatField(col: any, field: string) {
         return dayjs(col['meta'][field]).format('llll')
     } else if (field === 'author') {
         return `${col[field]?.first_name} ${col[field]?.last_name}`
+    } else if (field === 'locale_id') {
+        return store.locales.find(locale => locale.id === col[field])?.name || col[field]
     } else {
         return col[field]
     }
@@ -111,6 +113,9 @@ function orderRows(row: any) {
                         {{ formatField(col, row.field) }}
                     </span>
                     <span v-else-if="col[row.field] === 'archived'" class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60">
+                        {{ formatField(col, row.field) }}
+                    </span>
+                    <span v-else-if="col[row.field] === 'locale_id'" class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60">
                         {{ formatField(col, row.field) }}
                     </span>
                     <span v-else>

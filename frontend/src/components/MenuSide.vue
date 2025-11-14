@@ -51,13 +51,18 @@ function toggleTheme() {
         <div class="flex justify-center">
             <RouterLink class="text-2xl font-bold" to="/"> NUR CMS </RouterLink>
         </div>
-        <div class="flex justify-center p-6">
-            <div class="join join-vertical w-40">
-                <RouterLink to="/author" class="btn w-28 p-1 justify-normal items-center mb-2">
-                    <i class="bi bi-person-vcard p-1 text-2xl leading-0"></i>
+        <div class="flex flex-col justify-center p-6">
+            <div class="join join-vertical w-40 mb-2">
+                <RouterLink to="/author" class="btn join-item w-28 p-1 justify-normal items-center ">
+                    <i class="bi bi-person-lines-fill p-1 text-2xl leading-0"></i>
                     Author
                 </RouterLink>
-
+                <RouterLink to="/category" class="btn join-item w-28 p-1 justify-normal items-center">
+                    <i class="bi bi-boxes p-1 text-2xl leading-0"></i>
+                    Category
+                </RouterLink>
+            </div>
+            <div class="join join-vertical w-40">
                 <RouterLink
                     v-for="item in store.types"
                     :key="item.name"

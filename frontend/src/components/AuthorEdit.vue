@@ -162,7 +162,7 @@ async function save() {
                     </fieldset>
                 </div>
 
-                <button class="btn" :class="{ 'btn-primary': needsSave }" @click="save()">Save</button>
+                <button class="btn mt-7" :class="{ 'btn-primary': needsSave }" @click="save()">Save</button>
             </div>
 
             <div class="grow flex flex-col md:flex-row gap-2">

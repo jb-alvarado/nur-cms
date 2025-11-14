@@ -18,7 +18,7 @@ export const useIndex = defineStore('index', {
             { check: false, active: false, up: false, name: 'Slug', field: 'slug' },
             { check: false, active: false, up: false, name: 'Status', field: 'status' },
             { check: false, active: false, up: false, name: 'Author', field: 'author' },
-            { check: false, active: false, up: false, name: 'Locale', field: 'locale' },
+            { check: false, active: false, up: false, name: 'Language', field: 'locale_id' },
             { check: false, active: false, up: false, name: 'Start Time', field: 'start_time' },
             { check: false, active: false, up: false, name: 'End Time', field: 'end_time' },
             { check: false, active: false, up: false, name: 'Created At', field: 'created_at' },
@@ -159,9 +159,7 @@ export const useIndex = defineStore('index', {
                 .join(',')
             const auth = useAuth()
 
-            let url = u
-                  ? u
-                  : `${this.baseURL}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
+            let url = u ? u : `${this.baseURL}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
 
             if (sr) {
                 url = `${url}&search=${sr}`
@@ -196,7 +194,7 @@ export const useIndex = defineStore('index', {
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`/api/content/entries/${item.id}`, {
+                    await fetch(`${this.baseURL}/${item.id}`, {
                         method: 'PUT',
                         headers: { ...this.contentType, ...auth.authHeader },
                         body: JSON.stringify({ status }),
@@ -218,12 +216,13 @@ export const useIndex = defineStore('index', {
             await this.contentSelect()
         },
 
-        async contentDelete(url: null | string = null) {
+        async contentDelete() {
             const auth = useAuth()
+            const url = this.baseURL.includes('entries') ? this.baseURL.replace(/\/[^/]+$/, '') : this.baseURL
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`${url ? url : this.baseURL}/${item.id}`, {
+                    await fetch(`${url}/${item.id}`, {
                         method: 'DELETE',
                         headers: auth.authHeader,
                     })

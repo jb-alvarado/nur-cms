@@ -337,7 +337,10 @@ pub enum ContentCategoryFields {
     #[default]
     Name,
     Slug,
+    Status,
     MediaID,
+    Media,
+    GroupMembers,
 }
 
 impl StrCompare for ContentCategoryFields {
@@ -348,7 +351,10 @@ impl StrCompare for ContentCategoryFields {
             Self::LocaleID => other == "locale_id",
             Self::Name => other == "name",
             Self::Slug => other == "slug",
+            Self::Status => other == "status",
             Self::MediaID => other == "media_id",
+            Self::Media => other == "media",
+            Self::GroupMembers => other == "group_members",
         }
     }
 }
@@ -363,7 +369,10 @@ impl FromStr for ContentCategoryFields {
             "locale_id" => Ok(Self::LocaleID),
             "name" => Ok(Self::Name),
             "slug" => Ok(Self::Slug),
+            "status" => Ok(Self::Status),
             "media_id" => Ok(Self::MediaID),
+            "media" => Ok(Self::Media),
+            "group_members" => Ok(Self::GroupMembers),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -377,7 +386,10 @@ impl fmt::Display for ContentCategoryFields {
             Self::LocaleID => write!(f, "locale_id"),
             Self::Name => write!(f, "name"),
             Self::Slug => write!(f, "slug"),
+            Self::Status => write!(f, "status"),
             Self::MediaID => write!(f, "media_id"),
+            Self::Media => write!(f, "media"),
+            Self::GroupMembers => write!(f, "group_members"),
         }
     }
 }

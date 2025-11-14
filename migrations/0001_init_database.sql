@@ -71,7 +71,7 @@ VALUES
     (2, 'Page', 'page'),
     (3, 'Event', 'event');
 
-CREATE SEQUENCE category_group_seq START 10001;
+CREATE SEQUENCE category_group_seq START 1001;
 
 CREATE TABLE content_categories (
     id SERIAL PRIMARY KEY,
@@ -79,13 +79,14 @@ CREATE TABLE content_categories (
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     name VARCHAR(160) NOT NULL,
     slug VARCHAR(160) NOT NULL,
+    status VARCHAR(16) NOT NULL CHECK (status IN ('draft', 'published')) DEFAULT 'draft',
     media_id INT REFERENCES media (id) ON DELETE SET NULL,
     UNIQUE (slug, locale_id)
 );
 
 CREATE INDEX idx_category_group_id ON content_categories (group_id);
 
-CREATE SEQUENCE tag_group_seq START 10001;
+CREATE SEQUENCE tag_group_seq START 1001;
 
 CREATE TABLE content_tags (
     id SERIAL PRIMARY KEY,
@@ -98,7 +99,7 @@ CREATE TABLE content_tags (
 
 CREATE INDEX idx_tag_group_id ON content_categories (group_id);
 
-CREATE SEQUENCE entry_group_seq START 10001;
+CREATE SEQUENCE entry_group_seq START 1001;
 
 CREATE TABLE content_entries (
     id SERIAL PRIMARY KEY,
@@ -110,7 +111,7 @@ CREATE TABLE content_entries (
     description TEXT,
     text TEXT,
     text_vector TSVECTOR, -- for full text search, fill on insert
-    status VARCHAR(16) CHECK (status IN ('draft', 'published', 'archived')) DEFAULT 'draft', -- draft, published, archived
+    status VARCHAR(16) CHECK (status IN ('draft', 'published', 'archived')) DEFAULT 'draft',
     created_by INT REFERENCES auth_users (id),
     updated_by INT REFERENCES auth_users (id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

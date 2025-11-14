@@ -23,9 +23,20 @@ const authorRows = ref([
     { active: false, up: false, name: 'Created At', field: 'created_at' },
 ])
 
+const categoryRows = ref([
+    { active: true, up: true, name: 'ID', field: 'id' },
+    { active: false, up: false, name: 'Name', field: 'name' },
+    { active: false, up: false, name: 'Status', field: 'status' },
+    { active: false, up: false, name: 'Language', field: 'locale_id' },
+    { active: false, up: false, name: 'Group ID', field: 'group_id' },
+])
+
 if (typeParam === 'author') {
     store.visibleRows = authorRows.value
     store.initContent('/api/content/authors', false)
+} else if (typeParam === 'category') {
+    store.visibleRows = categoryRows.value
+    store.initContent('/api/content/categories', false)
 } else {
     store.initContent(`/api/content/entries/${typeParam ?? 'article'}`)
 }
@@ -74,13 +85,15 @@ function statusLabel() {
                     <input v-model="store.search" type="search" placeholder="Search" @keyup="store.searchItem" />
                 </label>
                 <div v-if="selectCount > 0">
-                    <button v-if="typeParam !== 'author'" class="btn join-item" @click="setStatus()">{{ published }}</button>
+                    <button v-if="typeParam !== 'author'" class="btn join-item" @click="setStatus()">
+                        {{ published }}
+                    </button>
                     <button class="btn text-warning join-item" @click="openDeleteModal">Delete</button>
                     <span class="ms-2">{{ selectCount }} Selected</span>
                 </div>
             </div>
 
-            <GenericFilter :hide-fields="typeParam === 'author'" />
+            <GenericFilter :hide-fields="typeParam === 'author' || typeParam === 'category'" />
         </div>
 
         <div class="overflow-x-auto mt-4">
@@ -93,7 +106,11 @@ function statusLabel() {
                 :check-box-change="statusLabel"
             />
         </div>
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="() => store.contentDelete('/api/content/entries')">
+        <GenericModal
+            ref="deleteModal"
+            title="Delete Selection"
+            :ok-action="store.contentDelete"
+        >
             <p>Are you sure you want to delete this {{ typeParam }}{{ selectCount > 1 ? 's' : '' }}?</p>
         </GenericModal>
     </div>

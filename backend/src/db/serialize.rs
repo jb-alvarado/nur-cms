@@ -200,7 +200,12 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             .into_iter()
             .flatten()
         {
-            categories.push(ContentCategorySerializer { id, name, slug });
+            categories.push(ContentCategorySerializer {
+                id: Some(id),
+                name: Some(name),
+                slug: Some(slug),
+                ..Default::default()
+            });
         }
 
         for (id, name, slug) in row
@@ -263,12 +268,61 @@ impl ColumnCounter for ContentSerializer {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentCategorySerializer {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub id: i32,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+    #[ts(as = "Option<i32>")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<MediaSerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group_members: Vec<GroupMemberSerializer>,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for ContentCategorySerializer {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        let media = row
+            .try_get::<Option<serde_json::Value>, _>("media")
+            .unwrap_or_default()
+            .map(|v| serde_json::from_value::<MediaSerializer>(v).unwrap_or_default());
+
+        let group_members = row
+            .try_get::<Option<serde_json::Value>, _>("group_members")
+            .unwrap_or_default()
+            .and_then(|v| serde_json::from_value::<Vec<GroupMemberSerializer>>(v).ok())
+            .unwrap_or_default();
+
+        Ok(Self {
+            id: row.try_get("id").ok(),
+            group_id: row.try_get("group_id").ok(),
+            locale_id: row.try_get("locale_id").ok(),
+            name: row.try_get("name").ok(),
+            slug: row.try_get("slug").ok(),
+            status: row.try_get("status").ok(),
+            media_id: row.try_get("media_id").ok(),
+            media,
+            group_members,
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for ContentCategorySerializer {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
@@ -314,15 +368,18 @@ pub struct GroupMemberSerializer {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct MediaSerializer {
-    pub id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
-    pub filename: String,
-    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub ast_line: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ast_line: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_offset: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

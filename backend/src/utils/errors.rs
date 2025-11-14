@@ -123,6 +123,6 @@ impl From<sqlx::migrate::MigrateError> for ServiceError {
 impl From<sqlx::Error> for ServiceError {
     fn from(err: sqlx::Error) -> ServiceError {
         error!("{err:?}");
-        Self::InternalServerError
+        Self::Conflict(err.to_string())
     }
 }

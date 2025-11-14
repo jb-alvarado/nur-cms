@@ -244,8 +244,10 @@ pub struct ContentCategory {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media_id: Option<String>,
+    pub media_id: Option<i32>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -258,6 +260,7 @@ impl FromRow<'_, PgRow> for ContentCategory {
             locale_id: row.try_get("locale_id").unwrap_or_default(),
             name: row.try_get("name").unwrap_or_default(),
             slug: row.try_get("slug").unwrap_or_default(),
+            status: row.try_get("status").unwrap_or_default(),
             media_id: row.try_get("media_id").ok(),
             total_count: row.try_get("total_count").ok(),
         })

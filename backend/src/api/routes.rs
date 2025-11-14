@@ -16,13 +16,13 @@ use crate::{
     CONFIG,
     db::{
         fields::{
-            AuthRoleFields, AuthUserFields, ContentAuthorFields, ContentFields, ContentTypeFields,
-            LocaleFields, OutputType, Table,
+            AuthRoleFields, AuthUserFields, ContentAuthorFields, ContentCategoryFields,
+            ContentFields, ContentTypeFields, LocaleFields, OutputType, Table,
         },
         handles,
         models::{AuthRole, AuthUser, AuthUserMeta, ContentType, Locale, Role, TSConfig},
         queries::{QueryObj, RespondObj},
-        serialize::{AuthUserSerializer, AuthorSerializer, ContentSerializer},
+        serialize::*,
     },
     utils::{ast_serialize::to_structure_root, errors::ServiceError},
 };
@@ -272,6 +272,158 @@ pub async fn authors_select(
     };
 }
 
+pub async fn author_insert(
+    State(pool): State<PgPool>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    let table = Table::ContentAuthors;
+
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::insert_record(&pool, &table, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn author_update(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(mut content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+
+        return match handles::update_record(&pool, &Table::ContentAuthors, id, &content).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn author_delete(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::delete_record(&pool, &Table::ContentAuthors, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+/* ------------------------------
+CONTENT CATEGORIES
+---------------------------------*/
+
+pub async fn categories_select(
+    State(pool): State<PgPool>,
+    Query(mut params): Query<QueryObj<ContentCategoryFields>>,
+    OriginalUri(original_uri): OriginalUri,
+) -> Result<Json<RespondObj<ContentCategorySerializer>>, ServiceError> {
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
+
+    match handles::select_categories(&pool, &params).await {
+        Ok(types) => Ok(Json(types)),
+        Err(e) => {
+            error!("{e}");
+            Err(ServiceError::InternalServerError)
+        }
+    }
+}
+
+pub async fn category_insert(
+    State(pool): State<PgPool>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::insert_record(&pool, &Table::ContentCategories, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("Insert {e}");
+                let mut err = e.to_string();
+
+                if err.contains("duplicate key") && err.contains("slug") {
+                    err = "Duplicate slug, create a unique one!".to_string();
+                }
+                Err(ServiceError::Conflict(err))
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn category_update(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::update_record(&pool, &Table::ContentCategories, id, &content).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn category_delete(
+    State(pool): State<PgPool>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::delete_record(&pool, &Table::ContentCategories, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
 /* ------------------------------
 CONTENT
 ---------------------------------*/
@@ -518,71 +670,6 @@ pub async fn content_delete(
             && details.has_any_authority(&[&Role::Admin, &Role::Author]))
     {
         return match handles::delete_record(&pool, &table, id).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
-}
-
-pub async fn author_insert(
-    State(pool): State<PgPool>,
-    details: AuthDetails<Role>,
-    Json(content): Json<Value>,
-) -> Result<Json<i32>, ServiceError> {
-    let table = Table::ContentAuthors;
-
-    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return match handles::insert_record(&pool, &table, &content).await {
-            Ok(id) => Ok(Json(id)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
-}
-
-pub async fn author_delete(
-    State(pool): State<PgPool>,
-    Path(id): Path<i32>,
-    details: AuthDetails<Role>,
-) -> Result<(), ServiceError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return match handles::delete_record(&pool, &Table::ContentAuthors, id).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
-}
-
-pub async fn author_update(
-    State(pool): State<PgPool>,
-    Path(id): Path<i32>,
-    details: AuthDetails<Role>,
-    Json(mut content): Json<Value>,
-) -> Result<(), ServiceError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
-
-        return match handles::update_record(&pool, &Table::ContentAuthors, id, &content).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
