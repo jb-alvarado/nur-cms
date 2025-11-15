@@ -447,14 +447,12 @@ pub async fn content_types_select(
 
 pub async fn entries_select(
     State(pool): State<PgPool>,
-    Path(type_slug): Path<String>,
     Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
-    params.type_slug = Some(type_slug);
 
     let mut output = CONFIG.read().await.output_type.clone();
 
@@ -466,7 +464,7 @@ pub async fn entries_select(
 
     let mut content = handles::select_content(&pool, &params).await?;
 
-    if params.fields.contains(&ContentFields::Body) {
+    if params.fields.contains(&ContentFields::Body) && output != OutputType::Markdown {
         for b in &mut content.results {
             let text = b.text.take().unwrap_or_default();
             b.text = None;
@@ -476,7 +474,6 @@ pub async fn entries_select(
                     let ast = to_mdast(&text, &ParseOptions::default())?;
                     let json = serde_json::to_string(&ast).unwrap_or_default();
                     let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                    // println!("{tree:#?}");
                     let body = to_structure_root(&tree, &mut b.media);
 
                     b.body = Some(body);
@@ -485,9 +482,7 @@ pub async fn entries_select(
                     let html = to_html(&text);
                     b.body = Some(Value::String(html));
                 }
-                _ => {
-                    b.body = Some(Value::String(text));
-                }
+                _ => {}
             }
         }
     }
@@ -515,39 +510,32 @@ pub async fn entry_select(
         output = typ.clone();
     }
 
-    if let Some(c) = handles::select_content(&pool, &params)
+    if let Some(mut content) = handles::select_content(&pool, &params)
         .await?
         .results
-        .first()
+        .into_iter()
+        .next()
     {
-        let mut content = c.clone();
-
-        if params.fields.contains(&ContentFields::Body) {
+        if params.fields.contains(&ContentFields::Body) && output != OutputType::Markdown {
             let text = content.text.take().unwrap_or_default();
-            content.text = None;
 
             match output {
                 OutputType::AST => {
                     let ast = to_mdast(&text, &ParseOptions::default())?;
-                    let json = serde_json::to_string(&ast).unwrap_or_default();
-                    let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                    // println!("{tree:#?}");
+                    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
                     let body = to_structure_root(&tree, &mut content.media);
-
                     content.body = Some(body);
                 }
                 OutputType::HTML => {
                     let html = to_html(&text);
                     content.body = Some(Value::String(html));
                 }
-                _ => {
-                    content.body = Some(Value::String(text));
-                }
+                _ => {}
             }
         }
 
         return Ok(Json(content));
-    };
+    }
 
     Err(ServiceError::NoContent)
 }
@@ -577,7 +565,7 @@ pub async fn entry_update(
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(ServiceError::Conflict(e.to_string()))
             }
         };
     }
@@ -609,27 +597,11 @@ pub async fn entry_delete(
 
 pub async fn entry_insert(
     State(pool): State<PgPool>,
-    Path(type_slug): Path<String>,
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
     Json(mut content): Json<Value>,
 ) -> Result<Json<i32>, ServiceError> {
-    let params: QueryObj<ContentTypeFields> = QueryObj {
-        fields: vec![ContentTypeFields::ID, ContentTypeFields::Slug],
-        ..Default::default()
-    };
-
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        let resp: RespondObj<ContentType> =
-            handles::select_record(&pool, &Table::ContentTypes, params).await?;
-        let id = resp
-            .results
-            .iter()
-            .find(|ct| ct.slug == type_slug)
-            .map(|ct| ct.id)
-            .ok_or(ServiceError::NoContent)?;
-
-        content["type_id"] = id.into();
         content["created_by"] = user.id.into();
         content["updated_by"] = user.id.into();
 
@@ -647,7 +619,7 @@ pub async fn entry_insert(
             Ok(id) => Ok(Json(id)),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(ServiceError::Conflict(e.to_string()))
             }
         };
     }

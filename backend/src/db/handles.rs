@@ -803,7 +803,10 @@ pub async fn select_content(
     sep.push("count(*) OVER() AS total_count");
     sep.push_unseparated(" ");
     query_builder.push("FROM content_entries ce ");
-    query_builder.push("JOIN content_types ct ON ct.id = ce.type_id ");
+
+    if query_obj.type_slug.is_some() {
+        query_builder.push("JOIN content_types ct ON ct.id = ce.type_id ");
+    }
 
     if query_obj.fields.contains(&CF::Author)
         || query_obj.author.is_some()
@@ -813,10 +816,6 @@ pub async fn select_content(
             r#"LEFT JOIN content_entry_authors cea ON cea.entry_id = ce.id
             LEFT JOIN content_authors ca ON ca.id = cea.author_id "#,
         );
-    }
-
-    if query_obj.fields.contains(&CF::LocaleID) || query_obj.search_locale.is_some() {
-        query_builder.push("LEFT JOIN locales l ON l.id = ce.locale_id ");
     }
 
     if query_obj.fields.contains(&CF::Categories) {
@@ -928,8 +927,8 @@ pub async fn select_content(
         where_chain.push_and_bind(None, "ce.id = ", id, None);
     }
 
-    if let Some(locale) = &query_obj.search_locale {
-        where_chain.push_and_bind(None, "l.code = ", locale, None);
+    if let Some(id) = &query_obj.search_locale {
+        where_chain.push_and_bind(None, "ce.locale_id = ", id, None);
     }
 
     if let Some(after) = &query_obj.created_after {
@@ -942,6 +941,10 @@ pub async fn select_content(
 
     if let Some(ts) = &query_obj.type_slug {
         where_chain.push_and_bind(None, "ct.slug = ", ts.to_string(), None);
+    }
+
+    if let Some(id) = &query_obj.type_id {
+        where_chain.push_and_bind(None, "ce.type_id = ", id, None);
     }
 
     if let Some(slug) = &query_obj.search_slug {

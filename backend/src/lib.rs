@@ -120,13 +120,8 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
             "/categories/{id}",
             put(category_update).delete(category_delete),
         )
-        .route(
-            "/entries/{param}",
-            get(entries_select)
-                .put(entry_update)
-                .delete(entry_delete)
-                .post(entry_insert),
-        )
+        .route("/entries", get(entries_select).post(entry_insert))
+        .route("/entries/{id}", put(entry_update).delete(entry_delete))
         .route("/entries/{param}/{slug}", get(entry_select));
     // .route("/{kind}", post(content_insert))
     // .route("/{kind}/{id}", delete(content_delete).put(content_update));

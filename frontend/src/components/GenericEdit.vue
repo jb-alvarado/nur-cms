@@ -14,7 +14,7 @@ import TextEditor from '@/components/TextEditor.vue'
 const route = useRoute()
 const router = useRouter()
 const contentId = Number(route.params.id ?? 0)
-const typeParam = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
+const routeName = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
 const groupID = Number(route.params.group_id ?? 0)
 
 const auth = useAuth()
@@ -43,9 +43,12 @@ const status = ['draft', 'published', 'archived']
 if (contentId > 0) {
     getContent()
 } else if (groupID > 0) {
-    fetch(`/api/content/entries/${typeParam}?group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`, {
-        headers: auth.authHeader,
-    })
+    fetch(
+        `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
+        {
+            headers: auth.authHeader,
+        }
+    )
         .then(async (resp) => {
             if (resp.status >= 400) {
                 const msg = await errMsg(resp)
@@ -73,7 +76,7 @@ if (contentId > 0) {
 }
 
 function getContent() {
-    fetch(`/api/content/entries/${typeParam}?id=${contentId}&output_type=markdown`, {
+    fetch(`/api/content/entries?type_id=${store.typeID}&id=${contentId}&output_type=markdown`, {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -112,9 +115,9 @@ const openDeleteModal = () => {
 }
 
 function updateDescription() {
-    if (!content.value.body) return
+    if (!content.value.text) return
 
-    const bodyWithoutFrontmatter = content.value.body
+    const textWithoutFrontmatter = content.value.text
         .split('\n')
         .filter((line: string) => {
             const trimmed = line.trim()
@@ -129,7 +132,7 @@ function updateDescription() {
         .join('\n')
         .trim()
 
-    const excerpt = bodyWithoutFrontmatter.slice(0, 255)
+    const excerpt = textWithoutFrontmatter.slice(0, 255)
 
     if (!content.value.description && excerpt.length > 160) {
         content.value.description = excerpt
@@ -139,7 +142,7 @@ function updateDescription() {
 function memberLink(id: number): string {
     const member = content.value.group_members?.find((member) => member.locale_id === id)
 
-    return `/${typeParam}/${member?.id ?? content.value.id}`
+    return `/${routeName}/${member?.id ?? content.value.id}`
 }
 
 function save() {
@@ -159,7 +162,7 @@ function save() {
         return
     }
 
-    fetch(`/api/content/entries${contentId > 0 ? `/${contentId}` : `/${typeParam}`}`, {
+    fetch(`/api/content/entries${contentId > 0 ? `/${contentId}` : ''}`, {
         method: contentId > 0 ? 'PUT' : 'POST',
         headers: {
             ...auth.authHeader,
@@ -175,7 +178,7 @@ function save() {
             store.msgAlert('success', 'Content saved successfully', 3)
 
             if (contentId === 0) {
-                router.push(`/${typeParam}/${await resp.text()}`)
+                router.push(`/${routeName}/${await resp.text()}`)
             }
         })
         .catch((e) => {
@@ -185,10 +188,9 @@ function save() {
 
 function contentDelete() {
     const auth = useAuth()
-    const url = store.baseURL.replace(/\/[^/]+$/, '')
 
     if (contentId > 0) {
-        fetch(`${url}/${contentId}`, {
+        fetch(`/api/content/entries/${contentId}`, {
             method: 'DELETE',
             headers: auth.authHeader,
         })
@@ -199,7 +201,7 @@ function contentDelete() {
                 } else {
                     store.msgAlert('success', `Deleted: ${content.value.title ?? content.value.id}`, 2)
 
-                     router.push(`/${typeParam}`)
+                    router.push(`/${routeName}`)
                 }
             })
             .catch((e) => {
@@ -265,7 +267,7 @@ function contentDelete() {
                         </details>
 
                         <RouterLink
-                            :to="`/${typeParam}/0/${content.group_id}`"
+                            :to="`/${routeName}/0/${content.group_id}`"
                             class="btn join-item px-2"
                             title="Add Language"
                         >
@@ -320,11 +322,11 @@ function contentDelete() {
             </div>
 
             <!-- Toolbar -->
-            <TextEditor v-model="content.body" :update="updateDescription" />
+            <TextEditor v-model="content.text" :update="updateDescription" />
         </div>
 
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
-            <p>Are you sure you want to delete this {{ typeParam }}?</p>
+            <p>Are you sure you want to delete this {{ routeName }}?</p>
         </GenericModal>
     </div>
 </template>

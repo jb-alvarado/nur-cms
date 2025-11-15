@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 import { useRoute } from 'vue-router'
@@ -14,7 +14,7 @@ dayjs.extend(localizedFormat)
 const route = useRoute()
 const store = useIndex()
 
-const typeParam = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
+store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? ''
 
 const authorRows = ref([
     { active: true, up: true, name: 'ID', field: 'id' },
@@ -31,18 +31,20 @@ const categoryRows = ref([
     { active: false, up: false, name: 'Group ID', field: 'group_id' },
 ])
 
-if (typeParam === 'author') {
-    store.visibleRows = authorRows.value
-    store.initContent('/api/content/authors', false)
-} else if (typeParam === 'category') {
-    store.visibleRows = categoryRows.value
-    store.initContent('/api/content/categories', false)
-} else {
-    store.initContent(`/api/content/entries/${typeParam ?? 'article'}`)
-}
+onMounted(() => {
+    if (store.routeType === 'author') {
+        store.visibleRows = authorRows.value
+        store.initContent('authors', false)
+    } else if (store.routeType === 'category') {
+        store.visibleRows = categoryRows.value
+        store.initContent('categories', false)
+    } else {
+        store.initContent('entries')
+    }
 
-store.search = ''
-store.contentSelect()
+    store.search = ''
+    store.contentSelect()
+})
 
 // computed selected rows count
 const selectCount = computed(() => store.tableCols.reduce((acc, item: any) => acc + (item.check ? 1 : 0), 0))
@@ -74,8 +76,8 @@ function statusLabel() {
 <template>
     <div>
         <div class="flex">
-            <h1 class="text-2xl grow">{{ typeParam }}</h1>
-            <RouterLink :to="`/${typeParam}/0`" class="btn btn-sm btn-primary text-base">New</RouterLink>
+            <h1 class="text-2xl grow">{{ store.routeType }}</h1>
+            <RouterLink :to="`/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">New</RouterLink>
         </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">
@@ -85,7 +87,7 @@ function statusLabel() {
                     <input v-model="store.search" type="search" placeholder="Search" @keyup="store.searchItem" />
                 </label>
                 <div v-if="selectCount > 0">
-                    <button v-if="typeParam !== 'author'" class="btn join-item" @click="setStatus()">
+                    <button v-if="store.routeType !== 'author'" class="btn join-item" @click="setStatus()">
                         {{ published }}
                     </button>
                     <button class="btn text-warning join-item" @click="openDeleteModal">Delete</button>
@@ -93,22 +95,14 @@ function statusLabel() {
                 </div>
             </div>
 
-            <GenericFilter :hide-fields="typeParam === 'author' || typeParam === 'category'" />
+            <GenericFilter :hide-fields="store.routeType === 'author' || store.routeType === 'category'" />
         </div>
 
         <div class="overflow-x-auto mt-4">
-            <GenericTable
-                ref="tableRef"
-                :type="typeParam"
-                :check-box-change="statusLabel"
-            />
+            <GenericTable ref="tableRef" :type="store.routeType" :check-box-change="statusLabel" />
         </div>
-        <GenericModal
-            ref="deleteModal"
-            title="Delete Selection"
-            :ok-action="store.contentDelete"
-        >
-            <p>Are you sure you want to delete this {{ typeParam }}{{ selectCount > 1 ? 's' : '' }}?</p>
+        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="store.contentDelete">
+            <p>Are you sure you want to delete this {{ store.routeType }}{{ selectCount > 1 ? 's' : '' }}?</p>
         </GenericModal>
     </div>
 </template>

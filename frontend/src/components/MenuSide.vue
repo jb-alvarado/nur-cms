@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { onBeforeMount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
@@ -10,23 +9,9 @@ const router = useRouter()
 const auth = useAuth()
 const store = useIndex()
 
-onBeforeMount(async () => {
-    store.selectAuthors()
-    await store.selectLocales()
-    await store.selectTypes()
-
-    for (const type of store.types) {
-        if (type.name === 'Article') {
-            type.icon = 'bi-card-list'
-        } else if (type.name === 'Page') {
-            type.icon = 'bi-card-heading'
-        } else if (type.name === 'Event') {
-            type.icon = 'bi-calendar-event'
-        } else {
-            type.icon = 'bi-card-text'
-        }
-    }
-})
+store.selectAuthors()
+store.selectLocales()
+store.selectTypes()
 
 function logout() {
     auth.removeToken()
@@ -62,12 +47,13 @@ function toggleTheme() {
                     Category
                 </RouterLink>
             </div>
-            <div class="join join-vertical w-40">
+            <div v-if="store.types.length > 0" class="join join-vertical w-40">
                 <RouterLink
                     v-for="item in store.types"
                     :key="item.name"
                     :to="`/${item.slug}`"
                     class="btn join-item w-28 p-1 justify-normal items-center"
+                    @click="store.typeID = item.id ?? 0"
                 >
                     <i class="bi p-1 text-2xl leading-0" :class="item.icon"></i>
                     {{ item.name }}

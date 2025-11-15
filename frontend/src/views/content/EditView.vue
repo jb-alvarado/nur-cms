@@ -5,10 +5,10 @@ import CategoryEdit from '@/components/CategoryEdit.vue'
 import GenericEdit from '@/components/GenericEdit.vue'
 
 const route = useRoute()
-const typeParam = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
+const typeName = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
 </script>
 <template>
-    <AuthorEdit v-if="typeParam === 'author'" />
-    <CategoryEdit v-else-if="typeParam === 'category'" />
+    <AuthorEdit v-if="typeName === 'author'" />
+    <CategoryEdit v-else-if="typeName === 'category'" />
     <GenericEdit v-else />
 </template>

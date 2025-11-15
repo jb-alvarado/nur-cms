@@ -33,12 +33,14 @@ export const useIndex = defineStore('index', {
             { active: false, up: false, name: 'Language', field: 'locale_id' },
             { active: false, up: false, name: 'Group ID', field: 'group_id' },
         ],
-        baseURL: '/api/content/entries/article',
+        suffix: 'entries',
         search: '',
         tableCols: [] as Content[],
         authors: [] as ContentAuthor[],
         locales: [] as Locale[],
         types: [] as ContentTypeExt[],
+        routeType: '',
+        typeID: 1,
     }),
 
     getters: {},
@@ -105,7 +107,22 @@ export const useIndex = defineStore('index', {
                 })
                 .then((response: RespondObj) => {
                     if (response.results?.length > 0) {
-                        this.types = response.results
+                        this.types = response.results.map((t: ContentTypeExt) => {
+                            switch (t.name) {
+                                case 'Article':
+                                    t.icon = 'bi-card-list'
+                                    break
+                                case 'Page':
+                                    t.icon = 'bi-card-heading'
+                                    break
+                                case 'Event':
+                                    t.icon = 'bi-calendar-event'
+                                    break
+                                default:
+                                    t.icon = 'bi-card-text'
+                            }
+                            return t
+                        })
                     }
                 })
                 .catch((e) => {
@@ -113,8 +130,8 @@ export const useIndex = defineStore('index', {
                 })
         },
 
-        initContent(baseURL: string, fromStorage = true) {
-            this.baseURL = baseURL
+        initContent(suffix: string, fromStorage = true) {
+            this.suffix = suffix
             const visibleFields = localStorage.getItem('visibleFields')
 
             if (fromStorage && visibleFields) {
@@ -150,6 +167,7 @@ export const useIndex = defineStore('index', {
         },
 
         async contentSelect(sr: string | null = null, u: string | null = null) {
+            const auth = useAuth()
             const fields = this.visibleRows
                 .map((r: any) => r.field)
                 .map((field: string) => {
@@ -160,9 +178,16 @@ export const useIndex = defineStore('index', {
                 })
                 .filter((field: string, index: number, arr: string[]) => arr.indexOf(field) === index)
                 .join(',')
-            const auth = useAuth()
 
-            let url = u ? u : `${this.baseURL}?fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
+            let type = ''
+
+            if (this.suffix === 'entries') {
+                type = `type_id=${this.typeID}&`
+            }
+
+            let url = u
+                ? u
+                : `/api/content/${this.suffix}?${type}fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
 
             if (sr) {
                 url = `${url}&search=${sr}`
@@ -194,11 +219,10 @@ export const useIndex = defineStore('index', {
 
         async updateStatus(status: string) {
             const auth = useAuth()
-            const url = this.baseURL.includes('entries') ? this.baseURL.replace(/\/[^/]+$/, '') : this.baseURL
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`${url}/${item.id}`, {
+                    await fetch(`/api/content/${this.suffix}/${item.id}`, {
                         method: 'PUT',
                         headers: { ...this.contentType, ...auth.authHeader },
                         body: JSON.stringify({ status }),
@@ -222,11 +246,10 @@ export const useIndex = defineStore('index', {
 
         async contentDelete() {
             const auth = useAuth()
-            const url = this.baseURL.includes('entries') ? this.baseURL.replace(/\/[^/]+$/, '') : this.baseURL
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`${url}/${item.id}`, {
+                    await fetch(`/api/content/${this.suffix}/${item.id}`, {
                         method: 'DELETE',
                         headers: auth.authHeader,
                     })

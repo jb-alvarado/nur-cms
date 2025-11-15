@@ -49,13 +49,16 @@ pub struct QueryObj<T> {
     pub type_slug: Option<String>,
 
     #[serde(default)]
+    pub type_id: Option<i32>,
+
+    #[serde(default)]
     pub search: Option<String>,
 
     #[serde(default, rename = "id")]
     pub search_id: Option<i32>,
 
-    #[serde(default, rename = "locale")]
-    pub search_locale: Option<String>,
+    #[serde(default, rename = "locale_id")]
+    pub search_locale: Option<i32>,
 
     #[serde(default, rename = "slug")]
     pub search_slug: Option<String>,
@@ -100,6 +103,7 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             offset: 0,
             ordering: default_ordering(),
             type_slug: None,
+            type_id: None,
             search: None,
             search_id: None,
             search_locale: None,
