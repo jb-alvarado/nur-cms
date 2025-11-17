@@ -119,7 +119,7 @@ async function onFileChange(e: Event) {
         </fieldset>
 
         <div>
-            <p>Uploading: {{ progress }}% {{ progress ? uploadSpeed : '' }}</p>
+            <p>Uploading: {{ progress }}% {{ progress && progress < 100 ? uploadSpeed : '' }}</p>
             <progress class="progress progress-warning w-96" :value="progress" max="100"></progress>
         </div>
 
