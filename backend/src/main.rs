@@ -8,7 +8,7 @@ use tracing::{debug, error};
 use tower_http::services::ServeDir;
 
 use nur_cms::{
-    CONFIG,
+    CONFIG, STORAGE,
     db::handles,
     init_db, router_entries,
     serve::routes::admin_routes,
@@ -53,8 +53,8 @@ async fn main() -> Result<(), ServiceError> {
 
     #[cfg(debug_assertions)]
     {
-        debug!("Dev mode: serving static files from ../uploads");
-        let uploads_service = ServeDir::new("../uploads");
+        debug!("Dev mode: serving static files from {:?}", STORAGE.as_str());
+        let uploads_service = ServeDir::new(&*STORAGE);
         app = app.nest_service("/uploads", uploads_service);
     }
 

@@ -88,10 +88,6 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
 
             pool.execute(&*sql).await?;
         }
-
-        sqlx::query("UPDATE configuration SET storage = '../uploads' WHERE id = 1;")
-            .execute(pool)
-            .await?;
     }
 
     Ok(())

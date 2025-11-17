@@ -55,7 +55,6 @@ pub struct Configuration {
     pub id: i32,
     pub jwt_secret: String,
     pub output_type: OutputType,
-    pub storage: Option<String>,
     pub mail_smtp: Option<String>,
     pub mail_user: Option<String>,
     pub mail_password: Option<String>,

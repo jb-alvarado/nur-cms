@@ -59,7 +59,7 @@ const router = createRouter({
         {
             path: '/media',
             name: 'media',
-            component: () => import('../views/media/MediaView.vue'),
+            component: () => import('../views/media/IndexView.vue'),
         },
         {
             path: '/user',

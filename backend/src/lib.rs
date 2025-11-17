@@ -24,6 +24,7 @@ pub mod utils;
 use crate::{
     api::{
         auth::{decode_jwt, login, refresh},
+        file::upload_chunk,
         routes::*,
     },
     db::{
@@ -46,6 +47,8 @@ where
 
 pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 3));
 pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFRESH_LIFETIME", 30));
+pub static STORAGE: LazyLock<String> =
+    LazyLock::new(|| env_parse_or("STORAGE", "./uploads".to_string()));
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
@@ -129,6 +132,7 @@ pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
     let api_routes = Router::new()
         .route("/ts-language", get(ts_language_select))
         .route("/auth-role", get(auth_role_select))
+        .route("/upload", post(upload_chunk))
         .nest("/auth-user", auth_user_routes)
         .nest("/locales", locale_routes)
         .nest("/content", content_routes)

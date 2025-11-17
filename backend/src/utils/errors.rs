@@ -78,6 +78,11 @@ impl From<markdown::message::Message> for ServiceError {
         Self::Conflict(err.to_string())
     }
 }
+impl From<axum::extract::multipart::MultipartError> for ServiceError {
+    fn from(err: axum::extract::multipart::MultipartError) -> ServiceError {
+        Self::Conflict(err.to_string())
+    }
+}
 
 impl From<io::Error> for ServiceError {
     fn from(err: io::Error) -> ServiceError {
