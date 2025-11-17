@@ -18,19 +18,20 @@ use tracing::{error, warn};
 
 pub mod api;
 pub mod db;
+pub mod file;
 pub mod serve;
 pub mod utils;
 
 use crate::{
     api::{
         auth::{decode_jwt, login, refresh},
-        file::upload_chunk,
         routes::*,
     },
     db::{
         handles,
         models::{AuthUserMeta, Configuration, Role},
     },
+    file::routes::upload_chunk,
     utils::errors::ServiceError,
 };
 

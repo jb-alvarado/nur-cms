@@ -111,6 +111,13 @@ impl From<jsonwebtoken::errors::Error> for ServiceError {
     }
 }
 
+impl From<image::ImageError> for ServiceError {
+    fn from(err: image::ImageError) -> Self {
+        error!("{err:?}");
+        Self::InternalServerError
+    }
+}
+
 impl From<tokio::task::JoinError> for ServiceError {
     fn from(err: tokio::task::JoinError) -> Self {
         error!("{err:?}");

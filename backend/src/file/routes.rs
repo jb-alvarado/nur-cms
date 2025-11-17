@@ -13,10 +13,11 @@ use tokio::{
     fs::{self, OpenOptions},
     io::{AsyncSeekExt, AsyncWriteExt, SeekFrom},
     sync::Mutex,
+    task,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
-use crate::{STORAGE, db::models::Role, utils::errors::ServiceError};
+use crate::{STORAGE, db::models::Role, file::processing::save_image, utils::errors::ServiceError};
 
 // Track byte ranges for each file being uploaded to support resumable uploads
 type FileRanges = Arc<Mutex<Vec<Range<u64>>>>;
@@ -125,16 +126,27 @@ pub async fn upload_chunk(
             )));
         }
 
-        // Reset upload tracking when starting a new upload (start == 0)
+        // Only remove old tracking if it's a leftover from a previous interrupted upload
         if start == 0 {
-            if uploads.contains_key(&output_str) {
+            let mut remove_old = false;
+
+            if let Some(ranges_arc) = uploads.get(&output_str) {
+                let ranges = ranges_arc.try_lock();
+                if ranges.is_err() || ranges.unwrap().is_empty() {
+                    remove_old = true;
+                }
+            }
+
+            if remove_old {
+                // Old entry is not active → remove it
                 uploads.remove(&output_str);
-                warn!("Remove existing file history for {file_name:?}");
-            };
+                warn!("Removed old upload history for {file_name:?}");
+            }
 
             info!("Start uploading: {output_file:?}");
         }
 
+        // Get or create the current upload tracking
         uploads
             .entry(output_str.clone())
             .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
@@ -182,6 +194,14 @@ pub async fn upload_chunk(
 
                 true
             });
+
+            // TODO: blocking and wait or run in background
+            task::spawn_blocking(move || {
+                if let Err(e) = save_image(&[1024, 460], &["jpg", "avif", "webp"], &output_file) {
+                    error!("{e}");
+                };
+            })
+            .await?;
         }
     }
 
