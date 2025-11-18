@@ -10,6 +10,7 @@ use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use strum::IntoEnumIterator;
+use tokio::sync::broadcast::Sender;
 use tracing::error;
 
 use crate::{
@@ -28,7 +29,7 @@ use crate::{
 };
 
 pub async fn auth_role_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<AuthRoleFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
@@ -52,7 +53,7 @@ pub async fn auth_role_select(
 }
 
 pub async fn ts_language_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<TSConfig>>, ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
@@ -71,7 +72,7 @@ pub async fn ts_language_select(
 }
 
 pub async fn auth_user_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<AuthUserFields>>,
     OriginalUri(original_uri): OriginalUri,
     Extension(user): Extension<AuthUserMeta>,
@@ -105,7 +106,7 @@ pub async fn auth_user_select(
 }
 
 pub async fn auth_user_delete(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
@@ -125,7 +126,7 @@ pub async fn auth_user_delete(
 }
 
 pub async fn auth_user_insert(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Json(auth_user): Json<AuthUser>,
 ) -> Result<Json<i32>, ServiceError> {
@@ -145,7 +146,7 @@ pub async fn auth_user_insert(
 }
 
 pub async fn auth_user_update(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(auth_user): Json<AuthUser>,
@@ -174,7 +175,7 @@ LOCALES
 ---------------------------------*/
 
 pub async fn locale_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<LocaleFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<Locale>>, ServiceError> {
@@ -191,7 +192,7 @@ pub async fn locale_select(
 }
 
 pub async fn locale_delete(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
@@ -211,7 +212,7 @@ pub async fn locale_delete(
 }
 
 pub async fn locale_insert(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Json(locale): Json<Locale>,
 ) -> Result<Json<i32>, ServiceError> {
@@ -231,7 +232,7 @@ pub async fn locale_insert(
 }
 
 pub async fn locale_update(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(locale): Json<Locale>,
@@ -256,7 +257,7 @@ CONTENT AUTHOR
 ---------------------------------*/
 
 pub async fn authors_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ContentAuthorFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<AuthorSerializer>>, ServiceError> {
@@ -273,7 +274,7 @@ pub async fn authors_select(
 }
 
 pub async fn author_insert(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
 ) -> Result<Json<i32>, ServiceError> {
@@ -295,7 +296,7 @@ pub async fn author_insert(
 }
 
 pub async fn author_update(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(mut content): Json<Value>,
@@ -318,7 +319,7 @@ pub async fn author_update(
 }
 
 pub async fn author_delete(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
@@ -342,7 +343,7 @@ CONTENT CATEGORIES
 ---------------------------------*/
 
 pub async fn categories_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ContentCategoryFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<ContentCategorySerializer>>, ServiceError> {
@@ -359,7 +360,7 @@ pub async fn categories_select(
 }
 
 pub async fn category_insert(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
 ) -> Result<Json<i32>, ServiceError> {
@@ -384,7 +385,7 @@ pub async fn category_insert(
 }
 
 pub async fn category_update(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
@@ -405,7 +406,7 @@ pub async fn category_update(
 }
 
 pub async fn category_delete(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
@@ -429,7 +430,7 @@ CONTENT
 ---------------------------------*/
 
 pub async fn content_types_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ContentTypeFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<ContentType>>, ServiceError> {
@@ -446,7 +447,7 @@ pub async fn content_types_select(
 }
 
 pub async fn entries_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
@@ -491,7 +492,7 @@ pub async fn entries_select(
 }
 
 pub async fn entry_select(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path((type_slug, slug)): Path<(String, String)>,
     Query(mut params): Query<QueryObj<ContentFields>>,
     OriginalUri(original_uri): OriginalUri,
@@ -541,7 +542,7 @@ pub async fn entry_select(
 }
 
 pub async fn entry_update(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
@@ -576,7 +577,7 @@ pub async fn entry_update(
 }
 
 pub async fn entry_delete(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
@@ -596,7 +597,7 @@ pub async fn entry_delete(
 }
 
 pub async fn entry_insert(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
     Json(mut content): Json<Value>,
@@ -630,7 +631,7 @@ pub async fn entry_insert(
 }
 
 pub async fn content_delete(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path((table, id)): Path<(String, i32)>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
@@ -656,7 +657,7 @@ pub async fn content_delete(
 }
 
 pub async fn content_insert(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(table): Path<String>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
@@ -683,7 +684,7 @@ pub async fn content_insert(
 }
 
 pub async fn content_update(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Sender<String>)>,
     Path((table, id)): Path<(String, i32)>,
     details: AuthDetails<Role>,
     Json(mut content): Json<Value>,

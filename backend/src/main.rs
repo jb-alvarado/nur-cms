@@ -1,7 +1,14 @@
-use axum::Router;
+use std::{collections::HashSet, sync::Arc};
+
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
+use protect_axum::GrantsLayer;
+use tokio::sync::{Mutex, broadcast};
 use tracing::{debug, error};
 
 #[cfg(debug_assertions)]
@@ -10,8 +17,12 @@ use tower_http::services::ServeDir;
 use nur_cms::{
     CONFIG, STORAGE,
     db::handles,
-    init_db, router_entries,
+    extract, init_db, router_entries,
     serve::routes::admin_routes,
+    sse::{
+        SseAuthState,
+        routes::{generate_uuid, sse_handler},
+    },
     utils::{
         cmd_args::{Args, add_user},
         errors::ServiceError,
@@ -43,13 +54,27 @@ async fn main() -> Result<(), ServiceError> {
         return Ok(());
     }
 
+    let (tx, _rx) = broadcast::channel(20);
+
+    let sse_state = SseAuthState {
+        uuids: Arc::new(Mutex::new(HashSet::new())),
+    };
+
     let (auth_routes, api_routes) = router_entries();
 
+    let sse_router = Router::new()
+        .route(
+            "/",
+            get(sse_handler).with_state((tx.clone(), sse_state.clone())),
+        )
+        .route("/generate-uuid", post(generate_uuid).with_state(sse_state))
+        .layer(GrantsLayer::with_extractor(extract));
+
     let mut app = Router::new()
-        .nest("/auth", auth_routes)
-        .nest("/api", api_routes)
+        .nest("/auth", auth_routes.with_state(pool.clone()))
+        .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_routes())
-        .with_state(pool);
+        .nest("/sse", sse_router);
 
     #[cfg(debug_assertions)]
     {

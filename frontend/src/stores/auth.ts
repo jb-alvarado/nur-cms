@@ -12,6 +12,7 @@ export const useAuth = defineStore('auth', {
         role: 'guest' as Role,
         user: {} as AuthUser,
         lastLogin: null as string | null | undefined,
+        uuid: null as null | string,
     }),
 
     getters: {},
@@ -92,6 +93,23 @@ export const useAuth = defineStore('auth', {
                 })
         },
 
+        async obtainUuid() {
+            await fetch('/sse/generate-uuid', {
+                method: 'POST',
+                headers: this.authHeader,
+            })
+                .then((resp) => resp.json())
+                .then((response: any) => {
+                    this.uuid = response.uuid
+                })
+                .catch((e) => {
+                    if (e.status === 401) {
+                        this.removeToken()
+                    }
+                    this.uuid = null
+                })
+        },
+
         async inspectToken() {
             const token = localStorage.getItem('token')
             const refresh = localStorage.getItem('refresh')
@@ -147,7 +165,7 @@ export const useAuth = defineStore('auth', {
                     }
                 })
                 .catch((e) => {
-                    store.msgAlert('error', e, 3)
+                    store.msgAlert('error', e)
                 })
         },
     },

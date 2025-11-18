@@ -37,7 +37,7 @@ async function typeSelect() {
             }
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 
@@ -74,11 +74,11 @@ async function deleteType() {
                         const msg = await errMsg(resp)
                         throw new Error(msg)
                     } else {
-                        store.msgAlert('success', `Deleted: ${item.name ?? item.id}`, 2)
+                        store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
                     }
                 })
                 .catch((e) => {
-                    store.msgAlert('error', e, 6)
+                    store.msgAlert('error', e)
                 })
         }
     }

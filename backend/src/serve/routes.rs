@@ -1,5 +1,4 @@
 use axum::Router;
-use sqlx::postgres::PgPool;
 
 #[cfg(not(debug_assertions))]
 use {
@@ -82,7 +81,7 @@ async fn serve_asset(path: Option<Path<String>>) -> impl IntoResponse {
     serve_index()
 }
 
-pub fn admin_routes() -> Router<PgPool> {
+pub fn admin_routes() -> Router {
     #[cfg(not(debug_assertions))]
     {
         Router::new()

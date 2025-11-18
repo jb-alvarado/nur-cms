@@ -45,7 +45,8 @@ export const useIndex = defineStore('index', {
 
     getters: {},
     actions: {
-        msgAlert(variance: string, text: string, seconds: number = 3) {
+        msgAlert(variance: string, text: string) {
+            const seconds = variance === 'error' ? 6 : variance === 'warning' ? 5 : 3
             const msg = { text, variance, seconds }
 
             this.msgList.push(msg)
@@ -73,7 +74,7 @@ export const useIndex = defineStore('index', {
                     }
                 })
                 .catch((e) => {
-                    this.msgAlert('error', e, 6)
+                    this.msgAlert('error', e)
                 })
         },
 
@@ -92,7 +93,7 @@ export const useIndex = defineStore('index', {
                     }
                 })
                 .catch((e) => {
-                    this.msgAlert('error', e, 6)
+                    this.msgAlert('error', e)
                 })
         },
 
@@ -126,7 +127,7 @@ export const useIndex = defineStore('index', {
                     }
                 })
                 .catch((e) => {
-                    this.msgAlert('error', e, 6)
+                    this.msgAlert('error', e)
                 })
         },
 
@@ -213,7 +214,7 @@ export const useIndex = defineStore('index', {
                     }
                 })
                 .catch((e) => {
-                    this.msgAlert('error', e, 6)
+                    this.msgAlert('error', e)
                 })
         },
 
@@ -232,11 +233,11 @@ export const useIndex = defineStore('index', {
                                 const msg = await errMsg(resp)
                                 throw new Error(msg)
                             } else {
-                                this.msgAlert('success', `Update: ${item.title ?? item.id}`, 2)
+                                this.msgAlert('success', `Update: ${item.title ?? item.id}`)
                             }
                         })
                         .catch((e) => {
-                            this.msgAlert('error', e, 6)
+                            this.msgAlert('error', e)
                         })
                 }
             }
@@ -258,11 +259,11 @@ export const useIndex = defineStore('index', {
                                 const msg = await errMsg(resp)
                                 throw new Error(msg)
                             } else {
-                                this.msgAlert('success', `Deleted: ${item.title ?? item.id}`, 2)
+                                this.msgAlert('success', `Deleted: ${item.title ?? item.id}`)
                             }
                         })
                         .catch((e) => {
-                            this.msgAlert('error', e, 6)
+                            this.msgAlert('error', e)
                         })
                 }
             }

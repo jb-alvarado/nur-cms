@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 
+import SseHandler from './SseHandler.vue'
+
 const { t } = useI18n()
 const router = useRouter()
 const auth = useAuth()
@@ -93,5 +95,7 @@ function toggleTheme() {
                 </button>
             </div>
         </div>
+
+        <SseHandler v-if="auth.uuid" />
     </div>
 </template>

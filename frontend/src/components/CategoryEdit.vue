@@ -62,7 +62,7 @@ if (categoryId > 0) {
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 } else {
     setTimeout(() => {
@@ -99,7 +99,7 @@ async function getCategory() {
             })
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 
@@ -126,13 +126,13 @@ function contentDelete() {
                     const msg = await errMsg(resp)
                     throw new Error(msg)
                 } else {
-                    store.msgAlert('success', `Deleted: ${category.value.title ?? category.value.id}`, 2)
+                    store.msgAlert('success', `Deleted: ${category.value.title ?? category.value.id}`)
 
                      router.push(`/category`)
                 }
             })
             .catch((e) => {
-                store.msgAlert('error', e, 6)
+                store.msgAlert('error', e)
             })
     }
 }
@@ -145,12 +145,12 @@ async function save() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', 'No changes to save', 3)
+        store.msgAlert('warning', 'No changes to save')
         return
     }
 
     if (categoryId === 0 && !payload.locale_id) {
-        store.msgAlert('warning', 'Select a language', 3)
+        store.msgAlert('warning', 'Select a language')
         return
     }
 
@@ -167,14 +167,14 @@ async function save() {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Content saved successfully', 3)
+            store.msgAlert('success', 'Content saved successfully')
 
             if (categoryId === 0) {
                 router.push(`/category/${await resp.text()}`)
             }
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 </script>

@@ -18,6 +18,7 @@ onBeforeMount(async () => {
 onMounted(() => {
     if (auth.isLogin) {
         auth.selectAuthUser()
+        auth.obtainUuid()
     }
 })
 </script>

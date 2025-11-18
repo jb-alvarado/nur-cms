@@ -85,7 +85,7 @@ async function uploadFile(file: File, chunkSize = DEFAULT_CHUNK_SIZE) {
 
     await Promise.all(workers)
     progress.value = 100
-    store.msgAlert('success', 'Upload complete!', 3)
+    store.msgAlert('success', 'Upload complete!')
 }
 
 async function onFileChange(e: Event) {
@@ -102,7 +102,7 @@ async function onFileChange(e: Event) {
             await uploadFile(file)
         }
     } catch (err: any) {
-        store.msgAlert('error', err, 6)
+        store.msgAlert('error', err)
         error.value = err.message || 'Upload failed'
     } finally {
         uploading.value = false

@@ -138,3 +138,10 @@ impl From<sqlx::Error> for ServiceError {
         Self::Conflict(err.to_string())
     }
 }
+
+impl From<uuid::Error> for ServiceError {
+    fn from(err: uuid::Error) -> ServiceError {
+        error!("{err:?}");
+        Self::InternalServerError
+    }
+}

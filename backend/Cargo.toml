@@ -18,7 +18,8 @@ workspace = true
 [dependencies]
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.8", features = ["multipart"] }
-axum-macros = "0.5.0"
+axum-macros = "0.5"
+async-stream = "0.3"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "std",
@@ -52,6 +53,7 @@ sqlx = { version = "0.8", features = [
 ] }
 tower-http = { version = "0.6", features = ["fs"] }
 tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "=0.3.19", features = [
     "ansi",
@@ -60,3 +62,4 @@ tracing-subscriber = { version = "=0.3.19", features = [
     "chrono",
 ] }
 ts-rs = { version = "11", features = ["chrono-impl", "no-serde-warnings", "serde-json-impl"] }
+uuid = { version = "1.18", features = ["v4"] }

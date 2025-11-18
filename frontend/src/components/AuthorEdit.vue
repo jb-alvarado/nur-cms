@@ -48,7 +48,7 @@ async function getAuthor() {
             authorOriginal.value = cloneDeep(author.value)
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 
@@ -77,7 +77,7 @@ async function savePhoto() {
                 author.value.media_id = response
             })
             .catch((e) => {
-                store.msgAlert('error', e.data, 5)
+                store.msgAlert('error', e.data)
 
                 return
             })
@@ -96,7 +96,7 @@ async function save() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', 'No changes to save', 3)
+        store.msgAlert('warning', 'No changes to save')
         return
     }
 
@@ -113,14 +113,14 @@ async function save() {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Content saved successfully', 3)
+            store.msgAlert('success', 'Content saved successfully')
 
             if (authorId === 0) {
                 router.push(`/author/${await resp.text()}`)
             }
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 </script>

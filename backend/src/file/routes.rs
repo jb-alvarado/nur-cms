@@ -5,19 +5,30 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use axum::{extract::Multipart, http::StatusCode, response::IntoResponse};
+use axum::{
+    extract::{Multipart, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use chrono::Local;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use sanitize_filename::sanitize;
+use sqlx::postgres::PgPool;
 use tokio::{
     fs::{self, OpenOptions},
     io::{AsyncSeekExt, AsyncWriteExt, SeekFrom},
-    sync::Mutex,
+    sync::{Mutex, broadcast::Sender},
     task,
 };
 use tracing::{error, info, warn};
 
-use crate::{STORAGE, db::models::Role, file::processing::save_image, utils::errors::ServiceError};
+use crate::{
+    STORAGE,
+    db::models::Role,
+    file::processing::save_image,
+    sse::{SSELevel as Level, SSEMessage},
+    utils::errors::ServiceError,
+};
 
 // Track byte ranges for each file being uploaded to support resumable uploads
 type FileRanges = Arc<Mutex<Vec<Range<u64>>>>;
@@ -61,6 +72,7 @@ fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
 
 // Handle chunked file uploads with support for resumable uploads
 pub async fn upload_chunk(
+    State((_, tx)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, ServiceError> {
@@ -195,13 +207,19 @@ pub async fn upload_chunk(
                 true
             });
 
-            // TODO: blocking and wait or run in background
             task::spawn_blocking(move || {
-                if let Err(e) = save_image(&[1024, 460], &["jpg", "avif", "webp"], &output_file) {
+                // TODO: check if variance creation is needed
+
+                let msg = SSEMessage::new(Level::Info, "Create image variances in background.");
+                if let Err(e) = tx.send(msg.to_string()) {
                     error!("{e}");
                 };
-            })
-            .await?;
+
+                if let Err(e) = save_image(&[756, 460], &["jpg", "avif", "webp"], &output_file, tx)
+                {
+                    error!("{e}");
+                };
+            });
         }
     }
 

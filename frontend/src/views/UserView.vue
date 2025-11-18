@@ -17,7 +17,7 @@ useHead({
 
 async function saveUser() {
     if (auth.user.password && auth.user.password !== confirmPass.value) {
-        store.msgAlert('error', t('user.mismatch'), 3)
+        store.msgAlert('error', t('user.mismatch'))
         return
     }
 
@@ -29,9 +29,9 @@ async function saveUser() {
         body: JSON.stringify(auth.user),
     }).then((resp) => {
         if (resp.status === 200) {
-            store.msgAlert('success', t('user.updateSuccess'), 3)
+            store.msgAlert('success', t('user.updateSuccess'))
         } else {
-            store.msgAlert('error', t('user.updateFailed'), 6)
+            store.msgAlert('error', t('user.updateFailed'))
         }
     })
 }

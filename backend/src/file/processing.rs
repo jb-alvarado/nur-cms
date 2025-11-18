@@ -6,9 +6,13 @@ use image::{
     imageops::FilterType::Triangle,
 };
 use libwebp_sys::{WebPEncodeRGB, WebPEncodeRGBA};
-use tracing::debug;
+use tokio::sync::broadcast::Sender;
+use tracing::{debug, error};
 
-use crate::utils::errors::ServiceError;
+use crate::{
+    sse::{SSELevel as Level, SSEMessage},
+    utils::errors::ServiceError,
+};
 
 fn encode_webp(
     input_image: &[u8],
@@ -50,6 +54,7 @@ pub fn save_image(
     image_widths: &[u32],
     image_types: &[&str],
     input_file: &Path,
+    tx: Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Bild laden
     let img = image::open(input_file)?;
@@ -86,12 +91,20 @@ pub fn save_image(
                 let encoder_avif = AvifEncoder::new_with_speed_quality(&mut buffer, 5, 78);
                 encoder_avif.write_image(resized.as_bytes(), w, h, color_type)?;
 
-                File::create(output_path)?.write_all(&buffer)?;
+                File::create(&output_path)?.write_all(&buffer)?;
             } else if ext == "webp" {
                 let encoder_webp = encode_webp(resized.as_bytes(), w, h, 76, resized.has_alpha())?;
 
-                File::create(output_path)?.write_all(&encoder_webp)?;
+                File::create(&output_path)?.write_all(&encoder_webp)?;
             }
+
+            let msg = SSEMessage::new(
+                Level::Success,
+                &format!("Created: '{}'", output_path.to_string_lossy()),
+            );
+            if let Err(e) = tx.send(msg.to_string()) {
+                error!("{e}");
+            };
         }
     }
 

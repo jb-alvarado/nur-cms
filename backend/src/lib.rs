@@ -20,6 +20,7 @@ pub mod api;
 pub mod db;
 pub mod file;
 pub mod serve;
+pub mod sse;
 pub mod utils;
 
 use crate::{
@@ -102,7 +103,10 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
     }
 }
 
-pub fn router_entries() -> (Router<PgPool>, Router<PgPool>) {
+pub fn router_entries() -> (
+    Router<PgPool>,
+    Router<(PgPool, tokio::sync::broadcast::Sender<String>)>,
+) {
     let auth_routes = Router::new()
         .route("/login", post(login))
         .route("/refresh", post(refresh));

@@ -67,7 +67,7 @@ if (contentId > 0) {
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 } else {
     setTimeout(() => {
@@ -100,7 +100,7 @@ function getContent() {
             }
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 
@@ -153,12 +153,12 @@ function save() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', 'No changes to save', 3)
+        store.msgAlert('warning', 'No changes to save')
         return
     }
 
     if (contentId === 0 && !payload.locale_id) {
-        store.msgAlert('warning', 'Select a language', 3)
+        store.msgAlert('warning', 'Select a language')
         return
     }
 
@@ -175,14 +175,14 @@ function save() {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Content saved successfully', 3)
+            store.msgAlert('success', 'Content saved successfully')
 
             if (contentId === 0) {
                 router.push(`/${routeName}/${await resp.text()}`)
             }
         })
         .catch((e) => {
-            store.msgAlert('error', e, 6)
+            store.msgAlert('error', e)
         })
 }
 
@@ -199,13 +199,13 @@ function contentDelete() {
                     const msg = await errMsg(resp)
                     throw new Error(msg)
                 } else {
-                    store.msgAlert('success', `Deleted: ${content.value.title ?? content.value.id}`, 2)
+                    store.msgAlert('success', `Deleted: ${content.value.title ?? content.value.id}`)
 
                     router.push(`/${routeName}`)
                 }
             })
             .catch((e) => {
-                store.msgAlert('error', e, 6)
+                store.msgAlert('error', e)
             })
     }
 }
