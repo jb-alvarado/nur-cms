@@ -115,7 +115,6 @@ async function onFileChange(e: Event) {
         <fieldset class="fieldset">
             <legend class="fieldset-legend">Pick a file</legend>
             <input type="file" class="file-input" @change="onFileChange" />
-            <label class="label">Max size 2MB</label>
         </fieldset>
 
         <div>

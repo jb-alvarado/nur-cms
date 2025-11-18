@@ -55,13 +55,16 @@ pub struct Configuration {
     pub id: i32,
     pub jwt_secret: String,
     pub output_type: OutputType,
+    pub mail_recipience: Option<Vec<String>>,
     pub mail_smtp: Option<String>,
     pub mail_user: Option<String>,
     pub mail_password: Option<String>,
     pub mail_starttls: bool,
+    pub image_extensions: Option<Vec<String>>,
+    pub image_resolutions: Option<Vec<i32>>,
 }
 
-#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, FromRow, TS)]
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct AuthRole {
@@ -501,9 +504,9 @@ pub struct MediaVariant {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub media_id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub resolution: i32,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub format: String,
+    pub width: i32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub height: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub filename: String,
     #[serde(default, skip_serializing)]
@@ -515,8 +518,8 @@ impl FromRow<'_, PgRow> for MediaVariant {
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),
             media_id: row.try_get("media_id").unwrap_or_default(),
-            resolution: row.try_get("resolution").unwrap_or_default(),
-            format: row.try_get("format").unwrap_or_default(),
+            width: row.try_get("width").unwrap_or_default(),
+            height: row.try_get("height").unwrap_or_default(),
             filename: row.try_get("filename").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })

@@ -59,7 +59,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
             1,
         );
 
-        insert_record(pool, &Table::AuthUsers, &user).await?;
+        insert_record::<AuthUser, i32>(pool, &Table::AuthUsers, &user).await?;
     }
 
     if media_resp.results.is_empty() {
@@ -103,7 +103,7 @@ pub async fn db_migrate(pool: &PgPool) -> Result<(), ServiceError> {
             .map(char::from)
             .collect();
 
-        const QUERY: &str = "INSERT INTO configuration(jwt_secret) VALUES($1);";
+        const QUERY: &str = "INSERT INTO configuration(jwt_secret, image_extensions, image_resolutions) VALUES($1, ARRAY['jpg', 'avif', 'webp'], ARRAY[1024, 480]);";
 
         sqlx::query(QUERY).bind(secret).execute(pool).await?;
     }
@@ -264,9 +264,10 @@ pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), 
     Ok(())
 }
 
-pub async fn insert_record<T>(pool: &PgPool, table: &Table, data: &T) -> Result<i32, ServiceError>
+pub async fn insert_record<T, R>(pool: &PgPool, table: &Table, data: &T) -> Result<R, ServiceError>
 where
     T: Serialize,
+    R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
 {
     let value = serde_json::to_value(data)?;
 
@@ -275,7 +276,13 @@ where
         None => return Err(ServiceError::NoContent),
     };
 
-    let type_ignore = ["id", "created_at", "updated_at", "last_login"];
+    let type_ignore = [
+        "id",
+        "created_at",
+        "updated_at",
+        "last_login",
+        "total_count",
+    ];
 
     let mut keys = Vec::new();
     let mut qb = QueryBuilder::<Postgres>::new(format!("INSERT INTO {table} ("));

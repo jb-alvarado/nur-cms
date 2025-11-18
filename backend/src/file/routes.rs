@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
     ops::Range,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, LazyLock},
 };
 
 use axum::{
+    Extension,
     extract::{Multipart, State},
     http::StatusCode,
     response::IntoResponse,
@@ -23,8 +24,12 @@ use tokio::{
 use tracing::{error, info, warn};
 
 use crate::{
-    STORAGE,
-    db::models::Role,
+    AuthUserMeta, CONFIG, STORAGE,
+    db::{
+        fields::Table,
+        handles,
+        models::{Media, MediaVariant, Role},
+    },
     file::processing::save_image,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::ServiceError,
@@ -70,9 +75,159 @@ fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
     pos == total_size
 }
 
+async fn file_ranges(
+    start: u64,
+    size: u64,
+    file_name: &str,
+    output_file: &Path,
+) -> Result<FileRanges, ServiceError> {
+    let output_str = output_file.to_string_lossy().to_string();
+    let mut uploads = UPLOADS.lock().await;
+
+    // Prevent overwriting if file already exists and is not being tracked
+    if size > 0
+        && fs::metadata(&output_file)
+            .await
+            .is_ok_and(|f| f.len() == size)
+        && !uploads.contains_key(&output_str)
+    {
+        return Err(ServiceError::Conflict(format!(
+            "File {file_name:?} already exists!"
+        )));
+    }
+
+    // Only remove old tracking if it's a leftover from a previous interrupted upload
+    if start == 0 {
+        let mut remove_old = false;
+
+        if let Some(ranges_arc) = uploads.get(&output_str) {
+            let ranges = ranges_arc.try_lock();
+            if ranges.is_err() || ranges.unwrap().is_empty() {
+                remove_old = true;
+            }
+        }
+
+        if remove_old {
+            // Old entry is not active → remove it
+            uploads.remove(&output_str);
+            warn!("Removed old upload history for {file_name:?}");
+        }
+
+        info!("Start uploading: {output_file:?}");
+    }
+
+    // Get or create the current upload tracking
+    Ok(uploads
+        .entry(output_str.clone())
+        .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
+        .clone())
+}
+
+async fn cleanup_uploads(output_file: &Path) {
+    let output_str = output_file.to_string_lossy().to_string();
+    let mut uploads = UPLOADS.lock().await;
+    uploads.remove(&output_str);
+
+    // Clean up incomplete or invalid uploads from tracking map
+    uploads.retain(|path_str, ranges_arc| {
+        let file_path = PathBuf::from(path_str);
+
+        let Ok(meta) = std::fs::metadata(&file_path) else {
+            return false;
+        };
+
+        if meta.len() == 0 {
+            return false;
+        }
+
+        if let Ok(ranges) = ranges_arc.try_lock() {
+            return !is_upload_complete(&ranges, meta.len());
+        }
+
+        true
+    });
+}
+
+async fn process_media(
+    pool: PgPool,
+    user_id: i32,
+    tx: Sender<String>,
+    output_file: PathBuf,
+) -> Result<(), ServiceError> {
+    let config = CONFIG.read().await.clone();
+    let mime = mime_guess::from_path(&output_file).first();
+    let mime_type = mime
+        .map(|m| m.type_().to_string())
+        .unwrap_or_else(|| mime_guess::mime::APPLICATION.to_string());
+    let resolutions = config.image_resolutions.unwrap_or_default();
+    let extensions = config.image_extensions.unwrap_or_default();
+    let data = Media {
+        alt: Some(
+            output_file
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        ),
+        filename: output_file
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+        //TODO: path should represent the path for the frontend, not the storage path
+        path: output_file.to_string_lossy().to_string(),
+        r#type: Some(mime_type.clone()),
+        uploaded_by: Some(user_id),
+        ..Default::default()
+    };
+
+    let media_id: i32 = handles::insert_record(&pool, &Table::Media, &data).await?;
+
+    if mime_type == "image" && !extensions.is_empty() {
+        task::spawn_blocking(move || {
+            let msg = SSEMessage::new(Level::Info, "Create image variances in background.");
+            if let Err(e) = tx.send(msg.to_string()) {
+                error!("{e}");
+            };
+
+            match save_image(resolutions, &extensions, &output_file, tx) {
+                Ok(variances) => {
+                    for (width, height, path) in variances {
+                        let pool = pool.clone();
+                        let variance = MediaVariant {
+                            id: 0,
+                            media_id,
+                            width,
+                            height,
+                            filename: path,
+                            total_count: None,
+                        };
+
+                        tokio::spawn(async move {
+                            if let Err(e) = handles::insert_record::<MediaVariant, i64>(
+                                &pool,
+                                &Table::MediaVariants,
+                                &variance,
+                            )
+                            .await
+                            {
+                                error!("{e}");
+                            }
+                        });
+                    }
+                }
+                Err(e) => error!("{e}"),
+            };
+        });
+    }
+
+    Ok(())
+}
+
 // Handle chunked file uploads with support for resumable uploads
 pub async fn upload_chunk(
-    State((_, tx)): State<(PgPool, Sender<String>)>,
+    State((pool, tx)): State<(PgPool, Sender<String>)>,
+    Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, ServiceError> {
@@ -121,49 +276,7 @@ pub async fn upload_chunk(
     }
 
     let output_file = output_path.join(&file_name);
-    let output_str = output_file.to_string_lossy().to_string();
-
-    let file_ranges_mutex = {
-        let mut uploads = UPLOADS.lock().await;
-
-        // Prevent overwriting if file already exists and is not being tracked
-        if size > 0
-            && fs::metadata(&output_file)
-                .await
-                .is_ok_and(|f| f.len() == size)
-            && !uploads.contains_key(&output_str)
-        {
-            return Err(ServiceError::Conflict(format!(
-                "File {file_name:?} already exists!"
-            )));
-        }
-
-        // Only remove old tracking if it's a leftover from a previous interrupted upload
-        if start == 0 {
-            let mut remove_old = false;
-
-            if let Some(ranges_arc) = uploads.get(&output_str) {
-                let ranges = ranges_arc.try_lock();
-                if ranges.is_err() || ranges.unwrap().is_empty() {
-                    remove_old = true;
-                }
-            }
-
-            if remove_old {
-                // Old entry is not active → remove it
-                uploads.remove(&output_str);
-                warn!("Removed old upload history for {file_name:?}");
-            }
-
-            info!("Start uploading: {output_file:?}");
-        }
-
-        // Get or create the current upload tracking
-        uploads
-            .entry(output_str.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
-            .clone()
-    };
+    let file_ranges_mutex = file_ranges(start, size, &file_name, &output_file).await?;
 
     // Write chunk to the correct position in the file
     let mut file = OpenOptions::new()
@@ -177,50 +290,17 @@ pub async fn upload_chunk(
     file.write_all(&chunk_data).await?;
     file.flush().await?;
 
-    // Update range tracking and check if upload is complete
-    {
+    let is_complete = {
         let mut ranges = file_ranges_mutex.lock().await;
         ranges.push(start..end);
         merge_ranges(&mut ranges);
+        is_upload_complete(&ranges, size)
+    };
 
-        if is_upload_complete(&ranges, size) {
-            info!("Upload complete!");
-            let mut uploads = UPLOADS.lock().await;
-            uploads.remove(&output_str);
-
-            // Clean up incomplete or invalid uploads from tracking map
-            uploads.retain(|path_str, ranges_arc| {
-                let file_path = PathBuf::from(path_str);
-
-                let Ok(meta) = std::fs::metadata(&file_path) else {
-                    return false;
-                };
-
-                if meta.len() == 0 {
-                    return false;
-                }
-
-                if let Ok(ranges) = ranges_arc.try_lock() {
-                    return !is_upload_complete(&ranges, meta.len());
-                }
-
-                true
-            });
-
-            task::spawn_blocking(move || {
-                // TODO: check if variance creation is needed
-
-                let msg = SSEMessage::new(Level::Info, "Create image variances in background.");
-                if let Err(e) = tx.send(msg.to_string()) {
-                    error!("{e}");
-                };
-
-                if let Err(e) = save_image(&[756, 460], &["jpg", "avif", "webp"], &output_file, tx)
-                {
-                    error!("{e}");
-                };
-            });
-        }
+    if is_complete {
+        info!("Upload complete!");
+        cleanup_uploads(&output_file).await;
+        process_media(pool, user.id, tx, output_file).await?;
     }
 
     Ok(StatusCode::OK)

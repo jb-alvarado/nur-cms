@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeMount, onMounted } from 'vue'
+import { onBeforeMount } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
 import { useAuth } from '@/stores/auth'
@@ -13,13 +13,6 @@ const auth = useAuth()
 
 onBeforeMount(async () => {
     await auth.inspectToken()
-})
-
-onMounted(() => {
-    if (auth.isLogin) {
-        auth.selectAuthUser()
-        auth.obtainUuid()
-    }
 })
 </script>
 

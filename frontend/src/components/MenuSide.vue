@@ -11,6 +11,8 @@ const router = useRouter()
 const auth = useAuth()
 const store = useIndex()
 
+auth.selectAuthUser()
+auth.obtainUuid()
 store.selectAuthors()
 store.selectLocales()
 store.selectTypes()

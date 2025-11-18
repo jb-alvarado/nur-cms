@@ -49,7 +49,7 @@ pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
     let role = resp.results.iter().find(|r| r.name == role_name).unwrap();
     let user = AuthUser::new(email, username, first_name, last_name, password, role.id);
 
-    handles::insert_record(pool, &Table::AuthUsers, &user).await?;
+    handles::insert_record::<AuthUser, i32>(pool, &Table::AuthUsers, &user).await?;
 
     Ok(())
 }

@@ -1,8 +1,13 @@
 use std::{fs::File, io::Write, path::Path};
 
+use colored::Colorize;
 use image::{
     ExtendedColorType, ImageEncoder,
-    codecs::{avif::AvifEncoder, jpeg::JpegEncoder},
+    codecs::{
+        avif::AvifEncoder,
+        jpeg::JpegEncoder,
+        png::{CompressionType, FilterType as PngFilterType, PngEncoder},
+    },
     imageops::FilterType::Triangle,
 };
 use libwebp_sys::{WebPEncodeRGB, WebPEncodeRGBA};
@@ -13,6 +18,8 @@ use crate::{
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::ServiceError,
 };
+
+type VarianceType = Vec<(i32, i32, String)>;
 
 fn encode_webp(
     input_image: &[u8],
@@ -51,64 +58,89 @@ fn encode_webp(
 }
 
 pub fn save_image(
-    image_widths: &[u32],
-    image_types: &[&str],
+    mut image_resolutions: Vec<i32>,
+    image_types: &[String],
     input_file: &Path,
     tx: Sender<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Bild laden
+) -> Result<VarianceType, Box<dyn std::error::Error>> {
     let img = image::open(input_file)?;
     let img_name = input_file
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("image");
+    let mut variances = Vec::new();
 
-    for &in_w in image_widths {
+    if !image_resolutions.contains(&320) {
+        image_resolutions.insert(0, 320);
+    }
+
+    for in_w in image_resolutions {
         let scale_factor = in_w as f32 / img.width() as f32;
         let in_h = (img.height() as f32 * scale_factor).round() as u32;
-        let resized = img.resize_exact(in_w, in_h, Triangle);
+        let resized = img.resize_exact(in_w as u32, in_h, Triangle);
         let w = resized.width();
         let h = resized.height();
 
-        for &ext in image_types {
+        debug!(
+            "Process {}x{}, types {image_types:?}: {}",
+            w.to_string().yellow(),
+            h.to_string().yellow(),
+            input_file.to_string_lossy().bright_magenta()
+        );
+
+        for ext in image_types {
             let mut buffer = Vec::new();
-            let output_path = input_file.with_file_name(format!("{img_name}-{w}.{ext}"));
+            let file_name = format!("{img_name}-{w}.{ext}");
+            let mut output_path = input_file.with_file_name(&file_name);
+            let has_alpha = resized.has_alpha();
+            let color_type = match has_alpha {
+                true => ExtendedColorType::Rgba8,
+                false => ExtendedColorType::Rgb8,
+            };
 
-            debug!("Process {w}x{h}: {output_path:?}");
+            if ["jpg", "jpeg", "png"].contains(&ext.as_str()) {
+                if has_alpha {
+                    output_path = output_path.with_extension("png");
 
-            if ext == "jpg" || ext == "jpeg" {
-                let mut encoder_jpeg = JpegEncoder::new_with_quality(&mut buffer, 78);
-                let rgb_image = resized.to_rgb8();
-                encoder_jpeg.encode(rgb_image.as_raw(), w, h, ExtendedColorType::Rgb8)?;
-
-                File::create(&output_path)?.write_all(&buffer)?;
+                    let encoder_png = PngEncoder::new_with_quality(
+                        &mut buffer,
+                        CompressionType::Best,
+                        PngFilterType::Adaptive,
+                    );
+                    encoder_png.write_image(resized.as_bytes(), w, h, color_type)?;
+                } else {
+                    let mut encoder_jpeg = JpegEncoder::new_with_quality(&mut buffer, 78);
+                    let rgb_image = resized.to_rgb8();
+                    encoder_jpeg.encode(rgb_image.as_raw(), w, h, ExtendedColorType::Rgb8)?;
+                }
             } else if ext == "avif" {
-                let color_type = match resized.has_alpha() {
-                    true => ExtendedColorType::Rgba8,
-                    false => ExtendedColorType::Rgb8,
-                };
-
                 let encoder_avif = AvifEncoder::new_with_speed_quality(&mut buffer, 5, 78);
                 encoder_avif.write_image(resized.as_bytes(), w, h, color_type)?;
-
-                File::create(&output_path)?.write_all(&buffer)?;
             } else if ext == "webp" {
-                let encoder_webp = encode_webp(resized.as_bytes(), w, h, 76, resized.has_alpha())?;
-
-                File::create(&output_path)?.write_all(&encoder_webp)?;
+                buffer = encode_webp(resized.as_bytes(), w, h, 76, has_alpha)?;
             }
 
-            let msg = SSEMessage::new(
-                Level::Success,
-                &format!("Created: '{}'", output_path.to_string_lossy()),
-            );
+            if !buffer.is_empty() {
+                File::create(&output_path)?.write_all(&buffer)?;
+                variances.push((
+                    w as i32,
+                    h as i32,
+                    output_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                ));
+            }
+
+            let msg = SSEMessage::new(Level::Success, &format!("Created: '{file_name}'"));
             if let Err(e) = tx.send(msg.to_string()) {
                 error!("{e}");
             };
         }
     }
 
-    Ok(())
+    Ok(variances)
 }
 
 pub async fn delete_image(size: &(u32, u32), path: &Path, name: &str) -> Result<(), ServiceError> {

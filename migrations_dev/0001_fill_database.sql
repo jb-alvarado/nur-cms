@@ -25,20 +25,20 @@ VALUES
     );
 
 INSERT INTO
-    media_variants (media_id, resolution, format, filename)
+    media_variants (media_id, width, height, filename)
 VALUES
-    (1, 960, 'jpg', 'cover_960.jpg'),
-    (1, 480, 'jpg', 'cover_480.jpg'),
-    (1, 960, 'avif', 'cover_960.avif'),
-    (1, 480, 'avif', 'cover_480.avif'),
-    (1, 960, 'webp', 'cover_960.webp'),
-    (1, 480, 'webp', 'cover_480.webp'),
-    (2, 960, 'jpg', 'block_960.jpg'),
-    (2, 480, 'jpg', 'block_480.jpg'),
-    (2, 960, 'avif', 'block_960.avif'),
-    (2, 480, 'avif', 'block_480.avif'),
-    (2, 960, 'webp', 'block_960.webp'),
-    (2, 480, 'webp', 'block_480.webp');
+    (1, 960, 540, 'cover_960.jpg'),
+    (1, 480, 270, 'cover_480.jpg'),
+    (1, 960, 540, 'cover_960.avif'),
+    (1, 480, 270, 'cover_480.avif'),
+    (1, 960, 540, 'cover_960.webp'),
+    (1, 480, 270, 'cover_480.webp'),
+    (2, 960, 540, 'block_960.jpg'),
+    (2, 480, 270, 'block_480.jpg'),
+    (2, 960, 540, 'block_960.avif'),
+    (2, 480, 270, 'block_480.avif'),
+    (2, 960, 540, 'block_960.webp'),
+    (2, 480, 270, 'block_480.webp');
 
 INSERT INTO
     content_categories (group_id, locale_id, name, slug, status, media_id)

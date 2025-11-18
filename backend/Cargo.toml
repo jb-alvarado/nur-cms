@@ -29,7 +29,7 @@ clap = { version = "4", features = ["derive"] }
 colored = "3"
 derive_more = { version = "2", features = ["full"] }
 dotenvy = "0.15"
-image = { version = "0.25", features = ["avif", "rayon"] }
+image = { version = "0.25", features = ["avif", "rayon", "png"] }
 include_dir = "0.7"
 inquire = "0.9"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }

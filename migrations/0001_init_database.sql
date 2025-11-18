@@ -53,8 +53,8 @@ CREATE TABLE media (
 CREATE TABLE media_variants (
     id BIGSERIAL PRIMARY KEY,
     media_id INT REFERENCES media (id) ON DELETE CASCADE,
-    resolution INT NOT NULL,
-    format TEXT NOT NULL DEFAULT 'jpg',
+    width INT NOT NULL,
+    height INT NOT NULL,
     filename TEXT NOT NULL
 );
 
@@ -195,10 +195,13 @@ CREATE TABLE configuration (
     id SERIAL PRIMARY KEY,
     jwt_secret VARCHAR(255) NOT NULL,
     output_type VARCHAR(16) NOT NULL CHECK (output_type IN ('ast', 'html', 'markdown')) DEFAULT 'ast',
+    mail_recipience VARCHAR(160)[],
     mail_smtp VARCHAR(160),
     mail_user VARCHAR(160),
     mail_password VARCHAR(255),
-    mail_starttls BOOLEAN NOT NULL DEFAULT false
+    mail_starttls BOOLEAN NOT NULL DEFAULT false,
+    image_extensions VARCHAR(4)[],
+    image_resolutions INT[]
 );
 
 CREATE OR REPLACE FUNCTION content_text_vector_update () RETURNS trigger AS $$

@@ -18,6 +18,7 @@ pub enum Table {
     ContentBlocks,
     ContentEntries,
     Media,
+    MediaVariants,
     TsConfig,
 }
 
@@ -37,6 +38,7 @@ impl FromStr for Table {
             "content_blocks" => Ok(Self::ContentBlocks),
             "content_entries" => Ok(Self::ContentEntries),
             "media" => Ok(Self::Media),
+            "media_variants" => Ok(Self::MediaVariants),
             "ts_config" => Ok(Self::TsConfig),
             _ => Err(format!("Field '{input}' not found!")),
         }
@@ -57,6 +59,7 @@ impl fmt::Display for Table {
             Self::ContentBlocks => write!(f, "content_blocks"),
             Self::ContentEntries => write!(f, "content_entries"),
             Self::Media => write!(f, "media"),
+            Self::MediaVariants => write!(f, "media_variants"),
             Self::TsConfig => write!(f, "pg_catalog.pg_ts_config"),
         }
     }
