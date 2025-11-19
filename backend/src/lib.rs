@@ -51,6 +51,7 @@ pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCES
 pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFRESH_LIFETIME", 30));
 pub static STORAGE: LazyLock<String> =
     LazyLock::new(|| env_parse_or("STORAGE", "./uploads".to_string()));
+pub static PUBLIC_UPLOADS: &str = "/uploads";
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));

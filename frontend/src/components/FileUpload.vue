@@ -4,6 +4,7 @@ import { errMsg } from '@/utils/error'
 import { formatBytes } from '@/utils/helper'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { shortID } from '@/utils/helper'
 
 const auth = useAuth()
 const store = useIndex()
@@ -39,7 +40,7 @@ function updateProgress(completedChunks: number, fileSize: number) {
     lastTime.value = now
 }
 
-async function uploadFile(file: File, chunkSize = DEFAULT_CHUNK_SIZE) {
+async function uploadFile(file: File, batch_id: string, count: number, chunkSize = DEFAULT_CHUNK_SIZE) {
     let offset = 0
     const totalChunks = Math.ceil(file.size / chunkSize)
     const fileSize = file.size
@@ -62,6 +63,8 @@ async function uploadFile(file: File, chunkSize = DEFAULT_CHUNK_SIZE) {
             form.append('end', end.toString())
             form.append('size', fileSize.toString())
             form.append('chunk', blob)
+            form.append('batch_id', batch_id)
+            form.append('batch_count', count.toString())
 
             const resp = await fetch('/api/upload', {
                 method: 'POST',
@@ -91,15 +94,19 @@ async function uploadFile(file: File, chunkSize = DEFAULT_CHUNK_SIZE) {
 async function onFileChange(e: Event) {
     const input = e.target as HTMLInputElement
     if (!input.files?.length) return
-    const file = input.files[0]
+    const length = input.files.length
 
     uploading.value = true
     progress.value = 0
     error.value = ''
 
     try {
-        if (file) {
-            await uploadFile(file)
+        if (length > 0) {
+            const id = shortID()
+
+            for (const file of input.files) {
+                await uploadFile(file, id, length)
+            }
         }
     } catch (err: any) {
         store.msgAlert('error', err)
@@ -114,11 +121,14 @@ async function onFileChange(e: Event) {
     <div>
         <fieldset class="fieldset">
             <legend class="fieldset-legend">Pick a file</legend>
-            <input type="file" class="file-input" @change="onFileChange" />
+            <input type="file" class="file-input" @change="onFileChange" multiple />
         </fieldset>
 
         <div>
-            <p>Uploading: {{ progress }}% {{ progress && progress < 100 ? uploadSpeed : '' }}</p>
+            <p>
+                Uploading: {{ progress }}%
+                {{ progress && progress < 100 ? uploadSpeed : '' }}
+            </p>
             <progress class="progress progress-warning w-96" :value="progress" max="100"></progress>
         </div>
 

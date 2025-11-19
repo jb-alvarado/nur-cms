@@ -24,20 +24,37 @@ use tokio::{
 use tracing::{error, info, warn};
 
 use crate::{
-    AuthUserMeta, CONFIG, STORAGE,
+    AuthUserMeta, CONFIG, PUBLIC_UPLOADS, STORAGE,
     db::{
         fields::Table,
         handles,
-        models::{Media, MediaVariant, Role},
+        models::{Configuration, Media, MediaVariant, Role},
     },
     file::processing::save_image,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::ServiceError,
 };
 
+#[derive(Clone)]
+struct UploadMeta {
+    batch_id: String,
+    db_id: Option<i32>,
+    mime_type: Option<String>,
+}
+
+impl UploadMeta {
+    fn new(batch_id: String) -> Self {
+        Self {
+            batch_id,
+            db_id: None,
+            mime_type: None,
+        }
+    }
+}
+
 // Track byte ranges for each file being uploaded to support resumable uploads
-type FileRanges = Arc<Mutex<Vec<Range<u64>>>>;
-type UploadMap = HashMap<String, FileRanges>;
+type UploadValue = (Arc<Mutex<Vec<Range<u64>>>>, UploadMeta);
+type UploadMap = HashMap<String, UploadValue>;
 static UPLOADS: LazyLock<Mutex<UploadMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // Merge overlapping or adjacent byte ranges to simplify tracking
@@ -75,13 +92,22 @@ fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
     pos == total_size
 }
 
+fn is_batch_complete(upload_map: &UploadMap, batch_id: &String, batch_count: usize) -> bool {
+    upload_map
+        .values()
+        .filter(|(_, meta)| meta.batch_id == *batch_id)
+        .count()
+        == batch_count
+}
+
 async fn file_ranges(
     start: u64,
     size: u64,
     file_name: &str,
     output_file: &Path,
-) -> Result<FileRanges, ServiceError> {
-    let output_str = output_file.to_string_lossy().to_string();
+    meta: UploadMeta,
+) -> Result<UploadValue, ServiceError> {
+    let upload_key = output_file.to_string_lossy().to_string();
     let mut uploads = UPLOADS.lock().await;
 
     // Prevent overwriting if file already exists and is not being tracked
@@ -89,7 +115,7 @@ async fn file_ranges(
         && fs::metadata(&output_file)
             .await
             .is_ok_and(|f| f.len() == size)
-        && !uploads.contains_key(&output_str)
+        && !uploads.contains_key(&upload_key)
     {
         return Err(ServiceError::Conflict(format!(
             "File {file_name:?} already exists!"
@@ -100,16 +126,16 @@ async fn file_ranges(
     if start == 0 {
         let mut remove_old = false;
 
-        if let Some(ranges_arc) = uploads.get(&output_str) {
-            let ranges = ranges_arc.try_lock();
-            if ranges.is_err() || ranges.unwrap().is_empty() {
+        if let Some(upload_value) = uploads.get(&upload_key) {
+            let ranges = upload_value.0.lock().await;
+            if ranges.is_empty() {
                 remove_old = true;
             }
         }
 
         if remove_old {
             // Old entry is not active → remove it
-            uploads.remove(&output_str);
+            uploads.remove(&upload_key);
             warn!("Removed old upload history for {file_name:?}");
         }
 
@@ -118,49 +144,36 @@ async fn file_ranges(
 
     // Get or create the current upload tracking
     Ok(uploads
-        .entry(output_str.clone())
-        .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
+        .entry(upload_key.clone())
+        .or_insert_with(|| (Arc::new(Mutex::new(Vec::new())), meta))
         .clone())
 }
 
-async fn cleanup_uploads(output_file: &Path) {
-    let output_str = output_file.to_string_lossy().to_string();
+async fn cleanup_uploads(batch_id: &str) {
     let mut uploads = UPLOADS.lock().await;
-    uploads.remove(&output_str);
-
-    // Clean up incomplete or invalid uploads from tracking map
-    uploads.retain(|path_str, ranges_arc| {
-        let file_path = PathBuf::from(path_str);
-
-        let Ok(meta) = std::fs::metadata(&file_path) else {
-            return false;
-        };
-
-        if meta.len() == 0 {
-            return false;
-        }
-
-        if let Ok(ranges) = ranges_arc.try_lock() {
-            return !is_upload_complete(&ranges, meta.len());
-        }
-
-        true
-    });
+    uploads.retain(|_, (_, meta)| meta.batch_id != batch_id);
 }
 
-async fn process_media(
-    pool: PgPool,
+async fn add_media_record(
+    pool: &PgPool,
     user_id: i32,
-    tx: Sender<String>,
-    output_file: PathBuf,
+    output_file: &PathBuf,
 ) -> Result<(), ServiceError> {
-    let config = CONFIG.read().await.clone();
-    let mime = mime_guess::from_path(&output_file).first();
+    let upload_key = output_file.to_string_lossy().to_string();
+    let mime = mime_guess::from_path(output_file).first();
     let mime_type = mime
         .map(|m| m.type_().to_string())
         .unwrap_or_else(|| mime_guess::mime::APPLICATION.to_string());
-    let resolutions = config.image_resolutions.unwrap_or_default();
-    let extensions = config.image_extensions.unwrap_or_default();
+
+    let suffix = output_file
+        .strip_prefix(STORAGE.as_str())
+        .unwrap_or_else(|_| output_file);
+    let path = Path::new(PUBLIC_UPLOADS)
+        .join(suffix)
+        .parent()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     let data = Media {
         alt: Some(
             output_file
@@ -174,32 +187,66 @@ async fn process_media(
             .unwrap_or_default()
             .to_string_lossy()
             .to_string(),
-        //TODO: path should represent the path for the frontend, not the storage path
-        path: output_file.to_string_lossy().to_string(),
+        path,
         r#type: Some(mime_type.clone()),
         uploaded_by: Some(user_id),
         ..Default::default()
     };
 
-    let media_id: i32 = handles::insert_record(&pool, &Table::Media, &data).await?;
+    let media_id: i32 = handles::insert_record(pool, &Table::Media, &data).await?;
+    let mut uploads = UPLOADS.lock().await;
 
-    if mime_type == "image" && !extensions.is_empty() {
-        task::spawn_blocking(move || {
-            let msg = SSEMessage::new(Level::Info, "Create image variances in background.");
-            if let Err(e) = tx.send(msg.to_string()) {
-                error!("{e}");
-            };
+    if let Some((_, meta)) = uploads.get_mut(&upload_key) {
+        meta.db_id = Some(media_id);
+        meta.mime_type = Some(mime_type.clone());
+    }
 
-            match save_image(resolutions, &extensions, &output_file, tx) {
+    Ok(())
+}
+
+fn process_variances(
+    pool: PgPool,
+    config: Configuration,
+    upload_map: UploadMap,
+    batch_id: &str,
+    tx: Sender<String>,
+) -> Result<(), ServiceError> {
+    let resolutions = config.image_resolutions.unwrap_or_default();
+    let extensions = config.image_extensions.unwrap_or_default();
+
+    let batch_files: Vec<(PathBuf, i32, String)> = upload_map
+        .into_iter()
+        .filter_map(|(path_str, (_, meta))| {
+            if meta.batch_id == batch_id {
+                Some((PathBuf::from(path_str), meta.db_id?, meta.mime_type?))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if batch_files
+        .iter()
+        .any(|(_, _, mime_type)| mime_type == "image")
+    {
+        let msg = SSEMessage::new(Level::Info, "Create image variances in background.");
+        if let Err(e) = tx.send(msg.to_string()) {
+            error!("{e}");
+        };
+    }
+
+    for (output_file, media_id, mime_type) in &batch_files {
+        if mime_type == "image" {
+            match save_image(resolutions.clone(), &extensions, output_file, tx.clone()) {
                 Ok(variances) => {
-                    for (width, height, path) in variances {
+                    for (width, height, filename) in variances {
                         let pool = pool.clone();
                         let variance = MediaVariant {
                             id: 0,
-                            media_id,
+                            media_id: *media_id,
                             width,
                             height,
-                            filename: path,
+                            filename,
                             total_count: None,
                         };
 
@@ -218,7 +265,7 @@ async fn process_media(
                 }
                 Err(e) => error!("{e}"),
             };
-        });
+        }
     }
 
     Ok(())
@@ -243,6 +290,8 @@ pub async fn upload_chunk(
     let mut end: Option<u64> = None;
     let mut size = 0;
     let mut chunk_data: Option<Vec<u8>> = None;
+    let mut batch_id = String::new();
+    let mut batch_count = 0;
 
     // Extract multipart form fields: fileName, start, end, size, and chunk data
     while let Some(field) = multipart.next_field().await.ok().flatten() {
@@ -252,6 +301,8 @@ pub async fn upload_chunk(
             "end" => end = Some(field.text().await?.parse::<u64>().unwrap_or(0)),
             "size" => size = field.text().await?.parse::<u64>().unwrap_or(0),
             "chunk" => chunk_data = Some(field.bytes().await?.to_vec()),
+            "batch_id" => batch_id = field.text().await?.parse::<String>().unwrap_or("n0".into()),
+            "batch_count" => batch_count = field.text().await?.parse::<usize>().unwrap_or(1),
             _ => {}
         }
     }
@@ -276,7 +327,8 @@ pub async fn upload_chunk(
     }
 
     let output_file = output_path.join(&file_name);
-    let file_ranges_mutex = file_ranges(start, size, &file_name, &output_file).await?;
+    let meta = UploadMeta::new(batch_id.clone());
+    let upload_value_mutex = file_ranges(start, size, &file_name, &output_file, meta).await?;
 
     // Write chunk to the correct position in the file
     let mut file = OpenOptions::new()
@@ -291,16 +343,50 @@ pub async fn upload_chunk(
     file.flush().await?;
 
     let is_complete = {
-        let mut ranges = file_ranges_mutex.lock().await;
+        let mut ranges = upload_value_mutex.0.lock().await;
         ranges.push(start..end);
         merge_ranges(&mut ranges);
         is_upload_complete(&ranges, size)
     };
 
     if is_complete {
-        info!("Upload complete!");
-        cleanup_uploads(&output_file).await;
-        process_media(pool, user.id, tx, output_file).await?;
+        info!("Upload complete for file: {file_name}");
+
+        add_media_record(&pool, user.id, &output_file).await?;
+
+        let uploads = UPLOADS.lock().await;
+        if is_batch_complete(&uploads, &batch_id, batch_count) {
+            let uploads_clone = uploads.clone();
+            let msg = if batch_count > 1 {
+                SSEMessage::new(
+                    Level::Success,
+                    &format!("Batch upload complete: {batch_count} files uploaded."),
+                )
+            } else {
+                SSEMessage::new(Level::Success, &format!("Uploaded done for: {file_name}"))
+            };
+            if let Err(e) = tx.send(msg.to_string()) {
+                error!("{e}");
+            };
+
+            let config = CONFIG.read().await.clone();
+
+            if config
+                .image_extensions
+                .as_ref()
+                .is_some_and(|e| !e.is_empty())
+            {
+                task::spawn_blocking(move || {
+                    if let Err(e) = process_variances(pool, config, uploads_clone, &batch_id, tx) {
+                        error!("Error processing variances: {e}");
+                    };
+
+                    tokio::spawn(async move {
+                        cleanup_uploads(&batch_id).await;
+                    });
+                });
+            }
+        }
     }
 
     Ok(StatusCode::OK)

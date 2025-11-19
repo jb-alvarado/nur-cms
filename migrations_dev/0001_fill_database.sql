@@ -4,22 +4,22 @@ VALUES
     (
         'Cover',
         'cover.jpg',
-        '/uploads/2025/10/cover.jpg',
+        '/uploads/2025/10',
         'image',
         1
     ),
     (
         'Block',
         'block.jpg',
-        '/uploads/2025/10/block.jpg',
+        '/uploads/2025/10',
         'image',
         1
     ),
-    ('Cat', 'cat.jpg', '/uploads/2025/11/cat.jpg', 'image', 1),
+    ('Cat', 'cat.jpg', '/uploads/2025/11', 'image', 1),
     (
         'Flower',
         'flower.jpg',
-        '/uploads/2025/11/flower.jpg',
+        '/uploads/2025/11',
         'image',
         1
     );
