@@ -88,7 +88,7 @@ async function uploadFile(file: File, batch_id: string, count: number, chunkSize
 
     await Promise.all(workers)
     progress.value = 100
-    store.msgAlert('success', 'Upload complete!')
+
 }
 
 async function onFileChange(e: Event) {
@@ -107,6 +107,8 @@ async function onFileChange(e: Event) {
             for (const file of input.files) {
                 await uploadFile(file, id, length)
             }
+
+            store.msgAlert('success', 'Upload complete!')
         }
     } catch (err: any) {
         store.msgAlert('error', err)

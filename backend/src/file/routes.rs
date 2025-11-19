@@ -35,14 +35,15 @@ use crate::{
     utils::errors::ServiceError,
 };
 
+/// Metadata for a single file upload
 #[derive(Clone)]
-struct UploadMeta {
+struct Meta {
     batch_id: String,
     db_id: Option<i32>,
     mime_type: Option<String>,
 }
 
-impl UploadMeta {
+impl Meta {
     fn new(batch_id: String) -> Self {
         Self {
             batch_id,
@@ -52,31 +53,49 @@ impl UploadMeta {
     }
 }
 
-// Track byte ranges for each file being uploaded to support resumable uploads
-type UploadValue = (Arc<Mutex<Vec<Range<u64>>>>, UploadMeta);
-type UploadMap = HashMap<String, UploadValue>;
-static UPLOADS: LazyLock<Mutex<UploadMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+#[derive(Clone)]
+struct Upload {
+    ranges: Arc<Mutex<Vec<Range<u64>>>>,
+    meta: Meta,
+}
 
-// Merge overlapping or adjacent byte ranges to simplify tracking
-fn merge_ranges(ranges: &mut Vec<Range<u64>>) {
-    ranges.sort_by_key(|r| r.start);
-    let mut merged: Vec<Range<u64>> = vec![];
-
-    for r in ranges.drain(..) {
-        if let Some(last) = merged.last_mut() {
-            if last.end >= r.start {
-                last.end = last.end.max(r.end);
-            } else {
-                merged.push(r);
-            }
-        } else {
-            merged.push(r);
+impl Upload {
+    fn new(meta: Meta) -> Self {
+        Self {
+            ranges: Arc::new(Mutex::new(Vec::new())),
+            meta,
         }
     }
+}
+
+/// Tracks byte ranges for resumable uploads
+type UploadMap = HashMap<String, Upload>;
+
+/// Global upload map, protected by a Mutex
+static UPLOADS: LazyLock<Mutex<UploadMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Merge overlapping or adjacent ranges
+fn merge_ranges(ranges: &mut Vec<Range<u64>>) {
+    if ranges.is_empty() {
+        return;
+    }
+
+    ranges.sort_by_key(|r| r.start);
+    let mut merged = vec![ranges[0].clone()];
+
+    for r in ranges.iter().skip(1) {
+        let last = merged.last_mut().unwrap();
+        if last.end >= r.start {
+            last.end = last.end.max(r.end); // merge overlapping or adjacent ranges
+        } else {
+            merged.push(r.clone());
+        }
+    }
+
     *ranges = merged;
 }
 
-// Check if all chunks have been received by verifying contiguous ranges from 0 to total_size
+/// Check if upload is complete
 fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
     if ranges.is_empty() {
         return false;
@@ -85,36 +104,39 @@ fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
     let mut pos = 0;
     for r in ranges {
         if r.start != pos {
-            return false; // gap
+            return false; // gap detected
         }
         pos = r.end;
     }
+
     pos == total_size
 }
 
-fn is_batch_complete(upload_map: &UploadMap, batch_id: &String, batch_count: usize) -> bool {
+/// Check if a batch of uploads is complete
+fn is_batch_complete(upload_map: &UploadMap, batch_id: &str, batch_count: usize) -> bool {
     upload_map
         .values()
-        .filter(|(_, meta)| meta.batch_id == *batch_id)
+        .filter(|upload| upload.meta.batch_id == batch_id)
         .count()
         == batch_count
 }
 
+/// Get or create UploadValue for a file
 async fn file_ranges(
     start: u64,
-    size: u64,
+    total_size: u64,
     file_name: &str,
     output_file: &Path,
-    meta: UploadMeta,
-) -> Result<UploadValue, ServiceError> {
+    meta: Meta,
+) -> Result<Upload, ServiceError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let mut uploads = UPLOADS.lock().await;
 
     // Prevent overwriting if file already exists and is not being tracked
-    if size > 0
+    if total_size > 0
         && fs::metadata(&output_file)
             .await
-            .is_ok_and(|f| f.len() == size)
+            .is_ok_and(|f| f.len() == total_size)
         && !uploads.contains_key(&upload_key)
     {
         return Err(ServiceError::Conflict(format!(
@@ -122,58 +144,63 @@ async fn file_ranges(
         )));
     }
 
-    // Only remove old tracking if it's a leftover from a previous interrupted upload
+    // Remove old tracking if start == 0 and file has no active ranges
     if start == 0 {
-        let mut remove_old = false;
+        if let Some(upload) = uploads.get(&upload_key) {
+            let is_empty = {
+                let guard = upload.ranges.lock().await;
+                guard.is_empty()
+            };
 
-        if let Some(upload_value) = uploads.get(&upload_key) {
-            let ranges = upload_value.0.lock().await;
-            if ranges.is_empty() {
-                remove_old = true;
+            if is_empty {
+                uploads.remove(&upload_key);
+                warn!("Removed old upload history for {file_name:?}");
             }
-        }
-
-        if remove_old {
-            // Old entry is not active → remove it
-            uploads.remove(&upload_key);
-            warn!("Removed old upload history for {file_name:?}");
         }
 
         info!("Start uploading: {output_file:?}");
     }
 
-    // Get or create the current upload tracking
-    Ok(uploads
+    let upload_entry = uploads
         .entry(upload_key.clone())
-        .or_insert_with(|| (Arc::new(Mutex::new(Vec::new())), meta))
-        .clone())
+        .or_insert_with(|| Upload::new(meta.clone()));
+
+    let result = Upload {
+        ranges: upload_entry.ranges.clone(),
+        meta: upload_entry.meta.clone(),
+    };
+
+    drop(uploads);
+    Ok(result)
 }
 
+/// Remove all uploads of a batch
 async fn cleanup_uploads(batch_id: &str) {
     let mut uploads = UPLOADS.lock().await;
-    uploads.retain(|_, (_, meta)| meta.batch_id != batch_id);
+    uploads.retain(|_, upload| upload.meta.batch_id != batch_id);
 }
 
+/// Add media record to database and update UploadMeta
 async fn add_media_record(
     pool: &PgPool,
     user_id: i32,
     output_file: &PathBuf,
 ) -> Result<(), ServiceError> {
     let upload_key = output_file.to_string_lossy().to_string();
-    let mime = mime_guess::from_path(output_file).first();
-    let mime_type = mime
+    let mime_type = mime_guess::from_path(output_file)
+        .first()
         .map(|m| m.type_().to_string())
         .unwrap_or_else(|| mime_guess::mime::APPLICATION.to_string());
 
-    let suffix = output_file
+    let path = output_file
         .strip_prefix(STORAGE.as_str())
-        .unwrap_or_else(|_| output_file);
-    let path = Path::new(PUBLIC_UPLOADS)
-        .join(suffix)
+        .unwrap_or(output_file)
         .parent()
-        .unwrap()
+        .map(|p| Path::new(PUBLIC_UPLOADS).join(p))
+        .ok_or_else(|| ServiceError::Conflict("Invalid file path".into()))?
         .to_string_lossy()
         .to_string();
+
     let data = Media {
         alt: Some(
             output_file
@@ -194,16 +221,17 @@ async fn add_media_record(
     };
 
     let media_id: i32 = handles::insert_record(pool, &Table::Media, &data).await?;
-    let mut uploads = UPLOADS.lock().await;
 
-    if let Some((_, meta)) = uploads.get_mut(&upload_key) {
-        meta.db_id = Some(media_id);
-        meta.mime_type = Some(mime_type.clone());
+    let mut uploads = UPLOADS.lock().await;
+    if let Some(upload) = uploads.get_mut(&upload_key) {
+        upload.meta.db_id = Some(media_id);
+        upload.meta.mime_type = Some(mime_type);
     }
 
     Ok(())
 }
 
+/// Process image variances in a batch
 fn process_variances(
     pool: PgPool,
     config: Configuration,
@@ -216,9 +244,13 @@ fn process_variances(
 
     let batch_files: Vec<(PathBuf, i32, String)> = upload_map
         .into_iter()
-        .filter_map(|(path_str, (_, meta))| {
-            if meta.batch_id == batch_id {
-                Some((PathBuf::from(path_str), meta.db_id?, meta.mime_type?))
+        .filter_map(|(path_str, upload)| {
+            if upload.meta.batch_id == batch_id {
+                Some((
+                    PathBuf::from(path_str),
+                    upload.meta.db_id?,
+                    upload.meta.mime_type?,
+                ))
             } else {
                 None
             }
@@ -231,25 +263,27 @@ fn process_variances(
     {
         let msg = SSEMessage::new(Level::Info, "Create image variances in background.");
         if let Err(e) = tx.send(msg.to_string()) {
-            error!("{e}");
-        };
+            error!("SSE send failed: {e}");
+        }
     }
 
-    for (output_file, media_id, mime_type) in &batch_files {
+    // Process each image sequentially to avoid excessive task spawning
+    for (output_file, media_id, mime_type) in batch_files {
         if mime_type == "image" {
-            match save_image(resolutions.clone(), &extensions, output_file, tx.clone()) {
+            match save_image(resolutions.clone(), &extensions, &output_file, tx.clone()) {
                 Ok(variances) => {
                     for (width, height, filename) in variances {
                         let pool = pool.clone();
                         let variance = MediaVariant {
                             id: 0,
-                            media_id: *media_id,
+                            media_id,
                             width,
                             height,
                             filename,
                             total_count: None,
                         };
 
+                        // Spawn a task for DB insert but limit concurrency if needed
                         tokio::spawn(async move {
                             if let Err(e) = handles::insert_record::<MediaVariant, i64>(
                                 &pool,
@@ -258,42 +292,41 @@ fn process_variances(
                             )
                             .await
                             {
-                                error!("{e}");
+                                error!("Error inserting MediaVariant: {e}");
                             }
                         });
                     }
                 }
-                Err(e) => error!("{e}"),
-            };
+                Err(e) => error!("Error saving image variances: {e}"),
+            }
         }
     }
 
     Ok(())
 }
 
-// Handle chunked file uploads with support for resumable uploads
+/// Handle chunked/resumable file uploads
 pub async fn upload_chunk(
     State((pool, tx)): State<(PgPool, Sender<String>)>,
     Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, ServiceError> {
-    // Only admins and authors can upload files
     if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return Err(ServiceError::Forbidden(
-            "You do not have permission to access this resource.".to_string(),
+            "You do not have permission to access this resource.".into(),
         ));
     }
 
-    let mut file_name = None;
+    let mut file_name: Option<String> = None;
     let mut start: Option<u64> = None;
     let mut end: Option<u64> = None;
-    let mut size = 0;
+    let mut size: u64 = 0;
     let mut chunk_data: Option<Vec<u8>> = None;
     let mut batch_id = String::new();
-    let mut batch_count = 0;
+    let mut batch_count = 1;
 
-    // Extract multipart form fields: fileName, start, end, size, and chunk data
+    // Extract multipart fields
     while let Some(field) = multipart.next_field().await.ok().flatten() {
         match field.name().unwrap_or_default() {
             "fileName" => file_name = Some(sanitize(&field.text().await?)),
@@ -301,7 +334,7 @@ pub async fn upload_chunk(
             "end" => end = Some(field.text().await?.parse::<u64>().unwrap_or(0)),
             "size" => size = field.text().await?.parse::<u64>().unwrap_or(0),
             "chunk" => chunk_data = Some(field.bytes().await?.to_vec()),
-            "batch_id" => batch_id = field.text().await?.parse::<String>().unwrap_or("n0".into()),
+            "batch_id" => batch_id = field.text().await?.clone(),
             "batch_count" => batch_count = field.text().await?.parse::<usize>().unwrap_or(1),
             _ => {}
         }
@@ -312,75 +345,76 @@ pub async fn upload_chunk(
     let end = end.ok_or_else(|| ServiceError::BadRequest("Missing end offset".into()))?;
     let chunk_data = chunk_data.ok_or_else(|| ServiceError::BadRequest("Missing chunk".into()))?;
 
-    // Validate chunk size matches the declared range
-    if chunk_data.len() as u64 != end - start {
-        return Err(ServiceError::BadRequest("Chunk length mismatch".into()));
+    // Validate chunk
+    if end <= start || chunk_data.len() as u64 != end - start || end > size {
+        return Err(ServiceError::BadRequest("Invalid chunk range".into()));
     }
 
-    // Create storage path with year/month structure (e.g., 2025/11)
+    // Storage path: YEAR/MONTH
     let mut output_path = PathBuf::from(&*STORAGE);
-    let year_month = Local::now().format("%Y/%m").to_string();
-    output_path = output_path.join(&year_month);
-
+    output_path = output_path.join(Local::now().format("%Y/%m").to_string());
     if !output_path.is_dir() {
         fs::create_dir_all(&output_path).await?;
     }
 
     let output_file = output_path.join(&file_name);
-    let meta = UploadMeta::new(batch_id.clone());
-    let upload_value_mutex = file_ranges(start, size, &file_name, &output_file, meta).await?;
+    let meta = Meta::new(batch_id.clone());
+    let upload_value = file_ranges(start, size, &file_name, &output_file, meta).await?;
 
-    // Write chunk to the correct position in the file
+    // Write chunk
     let mut file = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(&output_file)
         .await?;
-
     file.seek(SeekFrom::Start(start)).await?;
     file.write_all(&chunk_data).await?;
     file.flush().await?;
 
-    let is_complete = {
-        let mut ranges = upload_value_mutex.0.lock().await;
-        ranges.push(start..end);
-        merge_ranges(&mut ranges);
-        is_upload_complete(&ranges, size)
-    };
+    // Update ranges and check completion
+    let ranges_arc = upload_value.ranges.clone();
+    let mut ranges = ranges_arc.lock().await;
+    ranges.push(start..end);
+
+    merge_ranges(&mut ranges);
+
+    let is_complete = is_upload_complete(&ranges, size);
 
     if is_complete {
-        info!("Upload complete for file: {file_name}");
-
+        info!("Upload complete: {file_name}");
         add_media_record(&pool, user.id, &output_file).await?;
 
         let uploads = UPLOADS.lock().await;
         if is_batch_complete(&uploads, &batch_id, batch_count) {
             let uploads_clone = uploads.clone();
+
             let msg = if batch_count > 1 {
                 SSEMessage::new(
                     Level::Success,
                     &format!("Batch upload complete: {batch_count} files uploaded."),
                 )
             } else {
-                SSEMessage::new(Level::Success, &format!("Uploaded done for: {file_name}"))
+                SSEMessage::new(Level::Success, &format!("Upload done: {file_name}"))
             };
+
             if let Err(e) = tx.send(msg.to_string()) {
-                error!("{e}");
-            };
+                error!("SSE send failed: {e}");
+            }
 
             let config = CONFIG.read().await.clone();
 
             if config
                 .image_extensions
                 .as_ref()
-                .is_some_and(|e| !e.is_empty())
+                .map(|v| !v.is_empty())
+                .unwrap_or(false)
             {
+                // Spawn blocking for CPU-intensive image processing
                 task::spawn_blocking(move || {
                     if let Err(e) = process_variances(pool, config, uploads_clone, &batch_id, tx) {
                         error!("Error processing variances: {e}");
-                    };
-
+                    }
                     tokio::spawn(async move {
                         cleanup_uploads(&batch_id).await;
                     });
