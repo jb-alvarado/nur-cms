@@ -51,6 +51,9 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub type_id: Option<i32>,
 
+    #[serde(default, deserialize_with = "split_string_to_vec")]
+    pub media_type: Vec<String>,
+
     #[serde(default)]
     pub search: Option<String>,
 
@@ -104,6 +107,7 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             ordering: default_ordering(),
             type_slug: None,
             type_id: None,
+            media_type: Vec::new(),
             search: None,
             search_id: None,
             search_locale: None,
@@ -168,7 +172,7 @@ where
         .collect::<Vec<_>>()
 }
 
-/// Helper function, to transform strings to different arrays
+/// Helper function, to transform string to array
 pub fn split_string_to_fields<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -185,6 +189,19 @@ where
             .filter(|f| !f.is_equal_to_str("count"))
             .collect::<Vec<_>>();
     }
+
+    Ok(l)
+}
+
+pub fn split_string_to_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+    let l = s
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect::<Vec<String>>();
 
     Ok(l)
 }

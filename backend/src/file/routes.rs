@@ -36,32 +36,23 @@ use crate::{
 };
 
 /// Metadata for a single file upload
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Meta {
-    batch_id: String,
     db_id: Option<i32>,
     mime_type: Option<String>,
 }
 
-impl Meta {
-    fn new(batch_id: String) -> Self {
-        Self {
-            batch_id,
-            db_id: None,
-            mime_type: None,
-        }
-    }
-}
-
 #[derive(Clone)]
 struct Upload {
+    batch_id: String,
     ranges: Arc<Mutex<Vec<Range<u64>>>>,
-    meta: Meta,
+    meta: Arc<Mutex<Meta>>,
 }
 
 impl Upload {
-    fn new(meta: Meta) -> Self {
+    fn new(batch_id: String, meta: Arc<Mutex<Meta>>) -> Self {
         Self {
+            batch_id,
             ranges: Arc::new(Mutex::new(Vec::new())),
             meta,
         }
@@ -116,7 +107,7 @@ fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
 fn is_batch_complete(upload_map: &UploadMap, batch_id: &str, batch_count: usize) -> bool {
     upload_map
         .values()
-        .filter(|upload| upload.meta.batch_id == batch_id)
+        .filter(|upload| upload.batch_id == batch_id)
         .count()
         == batch_count
 }
@@ -127,7 +118,8 @@ async fn file_ranges(
     total_size: u64,
     file_name: &str,
     output_file: &Path,
-    meta: Meta,
+    batch_id: &str,
+    meta: Arc<Mutex<Meta>>,
 ) -> Result<Upload, ServiceError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let mut uploads = UPLOADS.lock().await;
@@ -163,9 +155,10 @@ async fn file_ranges(
 
     let upload_entry = uploads
         .entry(upload_key.clone())
-        .or_insert_with(|| Upload::new(meta.clone()));
+        .or_insert_with(|| Upload::new(batch_id.to_string(), meta.clone()));
 
     let result = Upload {
+        batch_id: upload_entry.batch_id.clone(),
         ranges: upload_entry.ranges.clone(),
         meta: upload_entry.meta.clone(),
     };
@@ -177,7 +170,7 @@ async fn file_ranges(
 /// Remove all uploads of a batch
 async fn cleanup_uploads(batch_id: &str) {
     let mut uploads = UPLOADS.lock().await;
-    uploads.retain(|_, upload| upload.meta.batch_id != batch_id);
+    uploads.retain(|_, upload| upload.batch_id != batch_id);
 }
 
 /// Add media record to database and update UploadMeta
@@ -189,8 +182,8 @@ async fn add_media_record(
     let upload_key = output_file.to_string_lossy().to_string();
     let mime_type = mime_guess::from_path(output_file)
         .first()
-        .map(|m| m.type_().to_string())
-        .unwrap_or_else(|| mime_guess::mime::APPLICATION.to_string());
+        .map(|m| m.type_().as_str().to_string())
+        .unwrap_or_else(|| "application".to_string());
 
     let path = output_file
         .strip_prefix(STORAGE.as_str())
@@ -224,8 +217,9 @@ async fn add_media_record(
 
     let mut uploads = UPLOADS.lock().await;
     if let Some(upload) = uploads.get_mut(&upload_key) {
-        upload.meta.db_id = Some(media_id);
-        upload.meta.mime_type = Some(mime_type);
+        let mut meta = upload.meta.lock().await;
+        meta.db_id = Some(media_id);
+        meta.mime_type = Some(mime_type);
     }
 
     Ok(())
@@ -236,26 +230,21 @@ fn process_variances(
     pool: PgPool,
     config: Configuration,
     upload_map: UploadMap,
-    batch_id: &str,
+    batch_id: String,
     tx: Sender<String>,
 ) -> Result<(), ServiceError> {
     let resolutions = config.image_resolutions.unwrap_or_default();
     let extensions = config.image_extensions.unwrap_or_default();
 
-    let batch_files: Vec<(PathBuf, i32, String)> = upload_map
-        .into_iter()
-        .filter_map(|(path_str, upload)| {
-            if upload.meta.batch_id == batch_id {
-                Some((
-                    PathBuf::from(path_str),
-                    upload.meta.db_id?,
-                    upload.meta.mime_type?,
-                ))
-            } else {
-                None
+    let mut batch_files = Vec::new();
+    for (path_str, upload) in upload_map {
+        if upload.batch_id == batch_id {
+            let meta = upload.meta.blocking_lock();
+            if let (Some(db_id), Some(mime_type)) = (meta.db_id, meta.mime_type.clone()) {
+                batch_files.push((PathBuf::from(path_str), db_id, mime_type));
             }
-        })
-        .collect();
+        }
+    }
 
     if batch_files
         .iter()
@@ -273,7 +262,7 @@ fn process_variances(
             match save_image(resolutions.clone(), &extensions, &output_file, tx.clone()) {
                 Ok(variances) => {
                     for (width, height, filename) in variances {
-                        let pool = pool.clone();
+                        let pool_clone = pool.clone();
                         let variance = MediaVariant {
                             id: 0,
                             media_id,
@@ -283,10 +272,10 @@ fn process_variances(
                             total_count: None,
                         };
 
-                        // Spawn a task for DB insert but limit concurrency if needed
+                        // Spawn async task for DB insert
                         tokio::spawn(async move {
                             if let Err(e) = handles::insert_record::<MediaVariant, i64>(
-                                &pool,
+                                &pool_clone,
                                 &Table::MediaVariants,
                                 &variance,
                             )
@@ -334,7 +323,7 @@ pub async fn upload_chunk(
             "end" => end = Some(field.text().await?.parse::<u64>().unwrap_or(0)),
             "size" => size = field.text().await?.parse::<u64>().unwrap_or(0),
             "chunk" => chunk_data = Some(field.bytes().await?.to_vec()),
-            "batch_id" => batch_id = field.text().await?.clone(),
+            "batch_id" => batch_id = field.text().await?,
             "batch_count" => batch_count = field.text().await?.parse::<usize>().unwrap_or(1),
             _ => {}
         }
@@ -358,8 +347,8 @@ pub async fn upload_chunk(
     }
 
     let output_file = output_path.join(&file_name);
-    let meta = Meta::new(batch_id.clone());
-    let upload_value = file_ranges(start, size, &file_name, &output_file, meta).await?;
+    let meta = Arc::new(Mutex::new(Meta::default()));
+    let upload_value = file_ranges(start, size, &file_name, &output_file, &batch_id, meta).await?;
 
     // Write chunk
     let mut file = OpenOptions::new()
@@ -385,10 +374,13 @@ pub async fn upload_chunk(
         info!("Upload complete: {file_name}");
         add_media_record(&pool, user.id, &output_file).await?;
 
-        let uploads = UPLOADS.lock().await;
-        if is_batch_complete(&uploads, &batch_id, batch_count) {
-            let uploads_clone = uploads.clone();
+        // Check batch completion with proper locking
+        let should_process_batch = {
+            let uploads = UPLOADS.lock().await;
+            is_batch_complete(&uploads, &batch_id, batch_count)
+        };
 
+        if should_process_batch {
             let msg = if batch_count > 1 {
                 SSEMessage::new(
                     Level::Success,
@@ -407,19 +399,40 @@ pub async fn upload_chunk(
             if config
                 .image_extensions
                 .as_ref()
-                .map(|v| !v.is_empty())
-                .unwrap_or(false)
+                .is_some_and(|v| !v.is_empty())
             {
-                // Spawn blocking for CPU-intensive image processing
+                let uploads_clone = {
+                    let uploads = UPLOADS.lock().await;
+                    uploads.clone()
+                };
+
+                let id_owned = batch_id.clone();
+                let pool_clone = pool.clone();
+                let txc = tx.clone();
+                let handle = tokio::runtime::Handle::current();
+
+                // Spawn blocking task for CPU-intensive image processing
                 task::spawn_blocking(move || {
-                    if let Err(e) = process_variances(pool, config, uploads_clone, &batch_id, tx) {
+                    if let Err(e) =
+                        process_variances(pool_clone, config, uploads_clone, id_owned.clone(), txc)
+                    {
                         error!("Error processing variances: {e}");
                     }
-                    tokio::spawn(async move {
-                        cleanup_uploads(&batch_id).await;
+
+                    // Cleanup in separate async task
+                    handle.spawn(async move {
+                        cleanup_uploads(&id_owned).await;
+
+                        info!("Background job done!");
                     });
                 });
+            } else {
+                cleanup_uploads(&batch_id).await;
             }
+
+            info!("Batch upload complete!");
+        } else {
+            cleanup_uploads(&batch_id).await;
         }
     }
 

@@ -564,6 +564,7 @@ pub enum MediaFields {
     Type,
     UploadedBy,
     CreatedAt,
+    MediaVariants,
 }
 
 impl StrCompare for MediaFields {
@@ -576,6 +577,7 @@ impl StrCompare for MediaFields {
             Self::Type => other == "type",
             Self::UploadedBy => other == "uploaded_by",
             Self::CreatedAt => other == "created_at",
+            Self::MediaVariants => other == "media_variants",
         }
     }
 }
@@ -592,6 +594,7 @@ impl FromStr for MediaFields {
             "type" => Ok(Self::Type),
             "uploaded_by" => Ok(Self::UploadedBy),
             "created_at" => Ok(Self::CreatedAt),
+            "media_variants" => Ok(Self::MediaVariants),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -607,6 +610,7 @@ impl fmt::Display for MediaFields {
             Self::Type => write!(f, "type"),
             Self::UploadedBy => write!(f, "uploaded_by"),
             Self::CreatedAt => write!(f, "created_at"),
+            Self::MediaVariants => write!(f, "media_variants"),
         }
     }
 }

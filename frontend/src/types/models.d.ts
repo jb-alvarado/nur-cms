@@ -22,4 +22,4 @@ export type Locale = { id?: number, code?: string, name?: string, tsv_dict?: str
 
 export type Media = { id?: number, alt?: string | null, filename?: string, path?: string, type?: string | null, uploaded_by?: number | null, created_at?: string | null, total_count?: bigint | null, };
 
-export type MediaVariant = { id?: number, media_id?: number, resolution?: number, format?: string, filename?: string, total_count?: bigint | null, };
+export type MediaVariant = { id?: number, media_id?: number, width?: number, height?: number, filename?: string, total_count?: bigint | null, };

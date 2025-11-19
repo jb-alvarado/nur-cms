@@ -21,12 +21,13 @@ use crate::{
     db::{
         fields::{
             AuthUserFields, ColumnCounter, ContentAuthorFields, ContentCategoryFields as CCF,
-            ContentFields as CF, StrCompare, TSLanguage, Table,
+            ContentFields as CF, MediaFields, StrCompare, TSLanguage, Table,
         },
         models::{Configuration, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
         serialize::{
             AuthUserSerializer, AuthorSerializer, ContentCategorySerializer, ContentSerializer,
+            MediaSerializer,
         },
     },
     utils::errors::ServiceError,
@@ -37,14 +38,17 @@ use {sqlx::Execute, std::env, tokio::fs, tracing::info};
 
 #[cfg(debug_assertions)]
 use crate::db::{
-    fields::MediaFields,
     format_sql,
     models::{AuthUser, Media},
 };
 
 #[cfg(debug_assertions)]
 pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
-    let query: QueryObj<MediaFields> = QueryObj::default();
+    let query: QueryObj<MediaFields> = QueryObj {
+        limit: 1,
+        fields: vec![MediaFields::ID],
+        ..Default::default()
+    };
 
     let auth_resp = select_auth_user(pool, QueryObj::default()).await?;
     let media_resp = select_record::<MediaFields, Media>(pool, &Table::Media, query).await?;
@@ -559,8 +563,8 @@ pub async fn select_content_author(
                             SELECT json_agg(
                                 json_build_object(
                                     'id', mv.id,
-                                    'resolution', mv.resolution,
-                                    'format', mv.format,
+                                    'width', mv.width,
+                                    'height', mv.height,
                                     'filename', mv.filename
                                 )
                             )
@@ -681,8 +685,8 @@ pub async fn select_categories(
                             SELECT json_agg(
                                 json_build_object(
                                     'id', mv.id,
-                                    'resolution', mv.resolution,
-                                    'format', mv.format,
+                                    'width', mv.width,
+                                    'height', mv.height,
                                     'filename', mv.filename
                                 )
                             )
@@ -905,8 +909,8 @@ pub async fn select_content(
                                 SELECT json_agg(
                                     json_build_object(
                                         'id', mv.id,
-                                        'resolution', mv.resolution,
-                                        'format', mv.format,
+                                        'width', mv.width,
+                                        'height', mv.height,
                                         'filename', mv.filename
                                     )
                                 )
@@ -1038,6 +1042,94 @@ pub async fn select_content(
     debug!("{}", format_sql(query.sql()).bright_black());
 
     let data: Vec<ContentSerializer> = query.fetch_all(pool).await?;
+
+    Ok(RespondObj::new(query_obj, data))
+}
+
+pub async fn select_media(
+    pool: &PgPool,
+    query_obj: &QueryObj<MediaFields>,
+) -> Result<RespondObj<MediaSerializer>, ServiceError> {
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
+    let mut sep = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        match *f {
+            MediaFields::MediaVariants => sep.push("COALESCE(variants.data, NULL) AS \"variants\""),
+            _ => sep.push(format!("m.{f}")),
+        };
+    }
+
+    sep.push("count(*) OVER() AS total_count");
+    sep.push_unseparated(" ");
+    query_builder.push("FROM media m ");
+    if query_obj.fields.contains(&MediaFields::MediaVariants) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'id', mv.id,
+                        'width', mv.width,
+                        'height', mv.height,
+                        'filename', mv.filename
+                    )
+                ) AS data
+                FROM media_variants mv
+                WHERE mv.media_id = m.id
+            ) AS variants ON TRUE "#,
+        );
+    }
+
+    let mut where_chain = WhereBuilder::new(query_builder);
+
+    if let Some(id) = &query_obj.search_id {
+        where_chain.push_and_bind(None, "m.id = ", id, None);
+    }
+
+    if let Some(search) = query_obj.search.clone() {
+        where_chain.push_and_bind(
+            None,
+            "m.filename ILIKE CONCAT('%', ",
+            search.clone(),
+            Some(", '%')"),
+        );
+    }
+
+    if !query_obj.media_type.is_empty() {
+        where_chain.push_and_bind(None, "m.type = ANY(", &query_obj.media_type, Some(")"));
+    }
+
+    // take builder back from where_chain
+    query_builder = where_chain.into_inner();
+
+    let ordering = query_obj
+        .ordering
+        .split(',')
+        .filter_map(|item| {
+            let item = item.trim();
+            if MediaFields::iter().any(|f| item.contains(&f.to_string())) {
+                Some(format!("m.{item}"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", ordering));
+    }
+
+    query_builder.push(format!(
+        " LIMIT {} OFFSET {}",
+        query_obj.limit, query_obj.offset
+    ));
+
+    let query = query_builder.build_query_as::<MediaSerializer>();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()).bright_black());
+
+    let data: Vec<MediaSerializer> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(query_obj, data))
 }

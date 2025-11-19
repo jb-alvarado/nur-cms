@@ -33,7 +33,8 @@
         "serde",
         "sqlx",
         "unseparated",
-        "uuids"
+        "uuids",
+        "webp"
     ],
     "vue3snippets.enable-compile-vue-file-on-did-save-code": false,
     "SQL-Formatter-VSCode.expressionWidth": 60,

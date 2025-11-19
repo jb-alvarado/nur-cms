@@ -1,6 +1,6 @@
 import type { JwtPayload } from 'jwt-decode'
 import type { ContentType } from './models.d'
-import type { ContentSerializer } from './serialized.d'
+import type { ContentSerializer, MediaSerializer } from './serialized.d'
 
 export {}
 
@@ -36,6 +36,10 @@ declare global {
     interface JwtPayloadExt extends JwtPayload {
         id: number
         role: Role
+    }
+
+    interface Media extends MediaSerializer {
+        check: boolean
     }
 
     interface Token {

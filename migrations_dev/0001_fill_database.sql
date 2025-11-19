@@ -2,16 +2,16 @@ INSERT INTO
     media (alt, filename, path, type, uploaded_by)
 VALUES
     (
-        'Cover',
+        'cover',
         'cover.jpg',
-        '/uploads/2025/10',
+        '/uploads/2025/11',
         'image',
         1
     ),
     (
-        'Block',
+        'block',
         'block.jpg',
-        '/uploads/2025/10',
+        '/uploads/2025/11',
         'image',
         1
     ),
@@ -27,18 +27,24 @@ VALUES
 INSERT INTO
     media_variants (media_id, width, height, filename)
 VALUES
-    (1, 960, 540, 'cover_960.jpg'),
-    (1, 480, 270, 'cover_480.jpg'),
-    (1, 960, 540, 'cover_960.avif'),
-    (1, 480, 270, 'cover_480.avif'),
-    (1, 960, 540, 'cover_960.webp'),
-    (1, 480, 270, 'cover_480.webp'),
-    (2, 960, 540, 'block_960.jpg'),
-    (2, 480, 270, 'block_480.jpg'),
-    (2, 960, 540, 'block_960.avif'),
-    (2, 480, 270, 'block_480.avif'),
-    (2, 960, 540, 'block_960.webp'),
-    (2, 480, 270, 'block_480.webp');
+    (1, 320, 213, 'cover_320.avif'),
+    (1, 320, 213, 'cover_320.jpg'),
+    (1, 320, 213, 'cover_320.webp'),
+    (1, 480, 320, 'cover_480.avif'),
+    (1, 480, 320, 'cover_480.jpg'),
+    (1, 480, 320, 'cover_480.webp'),
+    (1, 1024, 682, 'cover_1024.avif'),
+    (1, 1024, 682, 'cover_1024.jpg'),
+    (1, 1024, 682, 'cover_1024.webp'),
+    (2, 320, 217, 'block_320.avif'),
+    (2, 320, 217, 'block_320.jpg'),
+    (2, 320, 217, 'block_320.webp'),
+    (2, 480, 325, 'block_480.avif'),
+    (2, 480, 325, 'block_480.jpg'),
+    (2, 480, 325, 'block_480.webp'),
+    (2, 1024, 694, 'block_1024.avif'),
+    (2, 1024, 694, 'block_1024.jpg'),
+    (2, 1024, 694, 'block_1024.webp');
 
 INSERT INTO
     content_categories (group_id, locale_id, name, slug, status, media_id)

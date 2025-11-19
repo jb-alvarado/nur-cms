@@ -22,7 +22,7 @@ const MAX_HISTORY = 5
 let lastLoaded = 0
 const lastTime = ref(Date.now())
 
-function updateProgress(completedChunks: number, fileSize: number) {
+function updateProgress(completedChunks: number, fileSize: number, currentIndex: number, batchCount: number) {
     const now = Date.now()
     const loadedBytes = Math.min(completedChunks * DEFAULT_CHUNK_SIZE, fileSize)
     const deltaBytes = loadedBytes - lastLoaded
@@ -34,13 +34,17 @@ function updateProgress(completedChunks: number, fileSize: number) {
 
     const avgSpeed = speedHistory.reduce((a, b) => a + b, 0) / speedHistory.length
 
-    progress.value = Math.round((loadedBytes / fileSize) * 100)
+    // Calculate progress considering current file in batch
+    const currentFileProgress = loadedBytes / fileSize
+    const totalProgress = (currentIndex  + currentFileProgress) / batchCount
+
+    progress.value = Math.round(totalProgress * 100)
     uploadSpeed.value = formatBytes(avgSpeed) + '/s'
     lastLoaded = loadedBytes
     lastTime.value = now
 }
 
-async function uploadFile(file: File, batch_id: string, count: number, chunkSize = DEFAULT_CHUNK_SIZE) {
+async function uploadFile(file: File, batch_id: string, currentIndex: number, count: number, chunkSize = DEFAULT_CHUNK_SIZE) {
     let offset = 0
     const totalChunks = Math.ceil(file.size / chunkSize)
     const fileSize = file.size
@@ -78,7 +82,7 @@ async function uploadFile(file: File, batch_id: string, count: number, chunkSize
             }
 
             completedChunks++
-            updateProgress(completedChunks, fileSize)
+            updateProgress(completedChunks, fileSize, currentIndex, count)
         }
     }
 
@@ -87,8 +91,6 @@ async function uploadFile(file: File, batch_id: string, count: number, chunkSize
         .map(() => worker())
 
     await Promise.all(workers)
-    progress.value = 100
-
 }
 
 async function onFileChange(e: Event) {
@@ -104,10 +106,11 @@ async function onFileChange(e: Event) {
         if (length > 0) {
             const id = shortID()
 
-            for (const file of input.files) {
-                await uploadFile(file, id, length)
+            for (const [i, file] of Array.from(input.files).entries()) {
+                await uploadFile(file, id, i, length)
             }
 
+            progress.value = 100
             store.msgAlert('success', 'Upload complete!')
         }
     } catch (err: any) {

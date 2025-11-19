@@ -18,7 +18,7 @@ use crate::{
     db::{
         fields::{
             AuthRoleFields, AuthUserFields, ContentAuthorFields, ContentCategoryFields,
-            ContentFields, ContentTypeFields, LocaleFields, OutputType, Table,
+            ContentFields, ContentTypeFields, LocaleFields, MediaFields, OutputType, Table,
         },
         handles,
         models::{AuthRole, AuthUser, AuthUserMeta, ContentType, Locale, Role, TSConfig},
@@ -710,4 +710,25 @@ pub async fn content_update(
     Err(ServiceError::Forbidden(
         "You do not have permission to access this resource.".to_string(),
     ))
+}
+
+/* ------------------------------
+MEDIA
+---------------------------------*/
+
+pub async fn media_select(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Query(mut params): Query<QueryObj<MediaFields>>,
+    OriginalUri(original_uri): OriginalUri,
+) -> Result<Json<RespondObj<MediaSerializer>>, ServiceError> {
+    params.path = original_uri.path().to_string();
+    params.query = original_uri.query().unwrap_or("").to_string();
+
+    match handles::select_media(&pool, &params).await {
+        Ok(media) => Ok(Json(media)),
+        Err(e) => {
+            error!("{e}");
+            Err(ServiceError::InternalServerError)
+        }
+    }
 }

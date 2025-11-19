@@ -384,14 +384,49 @@ pub struct MediaSerializer {
     pub start_offset: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_offset: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<MediaVariantSerializer>,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for MediaSerializer {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        let variants = row
+            .try_get::<Option<serde_json::Value>, _>("variants")
+            .unwrap_or_default()
+            .map(|v| serde_json::from_value::<Vec<MediaVariantSerializer>>(v).unwrap_or_default())
+            .unwrap_or_default();
+
+        Ok(Self {
+            id: row.try_get("id").ok(),
+            alt: row.try_get("alt").ok(),
+            filename: row.try_get("filename").ok(),
+            path: row.try_get("path").ok(),
+            r#type: row.try_get("type").ok(),
+            ast_line: row.try_get("ast_line").ok(),
+            start_offset: row.try_get("start_offset").ok(),
+            end_offset: row.try_get("end_offset").ok(),
+            created_at: row.try_get("created_at").ok(),
+            variants,
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for MediaSerializer {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct MediaVariantSerializer {
-    pub resolution: i32,
-    pub format: String,
+    pub id: i64,
+    pub width: i32,
+    pub height: i32,
     pub filename: String,
 }

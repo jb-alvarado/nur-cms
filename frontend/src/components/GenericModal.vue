@@ -20,7 +20,7 @@ defineProps({
             return ''
         },
     },
-    hideButtons: {
+    hideCancel: {
         type: Boolean,
         default: false,
     },
@@ -43,7 +43,7 @@ defineExpose({
             <div class="modal-action">
                 <form method="dialog">
                     <div class="join">
-                        <button class="btn join-item" @click="cancelAction()">Cancel</button>
+                        <button v-if="!hideCancel" class="btn join-item" @click="cancelAction()">Cancel</button>
                         <button class="btn join-item" @click="okAction()">Ok</button>
                     </div>
                 </form>
