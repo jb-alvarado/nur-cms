@@ -185,14 +185,19 @@ export const useIndex = defineStore('index', {
                 .join(',')
 
             let type = ''
+            let offsetVar = ''
 
             if (this.suffix === 'entries') {
                 type = `type_id=${this.typeID}&`
             }
 
+            if (this.offset > 0) {
+                offsetVar = `&offset=${this.offset}`
+            }
+
             let url = u
                 ? u
-                : `/api/content/${this.suffix}?${type}fields=${fields}&limit=${this.limit}&ordering=${this.ordering}`
+                : `/api/content/${this.suffix}?${type}fields=${fields}&limit=${this.limit}${offsetVar}&ordering=${this.ordering}`
 
             if (sr) {
                 url = `${url}&search=${sr}`

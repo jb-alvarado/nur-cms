@@ -119,10 +119,8 @@ function emitUpdate(pageVal: number) {
 </script>
 
 <template>
-    <div class="text-sm text-base-content/70 me-4 mt-2">{{ displayFrom }}–{{ displayTo }} of {{ total }}</div>
+    <div class="text-sm text-base-content/70 me-4 mt-1.3 leading-0">{{ displayFrom }}–{{ displayTo }} of {{ total }}</div>
     <nav class="flex join" aria-label="Pagination">
-        <!-- info -->
-
         <!-- prev -->
         <button class="btn join-item border-base-content/20" :disabled="isFirst" @click="prev">Prev</button>
 

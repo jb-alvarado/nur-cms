@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 import { useRoute } from 'vue-router'
@@ -32,6 +32,15 @@ const categoryRows = ref([
     { active: false, up: false, name: 'Group ID', field: 'group_id' },
 ])
 
+const entryRows = ref([
+    { active: true, up: true, name: 'ID', field: 'id' },
+    { active: false, up: false, name: 'Title', field: 'title' },
+    { active: false, up: false, name: 'Status', field: 'status' },
+    { active: false, up: false, name: 'Created At', field: 'created_at' },
+    { active: false, up: false, name: 'Language', field: 'locale_id' },
+    { active: false, up: false, name: 'Group ID', field: 'group_id' },
+])
+
 onMounted(() => {
     if (store.routeType === 'author') {
         store.visibleRows = authorRows.value
@@ -40,6 +49,14 @@ onMounted(() => {
         store.visibleRows = categoryRows.value
         store.initContent('categories', false)
     } else {
+        const visibleFields = localStorage.getItem('visibleFields')
+
+        if (visibleFields) {
+            entryRows.value = JSON.parse(visibleFields)
+        }
+
+        store.visibleRows = entryRows.value
+
         store.initContent('entries')
     }
 
@@ -74,7 +91,10 @@ function statusLabel() {
 }
 
 function onPageChange() {
-    console.log('change page')
+    nextTick(() => {
+        store.contentSelect()
+        console.log('change page')
+    })
 }
 </script>
 
@@ -85,7 +105,7 @@ function onPageChange() {
             <RouterLink :to="`/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">New</RouterLink>
         </div>
 
-        <div class="h-10 mt-4 mb-6 flex items-center">
+        <div class="h-10 mt-4 mb-6 flex gap-2 items-center">
             <div class="grow join">
                 <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-74'">
                     <i class="bi bi-search opacity-45"></i>
@@ -108,7 +128,7 @@ function onPageChange() {
                 @change="onPageChange"
             />
 
-            <GenericFilter :hide-fields="store.routeType === 'author' || store.routeType === 'category'" />
+            <GenericFilter v-if="!['author', 'category'].includes(store.routeType)" />
         </div>
 
         <div class="overflow-x-auto mt-4">

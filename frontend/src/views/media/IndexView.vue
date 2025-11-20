@@ -4,7 +4,7 @@ import dayjs from 'dayjs'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
-import { formatBytes } from '@/utils/helper'
+import { formatBytes, shortID } from '@/utils/helper'
 
 import FileUpload from '@/components/FileUpload.vue'
 import GenericModal from '@/components/GenericModal.vue'
@@ -18,6 +18,7 @@ const uploadModal = ref()
 const uploader = ref()
 const medias = ref<Media[]>([])
 const selectCount = computed(() => medias.value.reduce((acc, item: any) => acc + (item.check ? 1 : 0), 0))
+const uploadKey = ref(shortID())
 
 const apiURL = ref('/api/media')
 const total = ref(0)
@@ -153,18 +154,49 @@ function iconFrom(type: string | null | undefined) {
     }
 }
 
+function extension(input: string | null | undefined) {
+    const extensionMatch = input?.match(/\.([^.]+)$/)
+    return extensionMatch?.[1]?.toUpperCase()
+}
+
 function mimeType(media: Media) {
     const typeMatch = media.type?.match(/\/([^.]+)$/)
     const type = typeMatch?.[1]?.toUpperCase()
-    const extensionMatch = media.filename?.match(/\.([^.]+)$/)
-    const extension = extensionMatch?.[1]?.toUpperCase()
-    return type ? type : extension ? extension : 'File'
+    const ext = extension(media.filename)
+    return type ? type : ext ? ext : 'File'
+}
+
+function variantsDim(variants: Variants[]) {
+    const dims = new Set<string>()
+
+    for (const v of variants) {
+        const dim = `${v.width}x${v.height}`
+        dims.add(dim)
+    }
+
+    return Array.from(dims).join(' | ')
+}
+
+function variantsExt(variants: Variants[]) {
+    const exts = new Set<string>()
+
+    for (const v of variants) {
+        const ext = extension(v.filename)
+        if (!ext) continue
+        exts.add(ext)
+    }
+
+    return Array.from(exts).join(' | ')
 }
 
 function runUpload() {
     if (uploader.value) {
         uploader.value.upload()
     }
+}
+
+function resetUpload() {
+    uploadKey.value = shortID()
 }
 </script>
 <template>
@@ -228,14 +260,18 @@ function runUpload() {
                         <li v-if="media.created_at">
                             <strong>Uploaded:</strong> {{ dayjs(media.created_at).format('YYYY-MM-DD HH:mm:ss') }}
                         </li>
+                        <li v-if="media.variants">
+                            <p><i class="bi bi-collection me-1"></i> {{ variantsExt(media.variants) }}</p>
+                            <p><i class="bi bi-aspect-ratio me-1"></i> {{ variantsDim(media.variants) }}</p>
+                        </li>
                     </ul>
 
                     <!-- <div class="card-actions justify-end">action</div> -->
                 </div>
             </div>
         </div>
-        <GenericModal ref="uploadModal" title="Upload Files" :hide-cancel="true" :ok-action="runUpload">
-            <FileUpload ref="uploader" />
+        <GenericModal ref="uploadModal" title="Upload Files" :cancel-action="resetUpload" :ok-action="runUpload">
+            <FileUpload ref="uploader" :key="uploadKey" />
         </GenericModal>
 
         <GenericProgress />
