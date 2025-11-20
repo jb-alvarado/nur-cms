@@ -7,6 +7,7 @@ import { useIndex } from '@/stores/index'
 
 import GenericFilter from '@/components/GenericFilter.vue'
 import GenericModal from '@/components/GenericModal.vue'
+import GenericPagination from '@/components/GenericPagination.vue'
 import GenericTable from '@/components/GenericTable.vue'
 
 dayjs.extend(localizedFormat)
@@ -71,6 +72,10 @@ function statusLabel() {
     const allPublished = selected.every((c: any) => String(c.status ?? '').toLowerCase() === 'published')
     published.value = allPublished ? 'Unpublish' : 'Publish'
 }
+
+function onPageChange() {
+    console.log('change page')
+}
 </script>
 
 <template>
@@ -94,6 +99,14 @@ function statusLabel() {
                     <span class="ms-2">{{ selectCount }} Selected</span>
                 </div>
             </div>
+
+            <GenericPagination
+                v-model:limit="store.limit"
+                v-model:offset="store.offset"
+                :total="store.total"
+                :page-sizes="store.limits"
+                @change="onPageChange"
+            />
 
             <GenericFilter :hide-fields="store.routeType === 'author' || store.routeType === 'category'" />
         </div>

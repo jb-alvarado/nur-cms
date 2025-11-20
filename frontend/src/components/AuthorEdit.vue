@@ -63,7 +63,7 @@ async function savePhoto() {
 
         await fetch('/api/v2/file/upload/?type=thumbnail', {
             method: 'PUT',
-            headers: { ...auth.authHeader },
+            headers: auth.authHeader,
             body: formData,
         })
             .then(async (resp) => {

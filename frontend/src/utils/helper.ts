@@ -6,11 +6,28 @@ export function closeDropdown(event: Event) {
     }, 170)
 }
 
-export function formatBytes(bytes: number): string {
-    if (bytes > 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
-    if (bytes > 1024) return (bytes / 1024).toFixed(2) + ' KB'
-    return bytes.toFixed(0) + ' B'
-}
+export function formatBytes(bytes: number | undefined, dp = 2): string {
+        if (!bytes) {
+            return '0.0B'
+        }
+
+        const thresh = 1024
+
+        if (Math.abs(bytes) < thresh) {
+            return bytes + ' B'
+        }
+
+        const units = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB']
+        let u = -1
+        const r = 10 ** dp
+
+        do {
+            bytes /= thresh
+            ++u
+        } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1)
+
+        return bytes.toFixed(dp) + ' ' + units[u]
+    }
 
 export function shortID(): string {
     const input = 'useandom26T198340PX75pxJACKVERYMINDBUSHWOLFGQZbfghjklqvwyzrict'

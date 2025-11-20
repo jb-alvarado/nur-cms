@@ -143,6 +143,7 @@ pub fn router_entries() -> (
         .nest("/locales", locale_routes)
         .nest("/content", content_routes)
         .route("/media", get(media_select))
+        .route("/media/{id}", delete(media_delete))
         .layer(GrantsLayer::with_extractor(extract));
 
     (auth_routes, api_routes)

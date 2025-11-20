@@ -9,6 +9,8 @@ export const useIndex = defineStore('index', {
         contentType: { 'content-type': 'application/json;charset=UTF-8' },
         limit: localStorage.getItem('limit') ?? 10,
         limits: [2, 10, 25, 50, 100],
+        offset: 0,
+        total: 0,
         ordering: 'id',
         next: null as null | string,
         previous: null as null | string,
@@ -41,6 +43,8 @@ export const useIndex = defineStore('index', {
         types: [] as ContentTypeExt[],
         routeType: '',
         typeID: 1,
+        progress: 0,
+        progressShow: false,
     }),
 
     getters: {},
@@ -208,6 +212,7 @@ export const useIndex = defineStore('index', {
                     if (response.results?.length > 0) {
                         this.next = response.next
                         this.previous = response.previous
+                        this.total = response.count
                         this.tableCols = response.results.map((o: any) => ({ check: false, ...o }))
                     } else {
                         this.tableCols = []

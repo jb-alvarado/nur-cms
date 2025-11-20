@@ -379,6 +379,13 @@ pub struct MediaSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+    #[ts(as = "i32")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ast_line: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_offset: Option<i32>,
@@ -406,6 +413,9 @@ impl FromRow<'_, PgRow> for MediaSerializer {
             filename: row.try_get("filename").ok(),
             path: row.try_get("path").ok(),
             r#type: row.try_get("type").ok(),
+            width: row.try_get("width").ok(),
+            height: row.try_get("height").ok(),
+            size: row.try_get("size").ok(),
             ast_line: row.try_get("ast_line").ok(),
             start_offset: row.try_get("start_offset").ok(),
             end_offset: row.try_get("end_offset").ok(),

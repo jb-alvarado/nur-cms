@@ -467,6 +467,13 @@ pub struct Media {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub width: Option<i32>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub height: Option<i32>,
+    #[ts(as = "i32")]
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub size: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uploaded_by: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -483,6 +490,9 @@ impl FromRow<'_, PgRow> for Media {
             filename: row.try_get("filename").unwrap_or_default(),
             path: row.try_get("path").unwrap_or_default(),
             r#type: row.try_get("type").ok(),
+            width: row.try_get("width").ok(),
+            height: row.try_get("height").ok(),
+            size: row.try_get("size").ok(),
             uploaded_by: row.try_get("uploaded_by").ok(),
             created_at: row.try_get("created_at").ok(),
             total_count: row.try_get("total_count").ok(),

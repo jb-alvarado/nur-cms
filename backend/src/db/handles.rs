@@ -1096,7 +1096,12 @@ pub async fn select_media(
     }
 
     if !query_obj.media_type.is_empty() {
-        where_chain.push_and_bind(None, "m.type = ANY(", &query_obj.media_type, Some(")"));
+        let array: Vec<String> = query_obj
+            .media_type
+            .iter()
+            .map(|t| format!("{t}/%"))
+            .collect();
+        where_chain.push_and_bind(None, "m.type LIKE ANY(", array, Some(")"));
     }
 
     // take builder back from where_chain

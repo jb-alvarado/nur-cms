@@ -720,15 +720,42 @@ pub async fn media_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<MediaFields>>,
     OriginalUri(original_uri): OriginalUri,
+    details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<MediaSerializer>>, ServiceError> {
     params.path = original_uri.path().to_string();
     params.query = original_uri.query().unwrap_or("").to_string();
 
-    match handles::select_media(&pool, &params).await {
-        Ok(media) => Ok(Json(media)),
-        Err(e) => {
-            error!("{e}");
-            Err(ServiceError::InternalServerError)
-        }
+    if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
+        return match handles::select_media(&pool, &params).await {
+            Ok(media) => Ok(Json(media)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
     }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
+}
+
+pub async fn media_delete(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::delete_record(&pool, &Table::Media, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".to_string(),
+    ))
 }

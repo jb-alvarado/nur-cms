@@ -37,7 +37,7 @@ defineExpose({
         <div class="modal-box">
             <h3 class="text-lg font-bold">{{ title }}</h3>
 
-            <div class="py-4">
+            <div class="py-2">
                 <slot />
             </div>
             <div class="modal-action">

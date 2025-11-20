@@ -68,7 +68,7 @@ pub fn save_image(
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("image");
-    let mut variances = Vec::new();
+    let mut variants = Vec::new();
 
     if !image_resolutions.contains(&320) {
         image_resolutions.insert(0, 320);
@@ -77,6 +77,11 @@ pub fn save_image(
     for in_w in image_resolutions {
         let scale_factor = in_w as f32 / img.width() as f32;
         let in_h = (img.height() as f32 * scale_factor).round() as u32;
+
+        if img.width() <= in_w as u32 {
+            continue;
+        }
+
         let resized = img.resize_exact(in_w as u32, in_h, Triangle);
         let w = resized.width();
         let h = resized.height();
@@ -122,7 +127,7 @@ pub fn save_image(
 
             if !buffer.is_empty() {
                 File::create(&output_path)?.write_all(&buffer)?;
-                variances.push((
+                variants.push((
                     w as i32,
                     h as i32,
                     output_path
@@ -140,7 +145,7 @@ pub fn save_image(
         }
     }
 
-    Ok(variances)
+    Ok(variants)
 }
 
 pub async fn delete_image(size: &(u32, u32), path: &Path, name: &str) -> Result<(), ServiceError> {

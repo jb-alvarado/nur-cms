@@ -46,6 +46,9 @@ CREATE TABLE media (
     filename TEXT NOT NULL,
     path TEXT NOT NULL,
     type TEXT,
+    width INT,
+    height INT,
+    size BIGINT,
     uploaded_by INT REFERENCES auth_users (id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
