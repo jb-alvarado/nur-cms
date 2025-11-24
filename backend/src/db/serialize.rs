@@ -435,6 +435,7 @@ impl ColumnCounter for MediaSerializer {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct MediaVariantSerializer {
+    #[ts(as = "i32")]
     pub id: i64,
     pub width: i32,
     pub height: i32,

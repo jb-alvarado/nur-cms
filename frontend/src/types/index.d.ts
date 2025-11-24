@@ -40,7 +40,7 @@ declare global {
     }
 
     interface Media extends MediaSerializer {
-        check: boolean
+        check?: boolean
     }
 
     interface Token {

@@ -24,6 +24,10 @@ defineProps({
         type: Boolean,
         default: false,
     },
+    width: {
+        type: String,
+        default: ''
+    },
 })
 
 defineExpose({
@@ -34,7 +38,7 @@ defineExpose({
 
 <template>
     <dialog ref="genModal" id="generic_modal" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box">
+        <div class="modal-box" :class="width ? `max-w-${width}` : ''">
             <h3 class="text-lg font-bold">{{ title }}</h3>
 
             <div class="py-2">

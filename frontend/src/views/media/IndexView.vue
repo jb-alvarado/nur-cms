@@ -1,26 +1,30 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import dayjs from 'dayjs'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
-import { formatBytes, shortID } from '@/utils/helper'
+import { formatBytes, shortID, mediaPath } from '@/utils/helper'
 
 import FileUpload from '@/components/FileUpload.vue'
 import GenericModal from '@/components/GenericModal.vue'
 import GenericPagination from '@/components/GenericPagination.vue'
 import GenericProgress from '@/components/GenericProgress.vue'
+import MediaEdit from '@/components/MediaEdit.vue'
 
 const auth = useAuth()
 const store = useIndex()
 const deleteModal = ref()
 const uploadModal = ref()
+const editModal = ref()
 const uploader = ref()
+const updater = ref()
 const medias = ref<Media[]>([])
 const selectCount = computed(() => medias.value.reduce((acc, item: any) => acc + (item.check ? 1 : 0), 0))
 const uploadKey = ref(shortID())
 
 const apiURL = ref('/api/media')
+const editID = ref(0)
 const total = ref(0)
 const limit = ref(20)
 const offset = ref(0)
@@ -62,6 +66,13 @@ selectMedia()
 
 const openDeleteModal = () => {
     deleteModal.value.showModal()
+}
+
+const openUpdateModal = (id: number) => {
+    editID.value = id
+    nextTick(() => {
+        editModal.value.showModal()
+    })
 }
 
 async function selectMedia(u: string | null = null) {
@@ -122,16 +133,6 @@ function onPageChange(/*payload: any*/) {
     selectMedia()
 }
 
-function mediaPath(media: Media): string {
-    if (media.variants && media.variants.length > 0) {
-        const variance320 = media.variants.find((v) => v.width === 320)
-        if (variance320) {
-            return `${media.path}/${variance320.filename}`
-        }
-    }
-    return `${media.path}/${media.filename}`
-}
-
 function iconFrom(type: string | null | undefined) {
     const t = (type || '').toLowerCase()
     switch (true) {
@@ -167,14 +168,18 @@ function mimeType(media: Media) {
 }
 
 function variantsDim(variants: Variants[]) {
-    const dims = new Set<string>()
+    const dims = new Map<number, string>()
 
     for (const v of variants) {
-        const dim = `${v.width}x${v.height}`
-        dims.add(dim)
+        if (!dims.has(v.width)) {
+            dims.set(v.width, `${v.width}x${v.height}`)
+        }
     }
 
-    return Array.from(dims).join(' | ')
+    return Array.from(dims.entries())
+        .sort(([w1], [w2]) => w1 - w2)
+        .map(([, dim]) => dim)
+        .join(' | ')
 }
 
 function variantsExt(variants: Variants[]) {
@@ -186,12 +191,20 @@ function variantsExt(variants: Variants[]) {
         exts.add(ext)
     }
 
-    return Array.from(exts).join(' | ')
+    return Array.from(exts).sort().join(' | ')
 }
 
 function runUpload() {
     if (uploader.value) {
         uploader.value.upload()
+    }
+}
+
+async function runUpdate() {
+    if (updater.value) {
+        await updater.value.update()
+
+        selectMedia()
     }
 }
 
@@ -231,7 +244,7 @@ function resetUpload() {
             <div
                 v-for="media in medias"
                 :key="media.id ?? media.filename!"
-                class="card bg-base-100 w-64 shadow-sm rounded border border-base-content/20 hover:scale-[1.01] hover:shadow-md transition-transform cursor-pointer"
+                class="card bg-base-100 w-64 shadow-sm rounded border border-base-content/20 hover:scale-[1.01] hover:shadow-md transition-transform"
             >
                 <figure class="relative checker h-43">
                     <input
@@ -243,17 +256,23 @@ function resetUpload() {
                         v-if="media.type?.includes('image/')"
                         :src="mediaPath(media)"
                         :alt="media.alt ?? media.filename ?? ''"
-                        class="w-full h-full object-contain rounded-t"
+                        class="w-full h-full object-contain rounded-t cursor-pointer"
+                        @click="openUpdateModal(media.id!)"
                     />
                     <i v-else class="bi text-8xl" :class="iconFrom(media.type)"></i>
-                    <span
-                        class="bg-black/60 text-white/80 hyphens-auto rounded-xs font-bold absolute z-2 left-0 bottom-0 px-1.5 py-0.5 me-1"
+                    <button
+                        class="bg-black/60 text-white/80 hyphens-auto rounded-xs font-bold absolute z-2 left-0 bottom-0 px-1.5 py-0.5 me-1 break-all cursor-pointer"
+                        @click="openUpdateModal(media.id!)"
                     >
                         {{ media.filename }}
-                    </span>
+                    </button>
                 </figure>
-                <div class="card-body bg-base-200 border-t border-t-base-content/20 px-4 pt-2 pb-4">
+                <div
+                    class="card-body bg-base-200 border-t border-t-base-content/20 px-4 pt-2 pb-4 cursor-pointer"
+                    @click="openUpdateModal(media.id!)"
+                >
                     <ul class="list">
+                        <li class="break-all"><strong>Alt:</strong> {{ media.alt }}</li>
                         <li><strong>Type:</strong> {{ mimeType(media) }}</li>
                         <li v-if="media.width"><strong>Dimension:</strong> {{ media.width }}x{{ media.height }}</li>
                         <li v-if="media.size"><strong>Size:</strong> {{ formatBytes(media.size!) }}</li>
@@ -278,6 +297,10 @@ function resetUpload() {
 
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentMedia">
             <p>Are you sure you want to delete this file{{ selectCount > 1 ? 's' : '' }}?</p>
+        </GenericModal>
+
+        <GenericModal ref="editModal" :key="editID" title="Edit Media" width="2xl" :ok-action="runUpdate">
+            <MediaEdit ref="updater" :id="editID" />
         </GenericModal>
     </div>
 </template>

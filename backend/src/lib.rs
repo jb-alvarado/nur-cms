@@ -132,8 +132,10 @@ pub fn router_entries() -> (
         .route("/entries", get(entries_select).post(entry_insert))
         .route("/entries/{id}", put(entry_update).delete(entry_delete))
         .route("/entries/{param}/{slug}", get(entry_select));
-    // .route("/{kind}", post(content_insert))
-    // .route("/{kind}/{id}", delete(content_delete).put(content_update));
+
+    let media_routes = Router::new()
+        .route("/", get(media_select))
+        .route("/{id}", put(media_update).delete(media_delete));
 
     let api_routes = Router::new()
         .route("/ts-language", get(ts_language_select))
@@ -142,8 +144,7 @@ pub fn router_entries() -> (
         .nest("/auth-user", auth_user_routes)
         .nest("/locales", locale_routes)
         .nest("/content", content_routes)
-        .route("/media", get(media_select))
-        .route("/media/{id}", delete(media_delete))
+        .nest("/media", media_routes)
         .layer(GrantsLayer::with_extractor(extract));
 
     (auth_routes, api_routes)

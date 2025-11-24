@@ -20,4 +20,4 @@ export type GroupMemberSerializer = { id: number, locale_id: number, };
 
 export type MediaSerializer = { id?: number | null, alt?: string | null, filename?: string | null, path?: string | null, type?: string | null, width?: number | null, height?: number | null, size?: number, ast_line?: number | null, start_offset?: number | null, end_offset?: number | null, created_at?: string | null, variants?: Array<MediaVariantSerializer>, total_count?: bigint | null, };
 
-export type MediaVariantSerializer = { id: bigint, width: number, height: number, filename: string, };
+export type MediaVariantSerializer = { id: number, width: number, height: number, filename: string, };

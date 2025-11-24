@@ -20,14 +20,14 @@ watch(
 <template>
     <div
         ref="progressContainer"
-        class="toast toast-end fixed top-12 z-40 h-auto! max-h-[80%] overflow-y-auto gap-1"
+        class="toast toast-end fixed top-12 z-40 h-auto! max-h-[80%] overflow-y-auto gap-1 pointer-events-none"
         :style="`height: ${store.msgList.length * 80}px`"
     >
         <div
             v-for="msg in store.msgList"
             :key="msg.text"
             role="alert"
-            class="alert w-auto max-w-[800px] justify-start py-2 rounded-sm text-black!"
+            class="alert w-auto max-w-[800px] justify-start py-2 rounded-sm text-black! pointer-events-auto"
             :class="`alert-${msg.variance}`"
         >
             <i v-if="msg.variance === 'error'" class="bi bi-exclamation-triangle-fill text-2xl"></i>

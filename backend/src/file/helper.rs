@@ -18,6 +18,7 @@ use crate::{
         fields::Table,
         handles,
         models::{Configuration, Media, MediaVariant},
+        serialize::MediaSerializer,
     },
     file::processing::save_image,
     sse::{SSELevel as Level, SSEMessage},
@@ -292,6 +293,126 @@ pub fn process_variants(
             }
         }
     }
+
+    Ok(())
+}
+
+/// Rename a media file and its variants on disk
+pub async fn rename_media_file(
+    media: &MediaSerializer,
+    new_filename: &str,
+) -> Result<(), ServiceError> {
+    let filename = media.filename.clone().unwrap_or_default();
+    let media_path = media.path.clone().unwrap_or_default();
+    let path = Path::new(&media_path);
+
+    let old_path = path
+        .strip_prefix(PUBLIC_UPLOADS)
+        .map(|p| Path::new(STORAGE.as_str()).join(p))
+        .unwrap_or_else(|_| Path::new(STORAGE.as_str()).join(path))
+        .join(&filename);
+
+    let new_path = old_path.with_file_name(new_filename);
+
+    // Rename the main file
+    if old_path.exists() {
+        fs::rename(&old_path, &new_path).await?;
+        info!("Renamed file: {:?} -> {:?}", old_path, new_path);
+    } else {
+        return Err(ServiceError::Conflict(format!(
+            "File not found: {:?}",
+            old_path
+        )));
+    }
+
+    // Rename variants if they exist
+    let variant_dir = old_path
+        .parent()
+        .ok_or_else(|| ServiceError::Conflict("Invalid file path".into()))?;
+
+    let old_stem = Path::new(&filename)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let new_stem = Path::new(new_filename)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+
+    if let Ok(mut entries) = fs::read_dir(variant_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let file_name = entry.file_name();
+            let file_name_str = file_name.to_string_lossy();
+
+            // Check if this is a variant of the original file
+            if file_name_str.starts_with(&*old_stem) && file_name_str != filename {
+                let new_variant_name = file_name_str.replacen(&*old_stem, &new_stem, 1);
+                let old_variant_path = entry.path();
+                let new_variant_path = variant_dir.join(new_variant_name);
+
+                if let Err(e) = fs::rename(&old_variant_path, &new_variant_path).await {
+                    error!("Failed to rename variant {:?}: {}", old_variant_path, e);
+                } else {
+                    info!(
+                        "Renamed variant: {:?} -> {:?}",
+                        old_variant_path, new_variant_path
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), ServiceError> {
+    let fname = media.filename.clone().unwrap_or_default();
+    let rel = media.path.clone().unwrap_or_default();
+    let rel_path = Path::new(&rel);
+
+    // Resolve absolute path in storage
+    let base_dir = match rel_path.strip_prefix(PUBLIC_UPLOADS) {
+        Ok(p) => Path::new(STORAGE.as_str()).join(p),
+        Err(_) => Path::new(STORAGE.as_str()).join(rel_path),
+    };
+    let target = base_dir.join(&fname);
+
+    if !target.exists() {
+        return Err(ServiceError::Conflict(format!(
+            "File not found: {:?}",
+            target
+        )));
+    }
+
+    // Delete variants first
+    let stem = Path::new(&fname)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let parent = target
+        .parent()
+        .ok_or_else(|| ServiceError::Conflict("Invalid file path".into()))?;
+
+    if let Ok(mut rd) = fs::read_dir(parent).await {
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with(&stem) && name_str != fname {
+                let variant_path = entry.path();
+                if let Err(e) = fs::remove_file(&variant_path).await {
+                    error!("Failed to remove variant {:?}: {}", variant_path, e);
+                } else {
+                    info!("Removed variant {:?}", variant_path);
+                }
+            }
+        }
+    }
+
+    // Delete main file
+    fs::remove_file(&target).await?;
+    info!("Removed file {:?}", target);
 
     Ok(())
 }

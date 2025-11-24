@@ -25,6 +25,8 @@ use crate::{
         queries::{QueryObj, RespondObj},
         serialize::*,
     },
+    file::helper::{delete_media_file, rename_media_file},
+    sse::{SSELevel as Level, SSEMessage},
     utils::{ast_serialize::to_structure_root, errors::ServiceError},
 };
 
@@ -35,8 +37,8 @@ pub async fn auth_role_select(
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<AuthRole>>, ServiceError> {
     if details.has_any_authority(&[&Role::Admin]) {
-        params.path = original_uri.path().to_string();
-        params.query = original_uri.query().unwrap_or("").to_string();
+        params.path = original_uri.path().into();
+        params.query = original_uri.query().unwrap_or("").into();
 
         return match handles::select_record(&pool, &Table::AuthRoles, params).await {
             Ok(role) => Ok(Json(role)),
@@ -48,7 +50,7 @@ pub async fn auth_role_select(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -67,7 +69,7 @@ pub async fn ts_language_select(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -78,7 +80,7 @@ pub async fn auth_user_select(
     Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<AuthUserSerializer>>, ServiceError> {
-    params.path = original_uri.path().to_string();
+    params.path = original_uri.path().into();
 
     if details.has_any_authority(&[&Role::Author, &Role::User]) {
         params.fields = vec![
@@ -89,10 +91,10 @@ pub async fn auth_user_select(
         ];
         params.query = format!("id={}", user.id);
     } else if details.has_any_authority(&[&Role::Admin]) {
-        params.query = original_uri.query().unwrap_or("").to_string();
+        params.query = original_uri.query().unwrap_or("").into();
     } else {
         return Err(ServiceError::Forbidden(
-            "You do not have permission to access this resource.".to_string(),
+            "You do not have permission to access this resource.".into(),
         ));
     };
 
@@ -121,7 +123,7 @@ pub async fn auth_user_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -141,7 +143,7 @@ pub async fn auth_user_insert(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -166,7 +168,7 @@ pub async fn auth_user_update(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -179,8 +181,8 @@ pub async fn locale_select(
     Query(mut params): Query<QueryObj<LocaleFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<Locale>>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
 
     return match handles::select_record(&pool, &Table::Locales, params).await {
         Ok(locale) => Ok(Json(locale)),
@@ -207,7 +209,7 @@ pub async fn locale_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -227,7 +229,7 @@ pub async fn locale_insert(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -248,7 +250,7 @@ pub async fn locale_update(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -261,8 +263,8 @@ pub async fn authors_select(
     Query(mut params): Query<QueryObj<ContentAuthorFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<AuthorSerializer>>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
 
     return match handles::select_content_author(&pool, params).await {
         Ok(authors) => Ok(Json(authors)),
@@ -291,7 +293,7 @@ pub async fn author_insert(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -314,7 +316,7 @@ pub async fn author_update(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -334,7 +336,7 @@ pub async fn author_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -347,8 +349,8 @@ pub async fn categories_select(
     Query(mut params): Query<QueryObj<ContentCategoryFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<ContentCategorySerializer>>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
 
     match handles::select_categories(&pool, &params).await {
         Ok(types) => Ok(Json(types)),
@@ -372,7 +374,7 @@ pub async fn category_insert(
                 let mut err = e.to_string();
 
                 if err.contains("duplicate key") && err.contains("slug") {
-                    err = "Duplicate slug, create a unique one!".to_string();
+                    err = "Duplicate slug, create a unique one!".into();
                 }
                 Err(ServiceError::Conflict(err))
             }
@@ -380,7 +382,7 @@ pub async fn category_insert(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -401,7 +403,7 @@ pub async fn category_update(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -421,7 +423,7 @@ pub async fn category_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -434,8 +436,8 @@ pub async fn content_types_select(
     Query(mut params): Query<QueryObj<ContentTypeFields>>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<ContentType>>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
 
     match handles::select_record(&pool, &Table::ContentTypes, params).await {
         Ok(types) => Ok(Json(types)),
@@ -452,8 +454,8 @@ pub async fn entries_select(
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
 
     let mut output = CONFIG.read().await.output_type.clone();
 
@@ -498,8 +500,8 @@ pub async fn entry_select(
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<ContentSerializer>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
     params.type_slug = Some(type_slug);
     params.search_slug = Some(slug);
 
@@ -572,7 +574,7 @@ pub async fn entry_update(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -592,7 +594,7 @@ pub async fn entry_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -626,7 +628,7 @@ pub async fn entry_insert(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -652,7 +654,7 @@ pub async fn content_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -679,36 +681,7 @@ pub async fn content_insert(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
-    ))
-}
-
-pub async fn content_update(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path((table, id)): Path<(String, i32)>,
-    details: AuthDetails<Role>,
-    Json(mut content): Json<Value>,
-) -> Result<(), ServiceError> {
-    let table = Table::from_str(&format!("content_{table}"))?;
-
-    if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
-        || (table != Table::ContentTypes
-            && Table::iter().any(|t| t == table)
-            && details.has_any_authority(&[&Role::Admin, &Role::Author]))
-    {
-        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
-
-        return match handles::update_record(&pool, &table, id, &content).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
@@ -722,8 +695,8 @@ pub async fn media_select(
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<MediaSerializer>>, ServiceError> {
-    params.path = original_uri.path().to_string();
-    params.query = original_uri.query().unwrap_or("").to_string();
+    params.path = original_uri.path().into();
+    params.query = original_uri.query().unwrap_or("").into();
 
     if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
         return match handles::select_media(&pool, &params).await {
@@ -736,16 +709,34 @@ pub async fn media_select(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
     ))
 }
 
 pub async fn media_delete(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
+    State((pool, tx)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        let params: QueryObj<MediaFields> = QueryObj {
+            fields: vec![
+                MediaFields::Filename,
+                MediaFields::Path,
+                MediaFields::MediaVariants,
+            ],
+            search_id: Some(id),
+            ..Default::default()
+        };
+        let media = handles::select_media(&pool, &params).await?;
+
+        if let Some(m) = media.results.first()
+            && let Err(e) = delete_media_file(m).await
+        {
+            let msg = SSEMessage::new(Level::Success, &format!("{e}"));
+            let _ = tx.send(msg.to_string());
+        }
+
         return match handles::delete_record(&pool, &Table::Media, id).await {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -756,6 +747,45 @@ pub async fn media_delete(
     }
 
     Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".to_string(),
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
+pub async fn media_update(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        let params: QueryObj<MediaFields> = QueryObj {
+            fields: vec![
+                MediaFields::Filename,
+                MediaFields::Path,
+                MediaFields::MediaVariants,
+            ],
+            search_id: Some(id),
+            ..Default::default()
+        };
+        let media = handles::select_media(&pool, &params).await?;
+
+        if let Some(name) = content.get("filename").and_then(|v| v.as_str())
+            && let Some(m) = media.results.first()
+            && m.filename.as_deref() != Some(name)
+        {
+            rename_media_file(m, name).await?;
+        }
+
+        return match handles::update_record(&pool, &Table::Media, id, &content).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
     ))
 }

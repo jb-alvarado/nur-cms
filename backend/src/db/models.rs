@@ -471,7 +471,7 @@ pub struct Media {
     pub width: Option<i32>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub height: Option<i32>,
-    #[ts(as = "i32")]
+    #[ts(as = "Option<i32>")]
     #[serde(default, skip_serializing_if = "is_zero")]
     pub size: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -509,8 +509,9 @@ impl ColumnCounter for Media {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
 pub struct MediaVariant {
+    #[ts(as = "i32")]
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub id: i32,
+    pub id: i64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub media_id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
