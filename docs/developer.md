@@ -91,7 +91,6 @@ The production files will be generated in `frontend/dist/` and will be embedded 
 Build an optimized release binary (includes the frontend):
 
 ```bash
-cd backend
 cargo build --release
 ```
 
