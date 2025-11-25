@@ -12,7 +12,7 @@ export type ContentCategorySerializer = { id?: number | null, group_id?: number 
 
 export type ContentMetaSerializer = { data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
 
-export type ContentSerializer = { id?: number | null, group_id?: number | null, locale_id?: number | null, slug?: string | null, status?: string | null, author?: AuthorSerializer | null, meta?: ContentMetaSerializer | null, categories?: Array<ContentCategorySerializer>, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, body?: any, created_at?: string | null, updated_at?: string | null, media?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
+export type ContentSerializer = { id?: number | null, group_id?: number | null, locale_id?: number | null, media_id?: number | null, slug?: string | null, status?: string | null, author?: AuthorSerializer | null, meta?: ContentMetaSerializer | null, categories?: Array<ContentCategorySerializer>, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, body?: any, created_at?: string | null, updated_at?: string | null, media?: MediaSerializer | null, embeds?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 
 export type ContentTagSerializer = { id?: number, name?: string, slug?: string, };
 

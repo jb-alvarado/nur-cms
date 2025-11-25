@@ -132,6 +132,8 @@ pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale_id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>, // draft, published, archived
@@ -158,8 +160,10 @@ pub struct ContentSerializer {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<MediaSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub media: Vec<MediaSerializer>,
+    pub embeds: Vec<MediaSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_members: Vec<GroupMemberSerializer>,
     #[serde(default, skip_serializing)]
@@ -232,6 +236,11 @@ impl FromRow<'_, PgRow> for ContentSerializer {
         let media = row
             .try_get::<Option<serde_json::Value>, _>("media")
             .unwrap_or_default()
+            .map(|v| serde_json::from_value::<MediaSerializer>(v).unwrap_or_default());
+
+        let embeds = row
+            .try_get::<Option<serde_json::Value>, _>("embeds")
+            .unwrap_or_default()
             .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
 
@@ -239,6 +248,7 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             id: row.try_get("id").ok(),
             group_id: row.try_get("group_id").ok(),
             locale_id: row.try_get("locale_id").ok(),
+            media_id: row.try_get("media_id").ok(),
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
             author,
@@ -254,6 +264,7 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             updated_at: row.try_get("updated_at").ok(),
             group_members,
             media,
+            embeds,
             total_count: row.try_get("total_count").ok(),
         })
     }

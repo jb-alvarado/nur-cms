@@ -78,3 +78,8 @@ body {
     @apply text-error-content border-error;
     --alert-color: var(--color-error);
 }
+
+.checker {
+    background: repeating-conic-gradient(var(--color-base-100) 0 90deg, var(--color-base-300) 0 180deg) 0 0/40px 40px
+        round;
+}

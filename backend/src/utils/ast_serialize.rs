@@ -27,7 +27,6 @@ fn pop_media(map: &Map<String, Value>, media: &mut Vec<MediaSerializer>) -> Opti
         .ok()?;
 
     let pos = media.iter().position(|m| m.ast_line == Some(line))?;
-    media[pos].ast_line = Some(0);
     serde_json::to_value(media.remove(pos)).ok()
 }
 

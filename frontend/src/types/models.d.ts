@@ -10,7 +10,7 @@ export type ContentAuthor = { id?: number, first_name?: string, last_name?: stri
 
 export type ContentCategory = { id?: number, group_id?: number, locale_id?: number, name?: string, slug?: string, status?: string, media_id?: number | null, total_count?: bigint | null, };
 
-export type ContentEntry = { id?: number, group_id?: number | null, locale_id?: number, type_id?: number, slug?: string, title?: string, description?: string, text?: string, status?: string, created_by?: number, updated_by?: number, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
+export type ContentEntry = { id?: number, group_id?: number | null, locale_id?: number, type_id?: number, media_id?: number | null, slug?: string, title?: string, description?: string, text?: string, status?: string, created_by?: number, updated_by?: number, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
 
 export type ContentMeta = { id?: number, entry_id?: number, data?: JsonValue | null, start_time?: string | null, end_time?: string | null, total_count?: bigint | null, };
 

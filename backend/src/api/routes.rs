@@ -477,7 +477,7 @@ pub async fn entries_select(
                     let ast = to_mdast(&text, &ParseOptions::default())?;
                     let json = serde_json::to_string(&ast).unwrap_or_default();
                     let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                    let body = to_structure_root(&tree, &mut b.media);
+                    let body = to_structure_root(&tree, &mut b.embeds);
 
                     b.body = Some(body);
                 }
@@ -526,7 +526,7 @@ pub async fn entry_select(
                 OutputType::AST => {
                     let ast = to_mdast(&text, &ParseOptions::default())?;
                     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-                    let body = to_structure_root(&tree, &mut content.media);
+                    let body = to_structure_root(&tree, &mut content.embeds);
                     content.body = Some(body);
                 }
                 OutputType::HTML => {

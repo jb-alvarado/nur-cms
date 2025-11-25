@@ -559,6 +559,7 @@ pub async fn select_content_author(
                     'id', m.id,
                     'alt', m.alt,
                     'path', m.path,
+                    'filename', m.filename,
                     'variants', COALESCE(
                         (
                             SELECT json_agg(
@@ -803,7 +804,8 @@ pub async fn select_content(
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
             CF::Body => sep.push("ce.text".to_string()),
             CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
-            CF::Media => sep.push(format!("COALESCE(media_data.media, '[]') AS {f}")),
+            CF::Embeds => sep.push(format!("COALESCE(embed_data.media, '[]') AS {f}")),
+            CF::Media => sep.push("COALESCE(media.data, '{}'::json) AS \"media\""),
             _ => sep.push(format!("ce.{f}")),
         };
     }
@@ -852,6 +854,35 @@ pub async fn select_content(
         );
     }
 
+    if query_obj.fields.contains(&CF::Media) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_build_object(
+                    'alt', m.alt,
+                    'path', m.path,
+                    'filename', m.filename,
+                    'variants', COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', mv.id,
+                                    'width', mv.width,
+                                    'height', mv.height,
+                                    'filename', mv.filename
+                                )
+                            )
+                            FROM media_variants mv
+                            WHERE mv.media_id = m.id
+                        ),
+                        '[]'
+                    )
+                ) AS data
+                FROM media m
+                WHERE m.id = ce.media_id
+            ) AS media ON TRUE "#,
+        );
+    }
+
     if query_obj.fields.contains(&CF::Meta)
         || query_obj.start_time.is_some()
         || query_obj.end_time.is_some()
@@ -892,7 +923,7 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&CF::Media) {
+    if query_obj.fields.contains(&CF::Embeds) {
         query_builder.push(
             r#"LEFT JOIN LATERAL (
                 SELECT json_agg(
@@ -925,7 +956,7 @@ pub async fn select_content(
                 FROM content_media cm
                 JOIN media m ON m.id = cm.media_id
                 WHERE cm.entry_id = ce.id
-            ) AS media_data ON TRUE "#,
+            ) AS embed_data ON TRUE "#,
         );
     }
 

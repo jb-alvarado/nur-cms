@@ -324,6 +324,8 @@ pub struct ContentEntry {
     pub locale_id: i32,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub type_id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<i32>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -353,6 +355,7 @@ impl FromRow<'_, PgRow> for ContentEntry {
             group_id: row.try_get("group_id").ok(),
             locale_id: row.try_get("locale_id").unwrap_or_default(),
             type_id: row.try_get("type_id").unwrap_or_default(),
+            media_id: row.try_get("media_id").ok(),
             slug: row.try_get("slug").unwrap_or_default(),
             title: row.try_get("title").unwrap_or_default(),
             description: row.try_get("description").unwrap_or_default(),

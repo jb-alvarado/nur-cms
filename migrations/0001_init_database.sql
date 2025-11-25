@@ -109,6 +109,7 @@ CREATE TABLE content_entries (
     group_id BIGINT NOT NULL DEFAULT nextval('entry_group_seq'),
     type_id INT NOT NULL REFERENCES content_types (id) ON DELETE CASCADE,
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
+    media_id INT REFERENCES media (id) ON DELETE SET NULL,
     slug TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT,

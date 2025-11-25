@@ -461,6 +461,7 @@ pub enum ContentFields {
     ID,
     GroupID,
     LocaleID,
+    MediaID,
     #[default]
     Slug,
     Status,
@@ -476,6 +477,7 @@ pub enum ContentFields {
     UpdatedAt,
     GroupMembers,
     Media,
+    Embeds,
 }
 
 impl StrCompare for ContentFields {
@@ -484,6 +486,7 @@ impl StrCompare for ContentFields {
             Self::ID => other == "id",
             Self::GroupID => other == "group_id",
             Self::LocaleID => other == "locale_id",
+            Self::MediaID => other == "media_id",
             Self::Slug => other == "slug",
             Self::Status => other == "status",
             Self::Author => other == "author",
@@ -498,6 +501,7 @@ impl StrCompare for ContentFields {
             Self::UpdatedAt => other == "updated_at",
             Self::GroupMembers => other == "group_members",
             Self::Media => other == "media",
+            Self::Embeds => other == "embeds",
         }
     }
 }
@@ -510,6 +514,7 @@ impl FromStr for ContentFields {
             "id" => Ok(Self::ID),
             "group_id" => Ok(Self::GroupID),
             "locale_id" => Ok(Self::LocaleID),
+            "media_id" => Ok(Self::MediaID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
             "author" => Ok(Self::Author),
@@ -524,6 +529,7 @@ impl FromStr for ContentFields {
             "updated_at" => Ok(Self::UpdatedAt),
             "group_members" => Ok(Self::GroupMembers),
             "media" => Ok(Self::Media),
+            "embeds" => Ok(Self::Embeds),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -535,6 +541,7 @@ impl fmt::Display for ContentFields {
             Self::ID => write!(f, "id"),
             Self::GroupID => write!(f, "group_id"),
             Self::LocaleID => write!(f, "locale_id"),
+            Self::MediaID => write!(f, "media_id"),
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
             Self::Author => write!(f, "author"),
@@ -549,6 +556,7 @@ impl fmt::Display for ContentFields {
             Self::UpdatedAt => write!(f, "updated_at"),
             Self::GroupMembers => write!(f, "group_members"),
             Self::Media => write!(f, "media"),
+            Self::Embeds => write!(f, "embeds"),
         }
     }
 }

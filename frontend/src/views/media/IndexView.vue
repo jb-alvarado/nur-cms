@@ -27,6 +27,7 @@ const apiURL = ref('/api/media')
 const editID = ref(0)
 const total = ref(0)
 const limit = ref(20)
+const ordering = ref('-created_at')
 const offset = ref(0)
 const offsetVar = computed({
     get() {
@@ -46,10 +47,6 @@ const searchVar = computed({
         search.value = newValue
     },
 })
-
-const ordering = ref('-created_at')
-const previous = ref('')
-const next = ref('')
 
 watch(
     () => store.progress,
@@ -92,12 +89,8 @@ async function selectMedia(u: string | null = null) {
             if (res.results?.length > 0) {
                 total.value = res.count
                 medias.value = res.results
-                previous.value = res.previous
-                next.value = res.next
             } else {
                 medias.value = []
-                previous.value = ''
-                next.value = ''
             }
         })
         .catch((err) => {
@@ -261,7 +254,7 @@ function resetUpload() {
                     />
                     <i v-else class="bi text-8xl" :class="iconFrom(media.type)"></i>
                     <button
-                        class="bg-black/60 text-white/80 hyphens-auto rounded-xs font-bold absolute z-2 left-0 bottom-0 px-1.5 py-0.5 me-1 break-all cursor-pointer"
+                        class="bg-black/60 text-white/80 hyphens-auto rounded-xs font-bold text-left absolute z-2 left-0 bottom-0 px-1.5 py-0.5 me-1 break-all cursor-pointer"
                         @click="openUpdateModal(media.id!)"
                     >
                         {{ media.filename }}
@@ -304,9 +297,3 @@ function resetUpload() {
         </GenericModal>
     </div>
 </template>
-<style>
-.checker {
-    background: repeating-conic-gradient(var(--color-base-100) 0 90deg, var(--color-base-300) 0 180deg) 0 0/40px 40px
-        round;
-}
-</style>

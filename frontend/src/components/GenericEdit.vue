@@ -5,10 +5,11 @@ import { cloneDeep, isEqual } from 'lodash-es'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
-import { closeDropdown } from '@/utils/helper'
+import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 
 import GenericModal from '@/components/GenericModal.vue'
+import MediaBrowser from '@/components/MediaBrowser.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
 const route = useRoute()
@@ -20,6 +21,7 @@ const groupID = Number(route.params.group_id ?? 0)
 const auth = useAuth()
 const store = useIndex()
 const deleteModal = ref()
+const mediaModal = ref()
 const content = ref({
     id: 0,
     group_id: groupID,
@@ -34,6 +36,7 @@ const content = ref({
     check: false,
 } as Content)
 const contentOriginal = ref(cloneDeep(content))
+const media = ref<Media>()
 contentOriginal.value.group_id = 0
 
 const locales = ref<Locale[]>([])
@@ -41,7 +44,7 @@ const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status = ['draft', 'published', 'archived']
 
 if (contentId > 0) {
-    getContent()
+    selectContent()
 } else if (groupID > 0) {
     fetch(
         `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
@@ -75,7 +78,7 @@ if (contentId > 0) {
     }, 1000)
 }
 
-function getContent() {
+function selectContent() {
     fetch(`/api/content/entries?type_id=${store.typeID}&id=${contentId}&output_type=markdown`, {
         headers: auth.authHeader,
     })
@@ -97,7 +100,31 @@ function getContent() {
                     const hasGroupMember = content.value.group_members?.some((member) => member.locale_id === locale.id)
                     return isCurrentLocale || hasGroupMember
                 })
+
+                if (content.value.media_id) {
+                    selectMedia()
+                }
             }
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+async function selectMedia() {
+    await fetch(`/api/media?id=${content.value.media_id}`, {
+        headers: auth.authHeader,
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+
+            return resp.json()
+        })
+        .then((response: RespondObj) => {
+            media.value = response.results[0]
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -112,6 +139,10 @@ function updateSlug() {
 
 const openDeleteModal = () => {
     deleteModal.value.showModal()
+}
+
+const openMediaBrowser = () => {
+    mediaModal.value.showModal()
 }
 
 function updateDescription() {
@@ -208,6 +239,13 @@ function contentDelete() {
                 store.msgAlert('error', e)
             })
     }
+}
+
+function addMedia(m: Media) {
+    content.value.media_id = m.id
+    media.value = m
+
+    mediaModal.value.close()
 }
 </script>
 
@@ -310,6 +348,16 @@ function contentDelete() {
                 </div>
             </div>
 
+            <div class="flex gap-2 mt-2">
+                <img
+                    v-if="media"
+                    :src="mediaPath(media)"
+                    :alt="media?.alt ?? 'Media'"
+                    class="border border-base-content/30 max-h-26"
+                />
+                <button class="btn" @click="openMediaBrowser()">Media</button>
+            </div>
+
             <div class="w-full">
                 <fieldset class="fieldset">
                     <legend class="fieldset-legend">Description</legend>
@@ -328,5 +376,7 @@ function contentDelete() {
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
             <p>Are you sure you want to delete this {{ routeName }}?</p>
         </GenericModal>
+
+        <MediaBrowser ref="mediaModal" :update="addMedia" />
     </div>
 </template>

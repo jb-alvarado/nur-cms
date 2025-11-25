@@ -4,11 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import { closeDropdown } from '@/utils/helper'
+import { closeDropdown, mediaPath } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
 import { slugify } from '@/utils/slugify.js'
 
 import GenericModal from '@/components/GenericModal.vue'
+import MediaBrowser from '@/components/MediaBrowser.vue'
 
 const auth = useAuth()
 const store = useIndex()
@@ -17,6 +18,7 @@ const router = useRouter()
 const categoryId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
 const deleteModal = ref()
+const mediaModal = ref()
 const category = ref({
     id: 0,
     group_id: groupID,
@@ -27,6 +29,7 @@ const category = ref({
     media_id: 0,
 } as ContentCategory)
 const categoryOriginal = ref(cloneDeep(category))
+const media = ref<Media>()
 categoryOriginal.value.group_id = 0
 const locales = ref<Locale[]>([])
 const needsSave = computed(() => {
@@ -39,7 +42,7 @@ const needsSave = computed(() => {
 const status = ['draft', 'published']
 
 if (categoryId > 0) {
-    getCategory()
+    selectCategory()
 } else if (groupID > 0) {
     fetch(`/api/content/categories?group_id=${groupID}&fields=locale_id,group_members`, {
         headers: auth.authHeader,
@@ -74,7 +77,11 @@ const openDeleteModal = () => {
     deleteModal.value.showModal()
 }
 
-async function getCategory() {
+const openMediaBrowser = () => {
+    mediaModal.value.showModal()
+}
+
+async function selectCategory() {
     await fetch(`/api/content/categories?id=${categoryId}`, {
         headers: auth.authHeader,
     })
@@ -97,6 +104,30 @@ async function getCategory() {
                 )
                 return isCurrentLocale || hasGroupMember
             })
+
+            if (category.value.media_id) {
+                selectMedia()
+            }
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+async function selectMedia() {
+    await fetch(`/api/media?id=${category.value.media_id}`, {
+        headers: auth.authHeader,
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+
+            return resp.json()
+        })
+        .then((response: RespondObj) => {
+            media.value = response.results[0]
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -114,8 +145,6 @@ function memberLink(id: number): string {
 }
 
 function contentDelete() {
-    const auth = useAuth()
-
     if (categoryId > 0) {
         fetch(`/api/content/categories/${categoryId}`, {
             method: 'DELETE',
@@ -128,7 +157,7 @@ function contentDelete() {
                 } else {
                     store.msgAlert('success', `Deleted: ${category.value.title ?? category.value.id}`)
 
-                     router.push(`/category`)
+                    router.push(`/category`)
                 }
             })
             .catch((e) => {
@@ -177,10 +206,17 @@ async function save() {
             store.msgAlert('error', e)
         })
 }
+
+function addMedia(m: Media) {
+    category.value.media_id = m.id
+    media.value = m
+
+    mediaModal.value.close()
+}
 </script>
 
 <template>
-    <div class="flex flex-col h-full pb-6">
+    <div class="flex flex-col md:h-96 pb-6">
         <div class="flex-none">
             <h1 class="text-2xl h-8">{{ category?.name ?? '' }}</h1>
         </div>
@@ -210,7 +246,7 @@ async function save() {
                     </fieldset>
                 </div>
 
-                <div class="mt-7 flex gap-2 flex-none">
+                <div class="md:mt-7 flex flex-col md:flex-row gap-2">
                     <div class="join">
                         <details v-if="category.id === 0" class="dropdown">
                             <summary class="btn join-item" @blur="closeDropdown">
@@ -267,17 +303,29 @@ async function save() {
                         </details>
                     </div>
 
-                     <div class="join">
-                        <button class="btn btn-warning join-item" @click="openDeleteModal()">Delete</button>
+                    <div class="join">
+                        <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
                         <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
                             Save
                         </button>
                     </div>
                 </div>
             </div>
+
+            <div class="flex gap-2 mt-2">
+                <img
+                    v-if="media"
+                    :src="mediaPath(media)"
+                    :alt="media?.alt ?? 'Media'"
+                    class="border border-base-content/30 max-h-26"
+                />
+                <button class="btn" @click="openMediaBrowser()">Media</button>
+            </div>
         </div>
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
             <p>Are you sure you want to delete this category?</p>
         </GenericModal>
+
+        <MediaBrowser ref="mediaModal" :update="addMedia" />
     </div>
 </template>
