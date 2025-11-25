@@ -45,7 +45,7 @@ npm run dev
 
 ## Accessing the Application
 
-- **Frontend**: <http://localhost:5173> (Vite development server)
+- **Frontend**: <http://localhost:5757> (Vite development server)
 - **Backend API**: <http://127.0.0.1:8777>
 - **PostgreSQL**: localhost:5432 (default credentials in `docker-compose.yml`)
 
@@ -68,7 +68,7 @@ npm run dev
 
 - If the backend fails to start, ensure the database is running and accessible
 - If the frontend fails to build, try deleting `node_modules` and running `npm install` again
-- Check that ports 5173, 8777, and 5432 are not already in use
+- Check that ports 5757, 8777, and 5432 are not already in use
 
 ## Building for Production
 
