@@ -429,14 +429,15 @@ where
     Ok(RespondObj::new(&query_obj, data))
 }
 
-pub async fn update_record<T>(
+pub async fn update_record<T, I>(
     pool: &PgPool,
     table: &Table,
-    id: i32,
+    id: I,
     data: &T,
 ) -> Result<(), ServiceError>
 where
     T: Serialize,
+    I: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres> + Send,
 {
     let value = serde_json::to_value(data)?;
 
@@ -445,7 +446,7 @@ where
         None => return Ok(()),
     };
 
-    let type_ignore = ["created_at"];
+    let type_ignore = ["id", "created_at"];
     let type_time = ["updated_at", "last_login"];
 
     let mut qb = QueryBuilder::<Postgres>::new(format!("UPDATE {table} SET "));
@@ -1045,6 +1046,10 @@ pub async fn select_content(
 
     Ok(RespondObj::new(query_obj, data))
 }
+
+// ----------------------------------------------------------------------------
+// MEDIA
+// ----------------------------------------------------------------------------
 
 pub async fn select_media(
     pool: &PgPool,

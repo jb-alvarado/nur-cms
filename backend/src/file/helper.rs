@@ -299,7 +299,7 @@ pub fn process_variants(
 
 /// Rename a media file and its variants on disk
 pub async fn rename_media_file(
-    media: &MediaSerializer,
+    media: &mut MediaSerializer,
     new_filename: &str,
 ) -> Result<(), ServiceError> {
     let filename = media.filename.clone().unwrap_or_default();
@@ -339,25 +339,19 @@ pub async fn rename_media_file(
         .unwrap_or_default()
         .to_string_lossy();
 
-    if let Ok(mut entries) = fs::read_dir(variant_dir).await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let file_name = entry.file_name();
-            let file_name_str = file_name.to_string_lossy();
+    for variant in &mut media.variants {
+        // Check if this is a variant of the original file
+        if filename.starts_with(&*old_stem) && variant.filename != filename {
+            let new_variant_name = variant.filename.replacen(&*old_stem, &new_stem, 1);
+            let old_variant_path = variant_dir.join(&variant.filename);
+            let new_variant_path = variant_dir.join(&new_variant_name);
 
-            // Check if this is a variant of the original file
-            if file_name_str.starts_with(&*old_stem) && file_name_str != filename {
-                let new_variant_name = file_name_str.replacen(&*old_stem, &new_stem, 1);
-                let old_variant_path = entry.path();
-                let new_variant_path = variant_dir.join(new_variant_name);
-
-                if let Err(e) = fs::rename(&old_variant_path, &new_variant_path).await {
-                    error!("Failed to rename variant {:?}: {}", old_variant_path, e);
-                } else {
-                    info!(
-                        "Renamed variant: {:?} -> {:?}",
-                        old_variant_path, new_variant_path
-                    );
+            match fs::rename(&old_variant_path, &new_variant_path).await {
+                Ok(_) => {
+                    variant.filename = new_variant_name;
+                    info!("Renamed variant: {old_variant_path:?} -> {new_variant_path:?}");
                 }
+                Err(e) => error!("Failed to rename variant {old_variant_path:?}: {e}"),
             }
         }
     }

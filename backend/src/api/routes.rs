@@ -7,7 +7,7 @@ use axum::{
 use chrono::Utc;
 use markdown::{ParseOptions, to_html, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::postgres::PgPool;
 use strum::IntoEnumIterator;
 use tokio::sync::broadcast::Sender;
@@ -767,13 +767,23 @@ pub async fn media_update(
             search_id: Some(id),
             ..Default::default()
         };
-        let media = handles::select_media(&pool, &params).await?;
+        let mut media = handles::select_media(&pool, &params).await?;
 
         if let Some(name) = content.get("filename").and_then(|v| v.as_str())
-            && let Some(m) = media.results.first()
+            && let Some(m) = media.results.first_mut()
             && m.filename.as_deref() != Some(name)
         {
             rename_media_file(m, name).await?;
+
+            for variant in &m.variants {
+                let data = json!({"filename": variant.filename});
+
+                if let Err(e) =
+                    handles::update_record(&pool, &Table::MediaVariants, variant.id, &data).await
+                {
+                    error!("{e}");
+                }
+            }
         }
 
         return match handles::update_record(&pool, &Table::Media, id, &content).await {
