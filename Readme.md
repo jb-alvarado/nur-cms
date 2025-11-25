@@ -11,6 +11,7 @@ A simple and fast content management system built with Rust and Vue.js.
 - **Internationalization** - Multi-language support (i18n)
 - **Modern UI** - Vue 3 + TypeScript frontend with Tailwind CSS and DaisyUI
 - **RESTful API** - Clean API design with Server-Sent Events (SSE) support
+- **Flexible Content Output** - API delivers content in three formats: Markdown, HTML, and AST (JSON structure)
 - **PostgreSQL Database** - Robust data storage with SQLx
 
 ## Technology Stack
@@ -40,4 +41,3 @@ The application can be configured via:
 
 - Environment variables (`.env` file)
 - Command-line arguments (see `cargo run -- --help`)
-- `docker-compose.yml` for database settings
