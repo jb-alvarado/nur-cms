@@ -11,9 +11,11 @@ pub enum Table {
     AuthUsers,
     Locales,
     ContentAuthors,
+    ContentEntryAuthors,
     ContentTypes,
     ContentCategories,
     ContentTags,
+    ContentEntryTags,
     ContentMeta,
     ContentBlocks,
     ContentEntries,
@@ -31,9 +33,11 @@ impl FromStr for Table {
             "auth_users" => Ok(Self::AuthUsers),
             "locales" => Ok(Self::Locales),
             "content_authors" => Ok(Self::ContentAuthors),
+            "content_entry_authors" => Ok(Self::ContentEntryAuthors),
             "content_types" => Ok(Self::ContentTypes),
             "content_categories" => Ok(Self::ContentCategories),
             "content_tags" => Ok(Self::ContentTags),
+            "content_entry_tags" => Ok(Self::ContentEntryTags),
             "content_meta" => Ok(Self::ContentMeta),
             "content_blocks" => Ok(Self::ContentBlocks),
             "content_entries" => Ok(Self::ContentEntries),
@@ -52,9 +56,11 @@ impl fmt::Display for Table {
             Self::AuthUsers => write!(f, "auth_users"),
             Self::Locales => write!(f, "locales"),
             Self::ContentAuthors => write!(f, "content_authors"),
+            Self::ContentEntryAuthors => write!(f, "content_entry_authors"),
             Self::ContentTypes => write!(f, "content_types"),
             Self::ContentCategories => write!(f, "content_categories"),
             Self::ContentTags => write!(f, "content_tags"),
+            Self::ContentEntryTags => write!(f, "content_entry_tags"),
             Self::ContentMeta => write!(f, "content_meta"),
             Self::ContentBlocks => write!(f, "content_blocks"),
             Self::ContentEntries => write!(f, "content_entries"),
@@ -399,6 +405,48 @@ impl fmt::Display for ContentCategoryFields {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
+pub enum ContentTagFields {
+    ID,
+    Name,
+    #[default]
+    Slug,
+}
+
+impl StrCompare for ContentTagFields {
+    fn is_equal_to_str(&self, other: &str) -> bool {
+        match self {
+            Self::ID => other == "id",
+            Self::Name => other == "name",
+            Self::Slug => other == "slug",
+        }
+    }
+}
+
+impl FromStr for ContentTagFields {
+    type Err = String;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "id" => Ok(Self::ID),
+            "name" => Ok(Self::Name),
+            "slug" => Ok(Self::Slug),
+            _ => Err(format!("Field '{input}' not found!")),
+        }
+    }
+}
+
+impl fmt::Display for ContentTagFields {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::ID => write!(f, "id"),
+            Self::Name => write!(f, "name"),
+            Self::Slug => write!(f, "slug"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
+#[serde(rename_all = "snake_case")]
 pub enum ContentAuthorFields {
     ID,
     #[default]
@@ -460,13 +508,14 @@ impl fmt::Display for ContentAuthorFields {
 pub enum ContentFields {
     ID,
     GroupID,
+    CategoryID,
     LocaleID,
     MediaID,
     #[default]
     Slug,
     Status,
     Author,
-    Categories,
+    Category,
     Tags,
     Meta,
     Blocks,
@@ -485,12 +534,13 @@ impl StrCompare for ContentFields {
         match self {
             Self::ID => other == "id",
             Self::GroupID => other == "group_id",
+            Self::CategoryID => other == "category_id",
             Self::LocaleID => other == "locale_id",
             Self::MediaID => other == "media_id",
             Self::Slug => other == "slug",
             Self::Status => other == "status",
             Self::Author => other == "author",
-            Self::Categories => other == "categories",
+            Self::Category => other == "category",
             Self::Tags => other == "tags",
             Self::Meta => other == "meta",
             Self::Blocks => other == "blocks",
@@ -513,12 +563,13 @@ impl FromStr for ContentFields {
         match input {
             "id" => Ok(Self::ID),
             "group_id" => Ok(Self::GroupID),
+            "category_id" => Ok(Self::CategoryID),
             "locale_id" => Ok(Self::LocaleID),
             "media_id" => Ok(Self::MediaID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
             "author" => Ok(Self::Author),
-            "categories" => Ok(Self::Categories),
+            "category" => Ok(Self::Category),
             "tags" => Ok(Self::Tags),
             "meta" => Ok(Self::Meta),
             "blocks" => Ok(Self::Blocks),
@@ -540,12 +591,13 @@ impl fmt::Display for ContentFields {
         match *self {
             Self::ID => write!(f, "id"),
             Self::GroupID => write!(f, "group_id"),
+            Self::CategoryID => write!(f, "category_id"),
             Self::LocaleID => write!(f, "locale_id"),
             Self::MediaID => write!(f, "media_id"),
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
             Self::Author => write!(f, "author"),
-            Self::Categories => write!(f, "categories"),
+            Self::Category => write!(f, "category"),
             Self::Tags => write!(f, "tags"),
             Self::Meta => write!(f, "meta"),
             Self::Blocks => write!(f, "blocks"),

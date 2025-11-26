@@ -239,7 +239,13 @@ pub async fn select_auth_user(
 }
 
 pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), ServiceError> {
-    let mut qb = QueryBuilder::<Postgres>::new(format!("DELETE FROM {table} WHERE id = "));
+    let field = match table {
+        Table::ContentEntryTags => "tag_id",
+        Table::ContentEntryAuthors => "author_id",
+        _ => "id",
+    };
+
+    let mut qb = QueryBuilder::<Postgres>::new(format!("DELETE FROM {table} WHERE {field} = "));
     qb.push_bind(id);
 
     let query = qb.build();
@@ -274,6 +280,11 @@ where
     R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
 {
     let value = serde_json::to_value(data)?;
+    let field = match table {
+        Table::ContentEntryTags => "tag_id",
+        Table::ContentEntryAuthors => "author_id",
+        _ => "id",
+    };
 
     let obj = match value.as_object() {
         Some(map) => map.clone(),
@@ -352,7 +363,7 @@ where
         }
     }
 
-    qb.push(") RETURNING id");
+    qb.push(format!(") RETURNING {field}"));
 
     let query = qb.build_query_scalar();
 
@@ -454,11 +465,10 @@ where
     let mut any_field = false;
 
     for (key, val) in obj {
-        if val.is_null() || type_ignore.contains(&key.as_str()) {
+        if type_ignore.contains(&key.as_str()) {
             continue;
         }
         any_field = true;
-
         separated.push(format!("{key} = "));
 
         match val {
@@ -496,6 +506,13 @@ where
             }
             Value::Number(n) => {
                 separated.push_bind_unseparated(n.as_i64().unwrap_or_default() as i32);
+            }
+            Value::Null => {
+                if key.contains("_id") {
+                    separated.push_bind_unseparated(None::<i32>);
+                } else {
+                    separated.push_bind_unseparated(None::<String>);
+                }
             }
             _ => {
                 error!("Unknown Type {key}={val:?} in Update!");
@@ -798,7 +815,7 @@ pub async fn select_content(
             CF::Author => sep.push(format!(
                 "(ca.id, ca.first_name, ca.last_name, ca.media_id) AS {f}"
             )),
-            CF::Categories => sep.push(format!("COALESCE(cats.data, ARRAY[]::record[]) AS {f}")),
+            CF::Category => sep.push(format!("COALESCE(cats.data, '{{}}'::json) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(cm.data, cm.start_time, cm.end_time) AS {f}")),
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
@@ -828,15 +845,16 @@ pub async fn select_content(
         );
     }
 
-    if query_obj.fields.contains(&CF::Categories) {
+    if query_obj.fields.contains(&CF::Category) {
         query_builder.push(
             r#"LEFT JOIN LATERAL (
-                SELECT ARRAY_AGG(
-                    (c.id, c.name, c.slug)
+                SELECT json_build_object(
+                    'id', cc.id,
+                    'name', cc.name,
+                    'slug', cc.slug
                 ) AS data
-                FROM content_categories c
-                JOIN content_entry_categories cc ON cc.category_id = c.id
-                WHERE cc.entry_id = ce.id
+                FROM content_categories cc
+                WHERE cc.id = ce.category_id
             ) AS cats ON TRUE "#,
         );
     }

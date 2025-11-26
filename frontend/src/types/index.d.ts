@@ -13,6 +13,8 @@ declare global {
     type Locale = import('./models.d').Locale
     type GroupMember = import('./serialized.d').GroupMemberSerializer
     type Variants = import('./serialized.d').MediaVariantSerializer
+    type Category = import('./serialized.d').ContentCategorySerializer
+    type Tag = import('./serialized.d').ContentTagSerializer
     type SSEMessage = import('./sse.d').SSEMessage
     type RespondObj = import('./query.d').RespondObj
 

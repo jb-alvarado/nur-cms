@@ -129,6 +129,10 @@ pub fn router_entries() -> (
             "/categories/{id}",
             put(category_update).delete(category_delete),
         )
+        .route("/tags", get(tags_select).post(tag_insert))
+        .route("/tags/{id}", put(tag_update))
+        .route("/entry-tags", post(entry_tag_insert))
+        .route("/entry-tags/{id}", delete(entry_tag_delete))
         .route("/entries", get(entries_select).post(entry_insert))
         .route("/entries/{id}", put(entry_update).delete(entry_delete))
         .route("/entries/{param}/{slug}", get(entry_select));

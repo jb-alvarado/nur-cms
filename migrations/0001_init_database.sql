@@ -89,18 +89,12 @@ CREATE TABLE content_categories (
 
 CREATE INDEX idx_category_group_id ON content_categories (group_id);
 
-CREATE SEQUENCE tag_group_seq START 1001;
-
 CREATE TABLE content_tags (
     id SERIAL PRIMARY KEY,
-    group_id BIGINT NOT NULL DEFAULT nextval('tag_group_seq'),
-    locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     name VARCHAR(160) NOT NULL,
     slug VARCHAR(160) NOT NULL,
-    UNIQUE (slug, locale_id)
+    UNIQUE (slug)
 );
-
-CREATE INDEX idx_tag_group_id ON content_categories (group_id);
 
 CREATE SEQUENCE entry_group_seq START 1001;
 
@@ -108,6 +102,7 @@ CREATE TABLE content_entries (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL DEFAULT nextval('entry_group_seq'),
     type_id INT NOT NULL REFERENCES content_types (id) ON DELETE CASCADE,
+    category_id INT REFERENCES content_categories (id) ON DELETE SET NULL,
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
     media_id INT REFERENCES media (id) ON DELETE SET NULL,
     slug TEXT NOT NULL,
@@ -142,6 +137,8 @@ CREATE TABLE content_entry_authors (
     PRIMARY KEY (entry_id, author_id)
 );
 
+CREATE INDEX idx_entry_authors ON content_entry_authors(author_id);
+
 CREATE TABLE content_meta (
     id SERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
@@ -156,12 +153,6 @@ CREATE TABLE content_blocks (
     type VARCHAR(64) NOT NULL,
     order_index INT NOT NULL DEFAULT 0,
     data JSONB NOT NULL
-);
-
-CREATE TABLE content_entry_categories (
-    entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
-    category_id INT REFERENCES content_categories (id) ON DELETE CASCADE,
-    PRIMARY KEY (entry_id, category_id)
 );
 
 CREATE TABLE content_entry_tags (

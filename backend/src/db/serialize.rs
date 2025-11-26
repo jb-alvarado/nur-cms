@@ -130,6 +130,8 @@ pub struct ContentSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale_id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_id: Option<i32>,
@@ -141,8 +143,8 @@ pub struct ContentSerializer {
     pub author: Option<AuthorSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<ContentMetaSerializer>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub categories: Vec<ContentCategorySerializer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<ContentCategorySerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<ContentTagSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -172,7 +174,6 @@ pub struct ContentSerializer {
 
 impl FromRow<'_, PgRow> for ContentSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
-        let mut categories = vec![];
         let mut tags = vec![];
 
         let author = row
@@ -198,19 +199,10 @@ impl FromRow<'_, PgRow> for ContentSerializer {
                 end_time,
             });
 
-        for (id, name, slug) in row
-            .try_get::<Vec<Option<(i32, String, String)>>, &str>("categories")
+        let category = row
+            .try_get::<Option<serde_json::Value>, _>("category")
             .unwrap_or_default()
-            .into_iter()
-            .flatten()
-        {
-            categories.push(ContentCategorySerializer {
-                id: Some(id),
-                name: Some(name),
-                slug: Some(slug),
-                ..Default::default()
-            });
-        }
+            .map(|v| serde_json::from_value::<ContentCategorySerializer>(v).unwrap_or_default());
 
         for (id, name, slug) in row
             .try_get::<Vec<Option<(i32, String, String)>>, &str>("tags")
@@ -218,7 +210,12 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             .into_iter()
             .flatten()
         {
-            tags.push(ContentTagSerializer { id, name, slug });
+            tags.push(ContentTagSerializer {
+                id: Some(id),
+                name: Some(name),
+                slug: Some(slug),
+                total_count: None,
+            });
         }
 
         let blocks = row
@@ -247,13 +244,14 @@ impl FromRow<'_, PgRow> for ContentSerializer {
         Ok(Self {
             id: row.try_get("id").ok(),
             group_id: row.try_get("group_id").ok(),
+            category_id: row.try_get("category_id").ok(),
             locale_id: row.try_get("locale_id").ok(),
             media_id: row.try_get("media_id").ok(),
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
             author,
             meta,
-            categories,
+            category,
             tags,
             blocks,
             title: row.try_get("title").ok(),
@@ -339,12 +337,31 @@ impl ColumnCounter for ContentCategorySerializer {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentTagSerializer {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub id: i32,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub slug: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for ContentTagSerializer {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").ok(),
+            name: row.try_get("name").ok(),
+            slug: row.try_get("slug").ok(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for ContentTagSerializer {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]

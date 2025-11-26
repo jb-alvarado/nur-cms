@@ -1,4 +1,5 @@
 @import 'bootstrap-icons/font/bootstrap-icons.css';
+@import 'vue-multiselect/dist/vue-multiselect.min.css';
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 @plugin "daisyui" {
@@ -79,7 +80,59 @@ body {
     --alert-color: var(--color-error);
 }
 
-.checker {
+.bg-checker {
     background: repeating-conic-gradient(var(--color-base-100) 0 90deg, var(--color-base-300) 0 180deg) 0 0/40px 40px
         round;
+}
+
+.multiselect .multiselect__tags {
+    @apply bg-base-100 text-base-content border-base-content/20;
+}
+
+.multiselect--active .multiselect__tags {
+    --input-color: var(--my-glow);
+    box-shadow: 0 1px color-mix(in oklab, var(--input-color) calc(var(--depth) * 10%), #0000);
+    outline: 2px solid var(--input-color);
+    outline-offset: 2px;
+    isolation: isolate;
+}
+
+.multiselect--active .multiselect__tags {
+    @apply flex flex-row items-center;
+}
+
+.multiselect__tags input {
+    max-width: 200px !important;
+}
+
+.multiselect__tags .multiselect__single {
+    @apply bg-base-100;
+}
+
+.multiselect .multiselect__input {
+    @apply bg-base-100;
+}
+
+.multiselect .multiselect__content-wrapper {
+    @apply bg-base-100 text-base-content border-base-content/20;
+}
+
+.multiselect .multiselect__option--highlight {
+    @apply bg-base-200 text-base-content/80;
+}
+
+.multiselect .multiselect__option--highlight::after {
+    @apply bg-base-300 text-base-content/80;
+}
+
+.multiselect .multiselect__option--selected {
+    @apply bg-base-100 text-base-content;
+}
+
+.multiselect__tag {
+    @apply bg-base-content text-base-100 me-0.5;
+}
+
+.multiselect__tag-icon:after {
+    @apply text-base-100/60;
 }

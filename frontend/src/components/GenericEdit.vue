@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
+import Multiselect from 'vue-multiselect'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
@@ -36,9 +37,10 @@ const content = ref({
     check: false,
 } as Content)
 const contentOriginal = ref(cloneDeep(content))
-const media = ref<Media>()
 contentOriginal.value.group_id = 0
-
+const media = ref<Media | null>(null)
+const categories = ref<Category[]>([])
+const tags = ref<Tag[]>([])
 const locales = ref<Locale[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status = ['draft', 'published', 'archived']
@@ -77,6 +79,9 @@ if (contentId > 0) {
         locales.value = store.locales
     }, 1000)
 }
+
+selectCategories()
+selectTags()
 
 function selectContent() {
     fetch(`/api/content/entries?type_id=${store.typeID}&id=${contentId}&output_type=markdown`, {
@@ -131,6 +136,60 @@ async function selectMedia() {
         })
 }
 
+async function selectCategories() {
+    await fetch(`/api/content/categories?fields=id,group_id,locale_id,name`)
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+
+            return resp.json()
+        })
+        .then((response: RespondObj) => {
+            const byGroup = new Map<number, Category[]>()
+            const picked: Category[] = []
+
+            for (const c of response.results as Category[]) {
+                const g = c.group_id ?? 0
+                if (!byGroup.has(g)) byGroup.set(g, [])
+                byGroup.get(g)!.push(c)
+            }
+
+            for (const groupCats of byGroup.values()) {
+                const match = groupCats.find((c) => c.locale_id === content.value.locale_id)
+                if (match) {
+                    picked.push(match)
+                } else if (groupCats.length > 0) {
+                    picked.push(groupCats[0]!)
+                }
+            }
+
+            categories.value = picked
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+async function selectTags() {
+    await fetch(`/api/content/tags?fields=id,name,slug&limit=200`)
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+
+            return resp.json()
+        })
+        .then((response: RespondObj) => {
+            tags.value = response.results
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
 function updateSlug() {
     if (content.value.title) {
         content.value.slug = slugify(content.value.title)
@@ -176,14 +235,38 @@ function memberLink(id: number): string {
     return `/${routeName}/${member?.id ?? content.value.id}`
 }
 
-function save() {
+async function save() {
+    // Set category_id from selected category
+    if (content.value.category) {
+        content.value.category_id = content.value.category.id
+    } else if (contentOriginal.value.category_id) {
+        content.value.category_id = null
+    }
+
+    // Restore original category to avoid it being included in payload
+    content.value.category = cloneDeep(contentOriginal.value.category)
+
+    // Build payload with only changed fields
     const payload = Object.fromEntries(
         Object.entries(content.value).filter(([key, value]) => {
             return !isEqual(value, contentOriginal.value[key as keyof Content])
         })
     )
 
-    if (Object.keys(payload).length === 0) {
+    // Calculate tag changes
+    const originalTagIds = new Set(contentOriginal.value.tags?.map((t) => t.id) ?? [])
+    const currentTagIds = new Set(content.value.tags?.map((t) => t.id) ?? [])
+    const deletedTags = contentOriginal.value.tags?.filter((t) => !currentTagIds.has(t.id)) ?? []
+    const newTags = content.value.tags?.filter((t) => !originalTagIds.has(t.id)) ?? []
+
+    // Remove non-saveable fields from payload
+    delete payload.author
+    delete payload.categories
+    delete payload.media
+    delete payload.tags
+
+    // Early validation
+    if (Object.keys(payload).length === 0 && deletedTags.length === 0 && newTags.length === 0) {
         store.msgAlert('warning', 'No changes to save')
         return
     }
@@ -193,33 +276,54 @@ function save() {
         return
     }
 
-    fetch(`/api/content/entries${contentId > 0 ? `/${contentId}` : ''}`, {
-        method: contentId > 0 ? 'PUT' : 'POST',
-        headers: {
-            ...auth.authHeader,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-    })
-        .then(async (resp) => {
+    try {
+        // Handle tag changes for existing entries
+        if (contentId > 0) {
+            await Promise.all([
+                ...deletedTags.map((tag) => deleteTag(tag.id!)),
+                ...newTags.map((tag) => insertEntryTag(contentId, tag.id!)),
+            ])
+        }
+
+        // Save entry if there are payload changes
+        if (Object.keys(payload).length > 0) {
+            const resp = await fetch(`/api/content/entries${contentId > 0 ? `/${contentId}` : ''}`, {
+                method: contentId > 0 ? 'PUT' : 'POST',
+                headers: {
+                    ...auth.authHeader,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            })
+
             if (resp.status >= 400) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
+
             store.msgAlert('success', 'Content saved successfully')
 
+            // Handle new entry creation
             if (contentId === 0) {
-                router.push(`/${routeName}/${await resp.text()}`)
+                const newId = await resp.json()
+
+                await Promise.all([
+                    ...deletedTags.map((tag) => deleteTag(tag.id!)),
+                    ...newTags.map((tag) => insertEntryTag(newId, tag.id!)),
+                ])
+
+                router.push(`/${routeName}/${newId}`)
+                return
             }
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
+        }
+
+        selectContent()
+    } catch (e) {
+        store.msgAlert('error', String(e))
+    }
 }
 
-function contentDelete() {
-    const auth = useAuth()
-
+function deleteContent() {
     if (contentId > 0) {
         fetch(`/api/content/entries/${contentId}`, {
             method: 'DELETE',
@@ -241,11 +345,97 @@ function contentDelete() {
     }
 }
 
+async function deleteTag(id: number) {
+    await fetch(`/api/content/entry-tags/${id}`, {
+        method: 'DELETE',
+        headers: auth.authHeader,
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            } else {
+                store.msgAlert('success', `Deleted tag: ${id}`)
+            }
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
 function addMedia(m: Media) {
     content.value.media_id = m.id
     media.value = m
 
     mediaModal.value.close()
+}
+
+function removeMedia() {
+    content.value.media_id = null
+    content.value.media = null
+    media.value = null
+}
+
+function removeCategory() {
+    content.value.category_id = null
+    content.value.category = null
+}
+
+function insertTag(tag: string) {
+    const payload: Tag = {
+        name: tag,
+        slug: slugify(tag),
+    }
+
+    fetch('/api/content/tags', {
+        method: 'POST',
+        headers: {
+            ...auth.authHeader,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+            store.msgAlert('success', 'Tag saved successfully')
+
+            await selectTags()
+            payload.id = await resp.json()
+
+            content.value.tags?.push(payload)
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+async function insertEntryTag(entry: number, tag: number) {
+    const payload = {
+        entry_id: entry,
+        tag_id: tag,
+    }
+
+    await fetch('/api/content/entry-tags', {
+        method: 'POST',
+        headers: {
+            ...auth.authHeader,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+            store.msgAlert('success', 'Entry tag saved successfully')
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
 }
 </script>
 
@@ -261,7 +451,7 @@ function addMedia(m: Media) {
             class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
         >
             <!-- Form inputs -->
-            <div class="flex items-center flex-wrap gap-4 flex-none">
+            <div class="flex flex-wrap-reverse gap-4">
                 <div class="grow flex flex-col md:flex-row gap-2">
                     <fieldset class="fieldset w-64">
                         <legend class="fieldset-legend">Title</legend>
@@ -280,7 +470,7 @@ function addMedia(m: Media) {
                     </fieldset>
                 </div>
 
-                <div class="md:mt-7 flex gap-2 flex-none">
+                <div class="mt-3 md:mt-8 flex gap-2 flex-none">
                     <div class="join">
                         <details v-if="content.id === 0" class="dropdown">
                             <summary class="btn join-item" @blur="closeDropdown">
@@ -340,7 +530,7 @@ function addMedia(m: Media) {
                     </div>
 
                     <div class="join">
-                        <button class="btn btn-warning join-item" @click="openDeleteModal()">Delete</button>
+                        <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
                         <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
                             Save
                         </button>
@@ -348,14 +538,58 @@ function addMedia(m: Media) {
                 </div>
             </div>
 
-            <div class="flex gap-2 mt-2">
-                <img
-                    v-if="media"
-                    :src="mediaPath(media)"
-                    :alt="media?.alt ?? 'Media'"
-                    class="border border-base-content/30 max-h-26"
-                />
-                <button class="btn" @click="openMediaBrowser()">Media</button>
+            <div class="flex flex-col md:flex-row gap-2 mt-2">
+                <div class="w-64 flex gap-1">
+                    <div
+                        class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
+                    >
+                        <img
+                            v-if="media"
+                            :src="mediaPath(media)"
+                            :alt="media?.alt ?? 'Media'"
+                            class="w-full h-full object-contain"
+                        />
+                    </div>
+                    <div class="join join-vertical">
+                        <button class="btn p-2 join-item" @click="openMediaBrowser()">
+                            <i class="bi bi-card-image text-xl"></i>
+                        </button>
+                        <button class="btn p-2 join-item" @click="removeMedia()">
+                            <i class="bi bi-trash text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grow flex flex-col gap-2">
+                    <fieldset class="fieldset py-0">
+                        <legend class="fieldset-legend pt-0">Category</legend>
+                        <Multiselect
+                            v-model="content.category"
+                            track-by="id"
+                            label="name"
+                            placeholder="Select Category"
+                            :options="categories"
+                            aria-label="pick a category"
+                            @remove="removeCategory()"
+                        >
+                        </Multiselect>
+                    </fieldset>
+                    <fieldset class="fieldset py-0">
+                        <legend class="fieldset-legend pt-0">Tags</legend>
+                        <Multiselect
+                            v-model="content.tags"
+                            track-by="id"
+                            label="name"
+                            placeholder="Select Tag"
+                            :options="tags"
+                            aria-label="pick a tag"
+                            :multiple="true"
+                            :taggable="true"
+                            @tag="insertTag"
+                        >
+                        </Multiselect>
+                    </fieldset>
+                </div>
             </div>
 
             <div class="w-full">
@@ -373,7 +607,7 @@ function addMedia(m: Media) {
             <TextEditor v-model="content.text" :update="updateDescription" />
         </div>
 
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
+        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="deleteContent">
             <p>Are you sure you want to delete this {{ routeName }}?</p>
         </GenericModal>
 

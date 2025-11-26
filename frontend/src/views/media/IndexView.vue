@@ -239,7 +239,7 @@ function resetUpload() {
                 :key="media.id ?? media.filename!"
                 class="card bg-base-100 w-64 shadow-sm rounded border border-base-content/20 hover:scale-[1.01] hover:shadow-md transition-transform"
             >
-                <figure class="relative checker h-43">
+                <figure class="relative bg-checker h-43">
                     <input
                         v-model="media.check"
                         type="checkbox"

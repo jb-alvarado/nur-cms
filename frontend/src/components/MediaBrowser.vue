@@ -119,7 +119,7 @@ async function selectMedia(u: string | null = null) {
                         class="card bg-base-100 w-58 shadow-sm rounded border border-base-content/20 hover:scale-[1.01] hover:shadow-md transition-transform cursor-pointer"
                         @click="update(media)"
                     >
-                        <figure class="relative checker h-39">
+                        <figure class="relative bg-checker h-39">
                             <img
                                 :src="mediaPath(media)"
                                 :alt="media.alt ?? media.filename ?? ''"

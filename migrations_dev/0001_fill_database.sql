@@ -94,16 +94,17 @@ VALUES
     );
 
 INSERT INTO
-    content_tags (locale_id, name, slug)
+    content_tags (name, slug)
 VALUES
-    (2, 'IT', 'it'),
-    (2, 'Rust', 'rust'),
-    (2, 'Open Source', 'open-source');
+    ('IT', 'it'),
+    ('Rust', 'rust'),
+    ('Open Source', 'open-source');
 
 INSERT INTO
     content_entries (
         group_id,
         type_id,
+        category_id,
         locale_id,
         media_id,
         slug,
@@ -120,6 +121,7 @@ VALUES
         1,
         1,
         1,
+        1,
         'erster-artikel',
         'Willkommen auf meinem Blog',
         'Dies ist mein erster Artikel in Markdown.',
@@ -131,6 +133,7 @@ VALUES
     (
         1001,
         1,
+        2,
         2,
         1,
         'first-article',
@@ -144,6 +147,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         2,
+        NULL,
         1,
         2,
         'about-us',
@@ -158,6 +162,7 @@ VALUES
         nextval('entry_group_seq'),
         1,
         3,
+        3,
         2,
         'second-article',
         'Un autre billet',
@@ -171,6 +176,7 @@ VALUES
         nextval('entry_group_seq'),
         1,
         4,
+        2,
         NULL,
         'third-article',
         'Otro article',
@@ -183,6 +189,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         2,
+        NULL,
         2,
         NULL,
         'privacy-policy',
@@ -196,6 +203,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         2,
+        NULL,
         1,
         NULL,
         'terms-of-service',
@@ -209,6 +217,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         2,
+        NULL,
         3,
         NULL,
         'faq',
@@ -222,6 +231,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         2,
+        NULL,
         4,
         NULL,
         'team',
@@ -235,6 +245,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         2,
+        NULL,
         2,
         NULL,
         'contact',
@@ -248,6 +259,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         3,
+        NULL,
         2,
         NULL,
         'rust-meetup-1',
@@ -261,6 +273,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         3,
+        NULL,
         3,
         NULL,
         'rust-meetup-2',
@@ -274,6 +287,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         3,
+        NULL,
         1,
         NULL,
         'opensource-conference',
@@ -287,6 +301,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         3,
+        NULL,
         4,
         NULL,
         'web-dev-workshop',
@@ -300,6 +315,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         3,
+        NULL,
         2,
         NULL,
         'ai-seminar',
@@ -313,6 +329,7 @@ VALUES
     (
         nextval('entry_group_seq'),
         1,
+        NULL,
         2,
         NULL,
         'blocks-article',
@@ -391,17 +408,6 @@ VALUES
         4,
         '{"items":[{"text":"First list item"},{"text":"Second list item"}],"type":"unordered"}'
     );
-
-INSERT INTO
-    content_entry_categories (entry_id, category_id)
-VALUES
-    (1, 1),
-    (3, 1),
-    (4, 3),
-    (5, 4),
-    (6, 4),
-    (10, 3),
-    (11, 3);
 
 INSERT INTO
     content_entry_tags (entry_id, tag_id)
