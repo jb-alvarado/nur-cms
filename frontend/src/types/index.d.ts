@@ -1,6 +1,6 @@
 import type { JwtPayload } from 'jwt-decode'
 import type { ContentType } from './models.d'
-import type { ContentSerializer, MediaSerializer } from './serialized.d'
+import type { ContentEntrySerializer, MediaSerializer } from './serialized.d'
 
 export {}
 
@@ -24,9 +24,8 @@ declare global {
         seconds: number
     }
 
-    interface Content extends ContentSerializer {
+    interface Content extends ContentEntrySerializer {
         check: boolean
-        body: any
     }
 
     interface ContentTypeExt extends ContentType {

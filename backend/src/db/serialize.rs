@@ -123,7 +123,7 @@ impl ColumnCounter for AuthorSerializer {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
-pub struct ContentSerializer {
+pub struct ContentEntrySerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
     #[ts(as = "Option<i32>")]
@@ -155,9 +155,12 @@ pub struct ContentSerializer {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "any")]
-    pub body: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ast: Option<serde_json::Value>,
+    #[ts(type = "any")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,7 +175,7 @@ pub struct ContentSerializer {
     pub total_count: Option<i64>,
 }
 
-impl FromRow<'_, PgRow> for ContentSerializer {
+impl FromRow<'_, PgRow> for ContentEntrySerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         let mut tags = vec![];
 
@@ -252,7 +255,8 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             title: row.try_get("title").ok(),
             description: row.try_get("description").ok(),
             text: row.try_get("text").ok(),
-            body: None,
+            ast: None,
+            html: None,
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
             group_members,
@@ -263,7 +267,7 @@ impl FromRow<'_, PgRow> for ContentSerializer {
     }
 }
 
-impl ColumnCounter for ContentSerializer {
+impl ColumnCounter for ContentEntrySerializer {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

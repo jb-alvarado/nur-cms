@@ -611,7 +611,7 @@ pub async fn entries_select(
     Query(mut params): Query<QueryObj<ContentEntryFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
+) -> Result<Json<RespondObj<ContentEntrySerializer>>, ServiceError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
@@ -637,11 +637,11 @@ pub async fn entries_select(
                     let tree: Value = serde_json::from_str(&json).unwrap_or_default();
                     let body = to_structure_root(&tree, &mut b.embeds);
 
-                    b.body = Some(body);
+                    b.ast = Some(body);
                 }
                 OutputType::HTML => {
                     let html = to_html(&text);
-                    b.body = Some(Value::String(html));
+                    b.html = Some(html);
                 }
                 _ => {}
             }
@@ -657,7 +657,7 @@ pub async fn entry_select(
     Query(mut params): Query<QueryObj<ContentEntryFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<ContentSerializer>, ServiceError> {
+) -> Result<Json<ContentEntrySerializer>, ServiceError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
     params.type_slug = Some(type_slug);
@@ -685,11 +685,11 @@ pub async fn entry_select(
                     let ast = to_mdast(&text, &ParseOptions::default())?;
                     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
                     let body = to_structure_root(&tree, &mut content.embeds);
-                    content.body = Some(body);
+                    content.ast = Some(body);
                 }
                 OutputType::HTML => {
                     let html = to_html(&text);
-                    content.body = Some(Value::String(html));
+                    content.html = Some(html);
                 }
                 _ => {}
             }

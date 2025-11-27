@@ -26,8 +26,8 @@ use crate::{
         models::{Configuration, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
         serialize::{
-            AuthUserSerializer, AuthorSerializer, ContentCategorySerializer, ContentSerializer,
-            MediaSerializer,
+            AuthUserSerializer, AuthorSerializer, ContentCategorySerializer,
+            ContentEntrySerializer, MediaSerializer,
         },
     },
     utils::errors::ServiceError,
@@ -806,7 +806,7 @@ pub async fn select_categories(
 pub async fn select_content_entries(
     pool: &PgPool,
     query_obj: &QueryObj<CF>,
-) -> Result<RespondObj<ContentSerializer>, ServiceError> {
+) -> Result<RespondObj<ContentEntrySerializer>, ServiceError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut sep = query_builder.separated(", ");
 
@@ -1108,12 +1108,12 @@ pub async fn select_content_entries(
         query_obj.limit, query_obj.offset
     ));
 
-    let query = query_builder.build_query_as::<ContentSerializer>();
+    let query = query_builder.build_query_as::<ContentEntrySerializer>();
 
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(query.sql()).bright_black());
 
-    let data: Vec<ContentSerializer> = query.fetch_all(pool).await?;
+    let data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(query_obj, data))
 }

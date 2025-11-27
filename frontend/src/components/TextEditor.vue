@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { type ModelRef, nextTick, ref } from 'vue'
+import { useIndex } from '@/stores/index'
+
 const model: ModelRef<string | undefined> = defineModel()
+const store = useIndex()
 
 const textareaRef = ref()
 const lastBody = ref('')
@@ -230,6 +233,12 @@ function quote() {
             <button v-for="eb in editorButtons" :key="eb.id" class="btn join-item leading-0" @click="eb.func">
                 <i class="bi" :class="eb.icon"></i>
             </button>
+
+            <div class="grow flex justify-end">
+                <button class="btn rounded p-3" @click="store.preview = !store.preview">
+                    <i class="bi bi-markdown text-xl"></i>
+                </button>
+            </div>
         </div>
 
         <!-- Textarea fills rest -->

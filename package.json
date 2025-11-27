@@ -23,12 +23,12 @@
     "dayjs": "^1.11.19",
     "jwt-decode": "^4.0.0",
     "lodash-es": "^4.17.21",
+    "marked": "^17.0.1",
     "pinia": "^3.0.4",
     "tailwindcss": "^4.1.17",
     "vue": "^3.5.25",
     "vue-i18n": "^11.2.2",
     "vue-multiselect": "^3.4.0",
-    "vue-renderer-markdown": "^0.0.61-beta.8",
     "vue-router": "^4.6.3"
   },
   "devDependencies": {

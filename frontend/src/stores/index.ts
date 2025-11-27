@@ -7,6 +7,7 @@ export const useIndex = defineStore('index', {
         darkMode: false,
         msgList: [] as alertMessage[],
         contentType: { 'content-type': 'application/json;charset=UTF-8' },
+        preview: false,
         limit: localStorage.getItem('limit') ?? 10,
         limits: [2, 10, 25, 50, 100],
         offset: 0,

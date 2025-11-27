@@ -125,7 +125,7 @@ VALUES
         'erster-artikel',
         'Willkommen auf meinem Blog',
         'Dies ist mein erster Artikel in Markdown.',
-        E'# Hallo Welt\nDies ist mein erster Artikel in **Markdown**.\n\nUnd wir haben einen _zweiten_ Absatz!\n\nUnd ein eingebettetes Bild: ![Cover](/uploads/2025/10/cover.jpg)\n\nAber auch ein Block-Bild:\n\n![Cover Block](/uploads/2025/10/block.jpg)\n\nHier einige HTML-Tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://example.org/image1.jpg" alt="image1" />\n\n<img src="https://example.org/image2.jpg" alt="image2" />\n\n<img src="https://example.org/image3.jpg" alt="image3" />\n\n</div></div>\n\nHier haben wir <i>inline</i> HTML.',
+        E'# Hallo Welt\nDies ist mein erster Artikel in **Markdown**.\n\nUnd wir haben einen _zweiten_ Absatz!\n\nUnd ein eingebettetes Bild: ![Cover](/uploads/2025/11/cover.jpg)\n\nAber auch ein Block-Bild:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHier einige HTML-Tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHier haben wir <i>inline</i> HTML.',
         'published',
         1,
         1
@@ -139,7 +139,7 @@ VALUES
         'first-article',
         'Welcome to my blog',
         'This is my first article in Markdown.',
-        E'# Hello World\nThis is my first article in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/10/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/10/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://example.org/image1.jpg" alt="image1" />\n\n<img src="https://example.org/image2.jpg" alt="image2" />\n\n<img src="https://example.org/image3.jpg" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
+        E'# Hello World\nThis is my first article in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/11/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
         'published',
         1,
         1

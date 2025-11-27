@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
 import Multiselect from 'vue-multiselect'
@@ -10,6 +11,7 @@ import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 
 import GenericModal from '@/components/GenericModal.vue'
+import MarkdownRender from './MarkdownRender.vue'
 import MediaBrowser from '@/components/MediaBrowser.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
@@ -30,7 +32,7 @@ const content = ref({
     title: '',
     slug: '',
     description: '',
-    body: '',
+    text: '',
     status: 'draft',
     locale_id: 0,
     group_members: [],
@@ -294,7 +296,13 @@ async function save() {
     delete payload.tags
 
     // Early validation
-    if (Object.keys(payload).length === 0 && deletedTags.length === 0 && newTags.length === 0 && deletedAuthors.length === 0 && newAuthors.length === 0) {
+    if (
+        Object.keys(payload).length === 0 &&
+        deletedTags.length === 0 &&
+        newTags.length === 0 &&
+        deletedAuthors.length === 0 &&
+        newAuthors.length === 0
+    ) {
         store.msgAlert('warning', 'No changes to save')
         return
     }
@@ -513,187 +521,196 @@ async function insertEntryAuthor(entry: number, author: number) {
 </script>
 
 <template>
-    <div class="flex flex-col h-full pb-6">
-        <div class="flex-none">
-            <h1 class="text-2xl h-8">{{ content?.title ?? '' }}</h1>
-        </div>
-
-        <!-- Form + Editor Container -->
-        <div
-            v-if="content"
-            class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
-        >
-            <!-- Form inputs -->
-            <div class="flex flex-wrap-reverse gap-4">
-                <div class="grow flex flex-col md:flex-row gap-2">
-                    <fieldset class="fieldset w-64">
-                        <legend class="fieldset-legend">Title</legend>
-                        <input
-                            v-model="content.title"
-                            type="text"
-                            class="input"
-                            placeholder="Title"
-                            @input="updateSlug()"
-                        />
-                    </fieldset>
-
-                    <fieldset class="fieldset w-64">
-                        <legend class="fieldset-legend">Slug</legend>
-                        <input v-model="content.slug" type="text" class="input" placeholder="Slug" />
-                    </fieldset>
-                </div>
-
-                <div class="mt-3 md:mt-8 flex gap-2 flex-none">
-                    <div class="join">
-                        <details v-if="content.id === 0" class="dropdown">
-                            <summary class="btn join-item" @blur="closeDropdown">
-                                {{ store.locales.find((l) => l.id === content.locale_id)?.name || 'Language' }}
-                            </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
-                                <li v-for="l in locales" :key="l.id">
-                                    <a @click="content.locale_id = l.id">{{ l.name }}</a>
-                                </li>
-                            </ul>
-                        </details>
-
-                        <details v-if="(content.id ?? 0) > 0" class="dropdown">
-                            <summary class="btn join-item" @blur="closeDropdown">
-                                {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
-                            </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
-                                <li v-for="l in locales" :key="l.id">
-                                    <RouterLink :to="memberLink(l.id!)">{{ l.name }}</RouterLink>
-                                </li>
-                            </ul>
-                        </details>
-
-                        <RouterLink
-                            :to="`/${routeName}/0/${content.group_id}`"
-                            class="btn join-item px-2"
-                            title="Add Language"
-                        >
-                            <i class="bi bi-plus-lg"></i>
-                        </RouterLink>
-
-                        <button class="btn btn-disabled bg-base-300 p-1"></button>
-
-                        <details class="dropdown">
-                            <summary
-                                class="btn join-item"
-                                :class="{
-                                    'text-success': content.status === 'published',
-                                    'text-base-content/50': content.status === 'archived',
-                                }"
-                                @blur="closeDropdown"
-                            >
-                                {{ content.status }}
-                            </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-2 shadow-sm">
-                                <li
-                                    v-for="s in status"
-                                    :key="s"
-                                    :class="{
-                                        'text-base-content/50': content.status !== s,
-                                    }"
-                                >
-                                    <a @click="content.status = s">{{ s }}</a>
-                                </li>
-                            </ul>
-                        </details>
-                    </div>
-
-                    <div class="join">
-                        <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
-                        <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
-                            Save
-                        </button>
-                    </div>
-                </div>
+    <div class="flex gap-2 h-full">
+        <div class="flex flex-col h-full pb-6">
+            <div class="flex-none">
+                <h1 class="text-2xl h-8">{{ content?.title ?? '' }}</h1>
             </div>
 
-            <div class="flex flex-col md:flex-row gap-2 mt-2">
-                <div class="w-64 flex gap-1">
-                    <div
-                        class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
-                    >
-                        <img
-                            v-if="media"
-                            :src="mediaPath(media)"
-                            :alt="media?.alt ?? 'Media'"
-                            class="w-full h-full object-contain"
-                        />
+            <!-- Form + Editor Container -->
+            <div
+                v-if="content"
+                class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
+            >
+                <!-- Form inputs -->
+                <div class="flex flex-wrap-reverse gap-4">
+                    <div class="grow flex flex-col md:flex-row gap-2">
+                        <fieldset class="fieldset w-64">
+                            <legend class="fieldset-legend">Title</legend>
+                            <input
+                                v-model="content.title"
+                                type="text"
+                                class="input"
+                                placeholder="Title"
+                                @input="updateSlug()"
+                            />
+                        </fieldset>
+
+                        <fieldset class="fieldset w-64">
+                            <legend class="fieldset-legend">Slug</legend>
+                            <input v-model="content.slug" type="text" class="input" placeholder="Slug" />
+                        </fieldset>
                     </div>
-                    <div class="join join-vertical">
-                        <button class="btn p-2 join-item" @click="openMediaBrowser()">
-                            <i class="bi bi-card-image text-xl"></i>
-                        </button>
-                        <button class="btn p-2 join-item" @click="removeMedia()">
-                            <i class="bi bi-trash text-xl"></i>
-                        </button>
+
+                    <div class="mt-3 md:mt-8 flex gap-2 flex-none">
+                        <div class="join">
+                            <details v-if="content.id === 0" class="dropdown">
+                                <summary class="btn join-item" @blur="closeDropdown">
+                                    {{ store.locales.find((l) => l.id === content.locale_id)?.name || 'Language' }}
+                                </summary>
+                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                                    <li v-for="l in locales" :key="l.id">
+                                        <a @click="content.locale_id = l.id">{{ l.name }}</a>
+                                    </li>
+                                </ul>
+                            </details>
+
+                            <details v-if="(content.id ?? 0) > 0" class="dropdown">
+                                <summary class="btn join-item" @blur="closeDropdown">
+                                    {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
+                                </summary>
+                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                                    <li v-for="l in locales" :key="l.id">
+                                        <RouterLink :to="memberLink(l.id!)">{{ l.name }}</RouterLink>
+                                    </li>
+                                </ul>
+                            </details>
+
+                            <RouterLink
+                                :to="`/${routeName}/0/${content.group_id}`"
+                                class="btn join-item px-2"
+                                title="Add Language"
+                            >
+                                <i class="bi bi-plus-lg"></i>
+                            </RouterLink>
+
+                            <button class="btn btn-disabled bg-base-300 p-1"></button>
+
+                            <details class="dropdown">
+                                <summary
+                                    class="btn join-item"
+                                    :class="{
+                                        'text-success': content.status === 'published',
+                                        'text-base-content/50': content.status === 'archived',
+                                    }"
+                                    @blur="closeDropdown"
+                                >
+                                    {{ content.status }}
+                                </summary>
+                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-2 shadow-sm">
+                                    <li
+                                        v-for="s in status"
+                                        :key="s"
+                                        :class="{
+                                            'text-base-content/50': content.status !== s,
+                                        }"
+                                    >
+                                        <a @click="content.status = s">{{ s }}</a>
+                                    </li>
+                                </ul>
+                            </details>
+                        </div>
+
+                        <div class="join">
+                            <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
+                            <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
+                                Save
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="grow flex flex-col gap-2">
-                    <div class="flex flex-wrap w-full gap-2">
-                        <fieldset class="fieldset py-0 grow min-w-64">
-                            <legend class="fieldset-legend pt-0">Authors</legend>
+                <div class="flex flex-col md:flex-row gap-2 mt-2">
+                    <div class="w-64 flex gap-1">
+                        <div
+                            class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
+                        >
+                            <img
+                                v-if="media"
+                                :src="mediaPath(media)"
+                                :alt="media?.alt ?? 'Media'"
+                                class="w-full h-full object-contain"
+                            />
+                        </div>
+                        <div class="join join-vertical">
+                            <button class="btn p-2 join-item" @click="openMediaBrowser()">
+                                <i class="bi bi-card-image text-xl"></i>
+                            </button>
+                            <button class="btn p-2 join-item" @click="removeMedia()">
+                                <i class="bi bi-trash text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grow flex flex-col gap-2">
+                        <div class="flex flex-wrap w-full gap-2">
+                            <fieldset class="fieldset py-0 grow min-w-64">
+                                <legend class="fieldset-legend pt-0">Authors</legend>
+                                <Multiselect
+                                    v-model="selectedAuthorsFormatted"
+                                    track-by="id"
+                                    label="displayName"
+                                    placeholder="Select Author"
+                                    :options="authorsFormatted"
+                                    aria-label="pick a author"
+                                    :multiple="true"
+                                >
+                                </Multiselect>
+                            </fieldset>
+                            <fieldset class="fieldset py-0 grow min-w-46">
+                                <legend class="fieldset-legend pt-0">Category</legend>
+                                <Multiselect
+                                    v-model="selectedCategory"
+                                    track-by="id"
+                                    label="name"
+                                    placeholder="Select Category"
+                                    :options="categories"
+                                    aria-label="pick a category"
+                                    @remove="removeCategory()"
+                                >
+                                </Multiselect>
+                            </fieldset>
+                        </div>
+
+                        <fieldset class="fieldset py-0">
+                            <legend class="fieldset-legend pt-0">Tags</legend>
                             <Multiselect
-                                v-model="selectedAuthorsFormatted"
-                                track-by="id"
-                                label="displayName"
-                                placeholder="Select Author"
-                                :options="authorsFormatted"
-                                aria-label="pick a author"
-                                :multiple="true"
-                            >
-                            </Multiselect>
-                        </fieldset>
-                        <fieldset class="fieldset py-0 grow min-w-46">
-                            <legend class="fieldset-legend pt-0">Category</legend>
-                            <Multiselect
-                                v-model="selectedCategory"
+                                v-model="content.tags"
                                 track-by="id"
                                 label="name"
-                                placeholder="Select Category"
-                                :options="categories"
-                                aria-label="pick a category"
-                                @remove="removeCategory()"
+                                placeholder="Select Tag"
+                                :options="tags"
+                                aria-label="pick a tag"
+                                :multiple="true"
+                                :taggable="true"
+                                @tag="insertTag"
                             >
                             </Multiselect>
                         </fieldset>
                     </div>
+                </div>
 
-                    <fieldset class="fieldset py-0">
-                        <legend class="fieldset-legend pt-0">Tags</legend>
-                        <Multiselect
-                            v-model="content.tags"
-                            track-by="id"
-                            label="name"
-                            placeholder="Select Tag"
-                            :options="tags"
-                            aria-label="pick a tag"
-                            :multiple="true"
-                            :taggable="true"
-                            @tag="insertTag"
-                        >
-                        </Multiselect>
+                <div class="w-full">
+                    <fieldset class="fieldset">
+                        <legend class="fieldset-legend">Description</legend>
+                        <textarea
+                            v-model="content.description"
+                            class="textarea h-20 w-full"
+                            placeholder="Description"
+                        ></textarea>
                     </fieldset>
                 </div>
-            </div>
 
-            <div class="w-full">
-                <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Description</legend>
-                    <textarea
-                        v-model="content.description"
-                        class="textarea h-20 w-full"
-                        placeholder="Description"
-                    ></textarea>
-                </fieldset>
+                <!-- Toolbar -->
+                <TextEditor v-model="content.text" :update="updateDescription" />
             </div>
+        </div>
 
-            <!-- Toolbar -->
-            <TextEditor v-model="content.text" :update="updateDescription" />
+        <div
+            v-if="store.preview"
+            class="grow max-w-[800px] hidden 2xl:flex flex-col mb-6 mt-12 bg-base-300 p-4 rounded overflow-hidden"
+        >
+            <MarkdownRender v-if="content.text" :text="content.text" />
         </div>
 
         <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="deleteContent">
