@@ -505,7 +505,7 @@ impl fmt::Display for ContentAuthorFields {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
-pub enum ContentFields {
+pub enum ContentEntryFields {
     ID,
     GroupID,
     CategoryID,
@@ -514,7 +514,7 @@ pub enum ContentFields {
     #[default]
     Slug,
     Status,
-    Author,
+    Authors,
     Category,
     Tags,
     Meta,
@@ -529,7 +529,7 @@ pub enum ContentFields {
     Embeds,
 }
 
-impl StrCompare for ContentFields {
+impl StrCompare for ContentEntryFields {
     fn is_equal_to_str(&self, other: &str) -> bool {
         match self {
             Self::ID => other == "id",
@@ -539,7 +539,7 @@ impl StrCompare for ContentFields {
             Self::MediaID => other == "media_id",
             Self::Slug => other == "slug",
             Self::Status => other == "status",
-            Self::Author => other == "author",
+            Self::Authors => other == "authors",
             Self::Category => other == "category",
             Self::Tags => other == "tags",
             Self::Meta => other == "meta",
@@ -556,7 +556,7 @@ impl StrCompare for ContentFields {
     }
 }
 
-impl FromStr for ContentFields {
+impl FromStr for ContentEntryFields {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
@@ -568,7 +568,7 @@ impl FromStr for ContentFields {
             "media_id" => Ok(Self::MediaID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
-            "author" => Ok(Self::Author),
+            "authors" => Ok(Self::Authors),
             "category" => Ok(Self::Category),
             "tags" => Ok(Self::Tags),
             "meta" => Ok(Self::Meta),
@@ -586,7 +586,7 @@ impl FromStr for ContentFields {
     }
 }
 
-impl fmt::Display for ContentFields {
+impl fmt::Display for ContentEntryFields {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Self::ID => write!(f, "id"),
@@ -596,7 +596,7 @@ impl fmt::Display for ContentFields {
             Self::MediaID => write!(f, "media_id"),
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
-            Self::Author => write!(f, "author"),
+            Self::Authors => write!(f, "authors"),
             Self::Category => write!(f, "category"),
             Self::Tags => write!(f, "tags"),
             Self::Meta => write!(f, "meta"),

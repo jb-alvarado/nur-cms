@@ -85,36 +85,16 @@ body {
         round;
 }
 
-.multiselect .multiselect__tags {
-    @apply bg-base-100 text-base-content border-base-content/20;
-}
+/*-----------------------------------------------------------------------------
+vue-multiselect
+-----------------------------------------------------------------------------*/
 
-.multiselect--active .multiselect__tags {
-    --input-color: var(--my-glow);
-    box-shadow: 0 1px color-mix(in oklab, var(--input-color) calc(var(--depth) * 10%), #0000);
-    outline: 2px solid var(--input-color);
-    outline-offset: 2px;
-    isolation: isolate;
-}
-
-.multiselect--active .multiselect__tags {
-    @apply flex flex-row items-center;
-}
-
-.multiselect__tags input {
-    max-width: 200px !important;
-}
-
-.multiselect__tags .multiselect__single {
-    @apply bg-base-100;
+.multiselect .multiselect__content-wrapper {
+    @apply bg-base-100 border-base-content/20 text-base-content;
 }
 
 .multiselect .multiselect__input {
     @apply bg-base-100;
-}
-
-.multiselect .multiselect__content-wrapper {
-    @apply bg-base-100 text-base-content border-base-content/20;
 }
 
 .multiselect .multiselect__option--highlight {
@@ -129,10 +109,44 @@ body {
     @apply bg-base-100 text-base-content;
 }
 
-.multiselect__tag {
-    @apply bg-base-content text-base-100 me-0.5;
+.multiselect .multiselect__tag {
+    @apply bg-base-content me-0 text-base-100 text-ellipsis;
+    margin-bottom: 0;
+}
+
+.multiselect .multiselect__tags {
+    @apply bg-base-100 border-base-content/20 text-base-content;
+     padding: 8px 40px 7px 8px;
+}
+
+.multiselect .multiselect__tags-wrap {
+    @apply flex gap-0.5 flex-wrap;
+}
+
+.multiselect .multiselect__placeholder {
+    @apply mb-0;
+}
+
+.multiselect--active .multiselect__tags {
+    --input-color: var(--my-glow);
+    box-shadow: 0 1px color-mix(in oklab, var(--input-color) calc(var(--depth) * 10%), #0000);
+    outline: 2px solid var(--input-color);
+    outline-offset: 2px;
+    isolation: isolate;
+    @apply flex flex-row items-center;
+    padding: 7px 40px 7px 8px;
 }
 
 .multiselect__tag-icon:after {
     @apply text-base-100/60;
+}
+
+.multiselect__tags input {
+    max-width: 200px !important;
+    margin-bottom: 0;
+}
+
+.multiselect__tags .multiselect__single {
+    @apply bg-base-100;
+    margin-bottom: 0;
 }

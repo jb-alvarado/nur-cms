@@ -124,6 +124,8 @@ pub fn router_entries() -> (
         .route("/types", get(content_types_select))
         .route("/authors", get(authors_select).post(author_insert))
         .route("/authors/{id}", put(author_update).delete(author_delete))
+        .route("/entry-authors", post(entry_author_insert))
+        .route("/entry-authors/{id}", delete(entry_author_delete))
         .route("/categories", get(categories_select).post(category_insert))
         .route(
             "/categories/{id}",

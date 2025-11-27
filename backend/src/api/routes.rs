@@ -18,7 +18,7 @@ use crate::{
     db::{
         fields::{
             AuthRoleFields, AuthUserFields, ContentAuthorFields, ContentCategoryFields,
-            ContentFields, ContentTagFields, ContentTypeFields, LocaleFields, MediaFields,
+            ContentEntryFields, ContentTagFields, ContentTypeFields, LocaleFields, MediaFields,
             OutputType, Table,
         },
         handles,
@@ -341,6 +341,51 @@ pub async fn author_delete(
     ))
 }
 
+pub async fn entry_author_delete(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::delete_record(&pool, &Table::ContentEntryAuthors, id).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
+pub async fn entry_author_insert(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::insert_record(&pool, &Table::ContentEntryAuthors, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("Insert {e}");
+                let mut err = e.to_string();
+
+                if err.contains("duplicate key") && err.contains("slug") {
+                    err = "Duplicate slug, create a unique one!".into();
+                }
+                Err(ServiceError::Conflict(err))
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
 /* ------------------------------
 CONTENT CATEGORIES
 ---------------------------------*/
@@ -563,7 +608,7 @@ pub async fn content_types_select(
 
 pub async fn entries_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
-    Query(mut params): Query<QueryObj<ContentFields>>,
+    Query(mut params): Query<QueryObj<ContentEntryFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<RespondObj<ContentSerializer>>, ServiceError> {
@@ -578,9 +623,9 @@ pub async fn entries_select(
         output = typ.clone();
     }
 
-    let mut content = handles::select_content(&pool, &params).await?;
+    let mut content = handles::select_content_entries(&pool, &params).await?;
 
-    if params.fields.contains(&ContentFields::Body) && output != OutputType::Markdown {
+    if params.fields.contains(&ContentEntryFields::Body) && output != OutputType::Markdown {
         for b in &mut content.results {
             let text = b.text.take().unwrap_or_default();
             b.text = None;
@@ -609,7 +654,7 @@ pub async fn entries_select(
 pub async fn entry_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path((type_slug, slug)): Path<(String, String)>,
-    Query(mut params): Query<QueryObj<ContentFields>>,
+    Query(mut params): Query<QueryObj<ContentEntryFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
 ) -> Result<Json<ContentSerializer>, ServiceError> {
@@ -626,13 +671,13 @@ pub async fn entry_select(
         output = typ.clone();
     }
 
-    if let Some(mut content) = handles::select_content(&pool, &params)
+    if let Some(mut content) = handles::select_content_entries(&pool, &params)
         .await?
         .results
         .into_iter()
         .next()
     {
-        if params.fields.contains(&ContentFields::Body) && output != OutputType::Markdown {
+        if params.fields.contains(&ContentEntryFields::Body) && output != OutputType::Markdown {
             let text = content.text.take().unwrap_or_default();
 
             match output {

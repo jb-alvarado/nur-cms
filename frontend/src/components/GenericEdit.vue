@@ -45,6 +45,38 @@ const locales = ref<Locale[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status = ['draft', 'published', 'archived']
 
+const authorsFormatted = computed(() =>
+    store.authors.map((a) => ({
+        ...a,
+        displayName: `${a.first_name} ${a.last_name}`.trim(),
+    }))
+)
+
+const selectedAuthorsFormatted = computed({
+    get: () =>
+        content.value.authors?.map((a) => ({
+            ...a,
+            displayName: `${a.first_name} ${a.last_name}`.trim(),
+        })) ?? [],
+    set: (value) => {
+        content.value.authors = value.map((v: any) => {
+            const r = { ...v }
+            delete r.displayName
+            return r
+        })
+    },
+})
+
+const selectedCategory = computed({
+    get: () => {
+        if (!content.value.category_id) return null
+        return categories.value.find((c) => c.id === content.value.category_id) ?? content.value.category ?? null
+    },
+    set: (value: Category | null) => {
+        content.value.category_id = value?.id ?? null
+    },
+})
+
 if (contentId > 0) {
     selectContent()
 } else if (groupID > 0) {
@@ -137,7 +169,7 @@ async function selectMedia() {
 }
 
 async function selectCategories() {
-    await fetch(`/api/content/categories?fields=id,group_id,locale_id,name`)
+    await fetch(`/api/content/categories?fields=id,group_id,locale_id,name,slug`)
         .then(async (resp) => {
             if (resp.status >= 400) {
                 const msg = await errMsg(resp)
@@ -236,16 +268,6 @@ function memberLink(id: number): string {
 }
 
 async function save() {
-    // Set category_id from selected category
-    if (content.value.category) {
-        content.value.category_id = content.value.category.id
-    } else if (contentOriginal.value.category_id) {
-        content.value.category_id = null
-    }
-
-    // Restore original category to avoid it being included in payload
-    content.value.category = cloneDeep(contentOriginal.value.category)
-
     // Build payload with only changed fields
     const payload = Object.fromEntries(
         Object.entries(content.value).filter(([key, value]) => {
@@ -259,14 +281,20 @@ async function save() {
     const deletedTags = contentOriginal.value.tags?.filter((t) => !currentTagIds.has(t.id)) ?? []
     const newTags = content.value.tags?.filter((t) => !originalTagIds.has(t.id)) ?? []
 
+    // Calculate author changes
+    const originalAuthorIds = new Set(contentOriginal.value.authors?.map((a) => a.id) ?? [])
+    const currentAuthorIds = new Set(content.value.authors?.map((a) => a.id) ?? [])
+    const deletedAuthors = contentOriginal.value.authors?.filter((a) => !currentAuthorIds.has(a.id)) ?? []
+    const newAuthors = content.value.authors?.filter((a) => !originalAuthorIds.has(a.id)) ?? []
+
     // Remove non-saveable fields from payload
-    delete payload.author
-    delete payload.categories
+    delete payload.authors
+    delete payload.category
     delete payload.media
     delete payload.tags
 
     // Early validation
-    if (Object.keys(payload).length === 0 && deletedTags.length === 0 && newTags.length === 0) {
+    if (Object.keys(payload).length === 0 && deletedTags.length === 0 && newTags.length === 0 && deletedAuthors.length === 0 && newAuthors.length === 0) {
         store.msgAlert('warning', 'No changes to save')
         return
     }
@@ -277,11 +305,13 @@ async function save() {
     }
 
     try {
-        // Handle tag changes for existing entries
+        // Handle tag and author changes for existing entries
         if (contentId > 0) {
             await Promise.all([
-                ...deletedTags.map((tag) => deleteTag(tag.id!)),
+                ...deletedTags.map((tag) => deleteEntryTag(tag.id!)),
                 ...newTags.map((tag) => insertEntryTag(contentId, tag.id!)),
+                ...deletedAuthors.map((author) => deleteEntryAuthor(author.id!)),
+                ...newAuthors.map((author) => insertEntryAuthor(contentId, author.id!)),
             ])
         }
 
@@ -308,8 +338,8 @@ async function save() {
                 const newId = await resp.json()
 
                 await Promise.all([
-                    ...deletedTags.map((tag) => deleteTag(tag.id!)),
                     ...newTags.map((tag) => insertEntryTag(newId, tag.id!)),
+                    ...newAuthors.map((author) => insertEntryAuthor(newId, author.id!)),
                 ])
 
                 router.push(`/${routeName}/${newId}`)
@@ -345,7 +375,7 @@ function deleteContent() {
     }
 }
 
-async function deleteTag(id: number) {
+async function deleteEntryTag(id: number) {
     await fetch(`/api/content/entry-tags/${id}`, {
         method: 'DELETE',
         headers: auth.authHeader,
@@ -378,7 +408,6 @@ function removeMedia() {
 
 function removeCategory() {
     content.value.category_id = null
-    content.value.category = null
 }
 
 function insertTag(tag: string) {
@@ -419,6 +448,50 @@ async function insertEntryTag(entry: number, tag: number) {
     }
 
     await fetch('/api/content/entry-tags', {
+        method: 'POST',
+        headers: {
+            ...auth.authHeader,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            }
+            store.msgAlert('success', 'Entry tag saved successfully')
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+async function deleteEntryAuthor(id: number) {
+    await fetch(`/api/content/entry-authors/${id}`, {
+        method: 'DELETE',
+        headers: auth.authHeader,
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            } else {
+                store.msgAlert('success', `Deleted tag: ${id}`)
+            }
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+async function insertEntryAuthor(entry: number, author: number) {
+    const payload = {
+        entry_id: entry,
+        author_id: author,
+    }
+
+    await fetch('/api/content/entry-authors', {
         method: 'POST',
         headers: {
             ...auth.authHeader,
@@ -561,19 +634,35 @@ async function insertEntryTag(entry: number, tag: number) {
                 </div>
 
                 <div class="grow flex flex-col gap-2">
-                    <fieldset class="fieldset py-0">
-                        <legend class="fieldset-legend pt-0">Category</legend>
-                        <Multiselect
-                            v-model="content.category"
-                            track-by="id"
-                            label="name"
-                            placeholder="Select Category"
-                            :options="categories"
-                            aria-label="pick a category"
-                            @remove="removeCategory()"
-                        >
-                        </Multiselect>
-                    </fieldset>
+                    <div class="flex flex-wrap w-full gap-2">
+                        <fieldset class="fieldset py-0 grow min-w-64">
+                            <legend class="fieldset-legend pt-0">Authors</legend>
+                            <Multiselect
+                                v-model="selectedAuthorsFormatted"
+                                track-by="id"
+                                label="displayName"
+                                placeholder="Select Author"
+                                :options="authorsFormatted"
+                                aria-label="pick a author"
+                                :multiple="true"
+                            >
+                            </Multiselect>
+                        </fieldset>
+                        <fieldset class="fieldset py-0 grow min-w-46">
+                            <legend class="fieldset-legend pt-0">Category</legend>
+                            <Multiselect
+                                v-model="selectedCategory"
+                                track-by="id"
+                                label="name"
+                                placeholder="Select Category"
+                                :options="categories"
+                                aria-label="pick a category"
+                                @remove="removeCategory()"
+                            >
+                            </Multiselect>
+                        </fieldset>
+                    </div>
+
                     <fieldset class="fieldset py-0">
                         <legend class="fieldset-legend pt-0">Tags</legend>
                         <Multiselect

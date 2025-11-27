@@ -139,8 +139,8 @@ pub struct ContentSerializer {
     pub slug: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>, // draft, published, archived
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub author: Option<AuthorSerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authors: Vec<AuthorSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<ContentMetaSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -176,16 +176,11 @@ impl FromRow<'_, PgRow> for ContentSerializer {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         let mut tags = vec![];
 
-        let author = row
-            .try_get::<(Option<i32>, Option<String>, Option<String>, Option<i32>), &str>("author")
-            .ok()
-            .map(|(id, first_name, last_name, media_id)| AuthorSerializer {
-                id,
-                first_name,
-                last_name,
-                media_id,
-                ..Default::default()
-            });
+        let authors = row
+            .try_get::<Option<serde_json::Value>, _>("authors")
+            .unwrap_or_default()
+            .map(|v| serde_json::from_value::<Vec<AuthorSerializer>>(v).unwrap_or_default())
+            .unwrap_or_default();
 
         let meta = row
             .try_get::<(Option<Value>, Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>("meta")
@@ -249,7 +244,7 @@ impl FromRow<'_, PgRow> for ContentSerializer {
             media_id: row.try_get("media_id").ok(),
             slug: row.try_get("slug").ok(),
             status: row.try_get("status").ok(),
-            author,
+            authors,
             meta,
             category,
             tags,

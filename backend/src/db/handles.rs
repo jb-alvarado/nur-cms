@@ -21,7 +21,7 @@ use crate::{
     db::{
         fields::{
             AuthUserFields, ColumnCounter, ContentAuthorFields, ContentCategoryFields as CCF,
-            ContentFields as CF, MediaFields, StrCompare, TSLanguage, Table,
+            ContentEntryFields as CF, MediaFields, StrCompare, TSLanguage, Table,
         },
         models::{Configuration, TSConfig},
         queries::{QueryObj, RespondObj, WhereBuilder},
@@ -280,7 +280,7 @@ where
     R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
 {
     let value = serde_json::to_value(data)?;
-    let field = match table {
+    let return_field = match table {
         Table::ContentEntryTags => "tag_id",
         Table::ContentEntryAuthors => "author_id",
         _ => "id",
@@ -363,7 +363,7 @@ where
         }
     }
 
-    qb.push(format!(") RETURNING {field}"));
+    qb.push(format!(") RETURNING {return_field}"));
 
     let query = qb.build_query_scalar();
 
@@ -803,7 +803,7 @@ pub async fn select_categories(
     Ok(RespondObj::new(query_obj, data))
 }
 
-pub async fn select_content(
+pub async fn select_content_entries(
     pool: &PgPool,
     query_obj: &QueryObj<CF>,
 ) -> Result<RespondObj<ContentSerializer>, ServiceError> {
@@ -812,9 +812,7 @@ pub async fn select_content(
 
     for f in &query_obj.fields {
         match *f {
-            CF::Author => sep.push(format!(
-                "(ca.id, ca.first_name, ca.last_name, ca.media_id) AS {f}"
-            )),
+            CF::Authors => sep.push(format!("COALESCE(authors.data, '[]') AS {f}")),
             CF::Category => sep.push(format!("COALESCE(cats.data, '{{}}'::json) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(cm.data, cm.start_time, cm.end_time) AS {f}")),
@@ -835,10 +833,27 @@ pub async fn select_content(
         query_builder.push("JOIN content_types ct ON ct.id = ce.type_id ");
     }
 
-    if query_obj.fields.contains(&CF::Author)
+    if query_obj.fields.contains(&CF::Authors)
         || query_obj.author.is_some()
         || query_obj.search.is_some()
     {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'id', ca.id,
+                        'first_name', ca.first_name,
+                        'last_name', ca.last_name,
+                        'slug', ca.slug
+                    )
+                    ORDER BY ca.last_name
+                ) AS data
+                FROM content_authors ca
+                JOIN content_entry_authors cea ON cea.author_id = ca.id
+                WHERE cea.entry_id = ce.id
+            ) AS authors ON TRUE "#,
+        );
+
         query_builder.push(
             r#"LEFT JOIN content_entry_authors cea ON cea.entry_id = ce.id
             LEFT JOIN content_authors ca ON ca.id = cea.author_id "#,
@@ -850,6 +865,8 @@ pub async fn select_content(
             r#"LEFT JOIN LATERAL (
                 SELECT json_build_object(
                     'id', cc.id,
+                    'group_id', cc.group_id,
+                    'locale_id', cc.locale_id,
                     'name', cc.name,
                     'slug', cc.slug
                 ) AS data
@@ -1038,16 +1055,21 @@ pub async fn select_content(
 
         where_chain.push_and_bind(
             Some("OR"),
-            "ca.first_name ILIKE CONCAT('%', ",
+            "EXISTS (
+                SELECT 1
+                FROM content_entry_authors cea2
+                JOIN content_authors ca2 ON ca2.id = cea2.author_id
+                WHERE cea2.entry_id = ce.id
+                AND (ca2.first_name ILIKE CONCAT('%', ",
             search.clone(),
-            Some(", '%')"),
+            Some(", '%') "),
         );
 
         where_chain.push_and_bind(
             Some("OR"),
-            "ca.last_name ILIKE CONCAT('%', ",
+            "ca2.last_name ILIKE CONCAT('%', ",
             search.clone(),
-            Some(", '%'))"),
+            Some(", '%'))))"),
         );
 
         // TODO: add full text search
