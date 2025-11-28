@@ -2,6 +2,9 @@ use chrono::{DateTime, Local, LocalResult, NaiveDateTime, TimeZone, Utc};
 use serde::{Deserialize, Deserializer, de};
 use serde_json::Value;
 
+#[cfg(debug_assertions)]
+use colored::Colorize;
+
 pub mod fields;
 pub mod handles;
 pub mod models;
@@ -21,6 +24,8 @@ pub fn format_sql(s: &str) -> String {
             ..Default::default()
         },
     )
+    .bright_black()
+    .to_string()
 }
 
 pub fn to_datetime_utc<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
