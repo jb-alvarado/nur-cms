@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
+import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
@@ -12,6 +13,7 @@ import GenericModal from '@/components/GenericModal.vue'
 import MediaBrowser from '@/components/MediaBrowser.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
+const { t } = useI18n()
 const auth = useAuth()
 const store = useIndex()
 const route = useRoute()
@@ -153,7 +155,7 @@ async function save() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', 'No changes to save')
+        store.msgAlert('warning', t('common.noChanges'))
         return
     }
 
@@ -170,7 +172,7 @@ async function save() {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Content saved successfully')
+            store.msgAlert('success', t('common.saveSuccess'))
 
             if (authorId === 0) {
                 await store.selectAuthors()
@@ -205,36 +207,36 @@ function addMedia(m: Media) {
             <div class="flex items-center flex-wrap gap-2 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">
                     <fieldset class="fieldset max-w-80 md:max-w-56">
-                        <legend class="fieldset-legend">First Name</legend>
+                        <legend class="fieldset-legend">{{ $t('user.firstName') }}</legend>
                         <input
                             v-model="author.first_name"
                             type="text"
                             class="input"
-                            placeholder="First Name"
+                            :placeholder="$t('user.firstName')"
                             @input="updateSlug()"
                         />
                     </fieldset>
 
                     <fieldset class="fieldset max-w-80 md:max-w-56">
-                        <legend class="fieldset-legend">Last Name</legend>
+                        <legend class="fieldset-legend">{{ $t('user.lastName') }}</legend>
                         <input
                             v-model="author.last_name"
                             type="text"
                             class="input"
-                            placeholder="Last Name"
+                            :placeholder="$t('user.lastName')"
                             @input="updateSlug()"
                         />
                     </fieldset>
 
                     <fieldset class="fieldset max-w-80">
-                        <legend class="fieldset-legend">Slug</legend>
-                        <input v-model="author.slug" type="text" class="input" placeholder="Slug" />
+                        <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
+                        <input v-model="author.slug" type="text" class="input" :placeholder="$t('article.slug')" />
                     </fieldset>
                 </div>
 
                 <div class="join md:mt-7">
-                    <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
-                    <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">Save</button>
+                    <button class="btn text-warning join-item" @click="openDeleteModal()">{{ $t('common.delete') }}</button>
+                    <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">{{ $t('user.save') }}</button>
                 </div>
             </div>
 
@@ -243,18 +245,18 @@ function addMedia(m: Media) {
                     <img
                         v-if="media"
                         :src="mediaPath(media)"
-                        :alt="media?.alt ?? 'Media'"
+                        :alt="media?.alt ?? $t('button.media')"
                         class="border border-base-content/30 max-h-26"
                     />
-                    <button class="btn" @click="openMediaBrowser()">Media</button>
+                    <button class="btn" @click="openMediaBrowser()">{{ $t('button.media') }}</button>
                 </div>
             </div>
 
             <TextEditor v-model="author.bio" />
         </div>
 
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
-            <p>Are you sure you want to delete this author?</p>
+        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="contentDelete">
+            <p>{{ $t('author.deleteConfirm') }}</p>
         </GenericModal>
 
         <MediaBrowser ref="mediaModal" :update="addMedia" />

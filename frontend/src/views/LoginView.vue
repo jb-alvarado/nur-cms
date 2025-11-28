@@ -19,7 +19,7 @@ onMounted(() => {
 })
 
 useHead({
-    title: 'Login',
+    title: t('button.login'),
 })
 
 async function login() {
@@ -49,7 +49,7 @@ async function login() {
 <template>
     <div class="w-full h-full flex justify-center items-center">
         <div class="w-96 min-w-full flex flex-col justify-center items-center px-4">
-            <h1 class="text-6xl xs:text-8xl">NUR CMS</h1>
+            <h1 class="text-6xl xs:text-8xl">{{ $t('app.title') }}</h1>
 
             <form class="mt-10" @submit.prevent="login">
                 <input

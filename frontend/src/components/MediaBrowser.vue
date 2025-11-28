@@ -93,12 +93,12 @@ async function selectMedia(u: string | null = null) {
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </form>
-                <h3 class="text-lg font-bold">Select Media</h3>
+                <h3 class="text-lg font-bold">{{ $t('media.selectTitle') }}</h3>
                 <div class="flex mt-2">
                     <div class="grow">
                         <label class="input">
                             <i class="bi bi-search opacity-45"></i>
-                            <input v-model="search" type="search" placeholder="Search" @keyup="selectMedia()" />
+                            <input v-model="search" type="search" :placeholder="$t('common.search')" @keyup="selectMedia()" />
                         </label>
                     </div>
 

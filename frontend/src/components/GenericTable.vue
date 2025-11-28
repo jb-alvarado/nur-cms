@@ -186,7 +186,7 @@ function onChangeCheckbox() {
                         </div>
                     </label>
                 </th>
-                <th v-if="type !== 'author'">Languages</th>
+                <th v-if="type !== 'author'">{{ $t('common.languages') }}</th>
                 <th class="w-10"></th>
             </tr>
         </thead>

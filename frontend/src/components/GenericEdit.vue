@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
@@ -15,6 +16,7 @@ import MarkdownRender from './MarkdownRender.vue'
 import MediaBrowser from '@/components/MediaBrowser.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const contentId = Number(route.params.id ?? 0)
@@ -303,12 +305,12 @@ async function save() {
         deletedAuthors.length === 0 &&
         newAuthors.length === 0
     ) {
-        store.msgAlert('warning', 'No changes to save')
+        store.msgAlert('warning', t('common.noChanges'))
         return
     }
 
     if (contentId === 0 && !payload.locale_id) {
-        store.msgAlert('warning', 'Select a language')
+        store.msgAlert('warning', t('common.selectLanguage'))
         return
     }
 
@@ -339,7 +341,7 @@ async function save() {
                 throw new Error(msg)
             }
 
-            store.msgAlert('success', 'Content saved successfully')
+            store.msgAlert('success', t('common.saveSuccess'))
 
             // Handle new entry creation
             if (contentId === 0) {
@@ -372,7 +374,7 @@ function deleteContent() {
                     const msg = await errMsg(resp)
                     throw new Error(msg)
                 } else {
-                    store.msgAlert('success', `Deleted: ${content.value.title ?? content.value.id}`)
+                    store.msgAlert('success', t('common.deleteSuccess', { name: content.value.title ?? content.value.id }))
 
                     router.push(`/${routeName}`)
                 }
@@ -420,7 +422,7 @@ function insertTag(tag: string) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Tag saved successfully')
+            store.msgAlert('success', t('tag.saveSuccess'))
 
             await selectTags()
             payload.id = await resp.json()
@@ -442,7 +444,7 @@ async function deleteEntryTag(entry_id: number, tag_id: number) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             } else {
-                store.msgAlert('success', `Deleted tag: ${tag_id}`)
+                store.msgAlert('success', t('tag.deleteSuccess', { id: tag_id }))
             }
         })
         .catch((e) => {
@@ -470,7 +472,7 @@ async function insertEntryTag(entry: number, tag: number) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Entry tag saved successfully')
+            store.msgAlert('success', t('tag.entrySaveSuccess'))
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -487,7 +489,7 @@ async function deleteEntryAuthor(entry_id:number, author_id: number) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             } else {
-                store.msgAlert('success', `Deleted author: ${author_id}`)
+                store.msgAlert('success', t('author.deleteSuccess', { id: author_id }))
             }
         })
         .catch((e) => {
@@ -514,7 +516,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Entry author saved successfully')
+            store.msgAlert('success', t('author.entrySaveSuccess'))
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -538,19 +540,19 @@ async function insertEntryAuthor(entry: number, author: number) {
                 <div class="flex flex-wrap-reverse gap-4">
                     <div class="grow flex flex-col md:flex-row gap-2">
                         <fieldset class="fieldset w-64">
-                            <legend class="fieldset-legend">Title</legend>
+                            <legend class="fieldset-legend">{{ $t('article.title') }}</legend>
                             <input
                                 v-model="content.title"
                                 type="text"
                                 class="input"
-                                placeholder="Title"
+                                :placeholder="$t('article.title')"
                                 @input="updateSlug()"
                             />
                         </fieldset>
 
                         <fieldset class="fieldset w-64">
-                            <legend class="fieldset-legend">Slug</legend>
-                            <input v-model="content.slug" type="text" class="input" placeholder="Slug" />
+                            <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
+                            <input v-model="content.slug" type="text" class="input" :placeholder="$t('article.slug')" />
                         </fieldset>
                     </div>
 
@@ -558,7 +560,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                         <div class="join">
                             <details v-if="content.id === 0" class="dropdown">
                                 <summary class="btn join-item" @blur="closeDropdown">
-                                    {{ store.locales.find((l) => l.id === content.locale_id)?.name || 'Language' }}
+                                    {{ store.locales.find((l) => l.id === content.locale_id)?.name || $t('common.language') }}
                                 </summary>
                                 <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
                                     <li v-for="l in locales" :key="l.id">
@@ -581,7 +583,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             <RouterLink
                                 :to="`/${routeName}/0/${content.group_id}`"
                                 class="btn join-item px-2"
-                                title="Add Language"
+                                :title="$t('common.addLanguage')"
                             >
                                 <i class="bi bi-plus-lg"></i>
                             </RouterLink>
@@ -614,9 +616,9 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </div>
 
                         <div class="join">
-                            <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
+                            <button class="btn text-warning join-item" @click="openDeleteModal()">{{ $t('common.delete') }}</button>
                             <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
-                                Save
+                                {{ $t('user.save') }}
                             </button>
                         </div>
                     </div>
@@ -630,7 +632,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             <img
                                 v-if="media"
                                 :src="mediaPath(media)"
-                                :alt="media?.alt ?? 'Media'"
+                                :alt="media?.alt ?? $t('button.media')"
                                 class="w-full h-full object-contain"
                             />
                         </div>
@@ -647,12 +649,12 @@ async function insertEntryAuthor(entry: number, author: number) {
                     <div class="grow flex flex-col gap-2">
                         <div class="flex flex-wrap w-full gap-2">
                             <fieldset class="fieldset py-0 grow min-w-64">
-                                <legend class="fieldset-legend pt-0">Authors</legend>
+                                <legend class="fieldset-legend pt-0">{{ $t('article.authors') }}</legend>
                                 <Multiselect
                                     v-model="selectedAuthorsFormatted"
                                     track-by="id"
                                     label="displayName"
-                                    placeholder="Select Author"
+                                    :placeholder="$t('article.selectAuthor')"
                                     :options="authorsFormatted"
                                     aria-label="pick a author"
                                     :multiple="true"
@@ -660,12 +662,12 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </Multiselect>
                             </fieldset>
                             <fieldset class="fieldset py-0 grow min-w-46">
-                                <legend class="fieldset-legend pt-0">Category</legend>
+                                <legend class="fieldset-legend pt-0">{{ $t('article.category') }}</legend>
                                 <Multiselect
                                     v-model="selectedCategory"
                                     track-by="id"
                                     label="name"
-                                    placeholder="Select Category"
+                                    :placeholder="$t('article.selectCategory')"
                                     :options="categories"
                                     aria-label="pick a category"
                                     @remove="removeCategory()"
@@ -675,12 +677,12 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </div>
 
                         <fieldset class="fieldset py-0">
-                            <legend class="fieldset-legend pt-0">Tags</legend>
+                            <legend class="fieldset-legend pt-0">{{ $t('article.tags') }}</legend>
                             <Multiselect
                                 v-model="content.tags"
                                 track-by="id"
                                 label="name"
-                                placeholder="Select Tag"
+                                :placeholder="$t('article.selectTag')"
                                 :options="tags"
                                 aria-label="pick a tag"
                                 :multiple="true"
@@ -694,11 +696,11 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                 <div class="w-full">
                     <fieldset class="fieldset">
-                        <legend class="fieldset-legend">Description</legend>
+                        <legend class="fieldset-legend">{{ $t('article.description') }}</legend>
                         <textarea
                             v-model="content.description"
                             class="textarea h-20 w-full"
-                            placeholder="Description"
+                            :placeholder="$t('article.description')"
                         ></textarea>
                     </fieldset>
                 </div>
@@ -715,8 +717,8 @@ async function insertEntryAuthor(entry: number, author: number) {
             <MarkdownRender v-if="content.text" :text="content.text" />
         </div>
 
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="deleteContent">
-            <p>Are you sure you want to delete this {{ routeName }}?</p>
+        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
+            <p>{{ $t('article.deleteConfirm', { type: routeName }) }}</p>
         </GenericModal>
 
         <MediaBrowser ref="mediaModal" :update="addMedia" />

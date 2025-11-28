@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { type ModelRef, nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 
+const { t } = useI18n()
 const model: ModelRef<string | undefined> = defineModel()
 const store = useIndex()
 
@@ -11,12 +13,12 @@ const lastPos = ref(0)
 const format = ref(0)
 
 const headings = [
-    { name: 'Text', value: 0 },
-    { name: 'Heading 1', value: 1 },
-    { name: 'Heading 2', value: 2 },
-    { name: 'Heading 3', value: 3 },
-    { name: 'Heading 4', value: 4 },
-    { name: 'Heading 5', value: 5 },
+    { name: t('editor.text'), value: 0 },
+    { name: t('editor.h1'), value: 1 },
+    { name: t('editor.h2'), value: 2 },
+    { name: t('editor.h3'), value: 3 },
+    { name: t('editor.h4'), value: 4 },
+    { name: t('editor.h5'), value: 5 },
 ]
 
 const editorButtons = [

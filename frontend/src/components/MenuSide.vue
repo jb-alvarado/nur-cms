@@ -1,15 +1,23 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { locales as appLocales } from '@/i18n.ts'
 
 import SseHandler from './SseHandler.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const auth = useAuth()
 const store = useIndex()
+
+// Load language from localStorage on mount
+const savedLang = localStorage.getItem('language')
+if (savedLang) {
+    locale.value = savedLang
+}
 
 auth.selectAuthUser()
 auth.obtainUuid()
@@ -33,16 +41,39 @@ function toggleTheme() {
         document.documentElement.setAttribute('data-theme', 'light')
     }
 }
+
+type LangOpt = { code: string; name: string }
+const languageOptions = computed<LangOpt[]>(() => {
+    return appLocales.map((l) => ({
+        code: l.code,
+        name: l.name,
+    }))
+})
+
+function normalizeCode(code: string) {
+    if (!code) return 'en'
+    const lower = code.toLowerCase()
+    if (lower.startsWith('en')) return 'en'
+    if (lower.startsWith('de')) return 'de'
+    return lower
+}
+
+function setLanguage(code: string) {
+    const next = normalizeCode(code)
+    locale.value = next
+    localStorage.setItem('language', next)
+    document.documentElement.setAttribute('lang', next)
+}
 </script>
 
 <template>
     <div class="w-36 h-full bg-base-300 flex flex-col">
         <div class="flex justify-center">
-            <RouterLink class="text-2xl font-bold" to="/"> NUR CMS </RouterLink>
+            <RouterLink class="text-2xl font-bold" to="/">{{ $t('app.title') }}</RouterLink>
         </div>
         <div class="flex flex-col justify-center p-6">
             <div class="join join-vertical w-40 mb-2">
-                <RouterLink to="/author" class="btn join-item w-28 p-1 justify-normal items-center ">
+                <RouterLink to="/author" class="btn join-item w-28 p-1 justify-normal items-center">
                     <i class="bi bi-person-lines-fill p-1 text-2xl leading-0"></i>
                     Author
                 </RouterLink>
@@ -69,6 +100,19 @@ function toggleTheme() {
             </div>
         </div>
         <div class="grow"></div>
+        <div class="flex flex-col justify-center items-center">
+            <div class="dropdown dropdown-top">
+                <div tabindex="0" role="button" class="join-item btn btn-sm p-2" :title="t('common.language')">
+                    <i class="bi bi-translate text-lg" />
+                    <span class="px-1">{{ locale }}</span>
+                </div>
+                <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-40">
+                    <li v-for="l in languageOptions" :key="l.code">
+                        <button @click="setLanguage(l.code)">{{ l.name }}</button>
+                    </li>
+                </ul>
+            </div>
+        </div>
         <div class="flex flex-col justify-center items-center p-3 gap-2">
             <RouterLink
                 to="/user"

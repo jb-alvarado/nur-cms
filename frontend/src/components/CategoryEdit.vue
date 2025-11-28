@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
 import { useAuth } from '@/stores/auth'
+import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
@@ -11,6 +12,7 @@ import { slugify } from '@/utils/slugify.js'
 import GenericModal from '@/components/GenericModal.vue'
 import MediaBrowser from '@/components/MediaBrowser.vue'
 
+const { t } = useI18n()
 const auth = useAuth()
 const store = useIndex()
 const route = useRoute()
@@ -155,7 +157,7 @@ function contentDelete() {
                     const msg = await errMsg(resp)
                     throw new Error(msg)
                 } else {
-                    store.msgAlert('success', `Deleted: ${category.value.title ?? category.value.id}`)
+                    store.msgAlert('success', t('common.deleteSuccess', { name: category.value.title ?? category.value.id }))
 
                     router.push(`/category`)
                 }
@@ -174,12 +176,12 @@ async function save() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', 'No changes to save')
+        store.msgAlert('warning', t('common.noChanges'))
         return
     }
 
     if (categoryId === 0 && !payload.locale_id) {
-        store.msgAlert('warning', 'Select a language')
+        store.msgAlert('warning', t('common.selectLanguage'))
         return
     }
 
@@ -196,7 +198,7 @@ async function save() {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Content saved successfully')
+            store.msgAlert('success', t('common.saveSuccess'))
 
             if (categoryId === 0) {
                 router.push(`/category/${await resp.text()}`)
@@ -230,19 +232,19 @@ function addMedia(m: Media) {
             <div class="flex items-center flex-wrap gap-4 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">
                     <fieldset class="fieldset w-full max-w-80">
-                        <legend class="fieldset-legend">Name</legend>
+                        <legend class="fieldset-legend">{{ $t('article.name') }}</legend>
                         <input
                             v-model="category.name"
                             type="text"
                             class="input"
-                            placeholder="First Name"
+                            :placeholder="$t('article.name')"
                             @input="updateSlug()"
                         />
                     </fieldset>
 
                     <fieldset class="fieldset w-full max-w-64">
-                        <legend class="fieldset-legend">Slug</legend>
-                        <input v-model="category.slug" type="text" class="input" placeholder="Last Name" />
+                        <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
+                        <input v-model="category.slug" type="text" class="input" :placeholder="$t('article.slug')" />
                     </fieldset>
                 </div>
 
@@ -250,7 +252,7 @@ function addMedia(m: Media) {
                     <div class="join">
                         <details v-if="category.id === 0" class="dropdown">
                             <summary class="btn join-item" @blur="closeDropdown">
-                                {{ store.locales.find((l) => l.id === category.locale_id)?.name || 'Language' }}
+                                {{ store.locales.find((l) => l.id === category.locale_id)?.name || $t('common.language') }}
                             </summary>
                             <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
                                 <li v-for="l in locales" :key="l.id">
@@ -273,7 +275,7 @@ function addMedia(m: Media) {
                         <RouterLink
                             :to="`/category/0/${category.group_id}`"
                             class="btn join-item px-2"
-                            title="Add Language"
+                            :title="$t('common.addLanguage')"
                         >
                             <i class="bi bi-plus-lg"></i>
                         </RouterLink>
@@ -304,9 +306,9 @@ function addMedia(m: Media) {
                     </div>
 
                     <div class="join">
-                        <button class="btn text-warning join-item" @click="openDeleteModal()">Delete</button>
+                        <button class="btn text-warning join-item" @click="openDeleteModal()">{{ $t('common.delete') }}</button>
                         <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
-                            Save
+                            {{ $t('user.save') }}
                         </button>
                     </div>
                 </div>
@@ -316,14 +318,14 @@ function addMedia(m: Media) {
                 <img
                     v-if="media"
                     :src="mediaPath(media)"
-                    :alt="media?.alt ?? 'Media'"
+                    :alt="media?.alt ?? $t('button.media')"
                     class="border border-base-content/30 max-h-26"
                 />
-                <button class="btn" @click="openMediaBrowser()">Media</button>
+                <button class="btn" @click="openMediaBrowser()">{{ $t('button.media') }}</button>
             </div>
         </div>
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentDelete">
-            <p>Are you sure you want to delete this category?</p>
+        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="contentDelete">
+            <p>{{ $t('category.deleteConfirm') }}</p>
         </GenericModal>
 
         <MediaBrowser ref="mediaModal" :update="addMedia" />

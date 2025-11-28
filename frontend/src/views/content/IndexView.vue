@@ -109,14 +109,14 @@ function onPageChange() {
             <div class="grow join">
                 <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-74'">
                     <i class="bi bi-search opacity-45"></i>
-                    <input v-model="store.search" type="search" placeholder="Search" @keyup="store.searchItem" />
+                    <input v-model="store.search" type="search" :placeholder="$t('common.search')" @keyup="store.searchItem" />
                 </label>
                 <div v-if="selectCount > 0">
                     <button v-if="store.routeType !== 'author'" class="btn join-item" @click="setStatus()">
                         {{ published }}
                     </button>
-                    <button class="btn text-warning join-item" @click="openDeleteModal">Delete</button>
-                    <span class="ms-2">{{ selectCount }} Selected</span>
+                    <button class="btn text-warning join-item" @click="openDeleteModal">{{ $t('common.delete') }}</button>
+                    <span class="ms-2">{{ selectCount }} {{ $t('common.selected') }}</span>
                 </div>
             </div>
 
@@ -134,8 +134,8 @@ function onPageChange() {
         <div class="overflow-x-auto mt-4">
             <GenericTable ref="tableRef" :type="store.routeType" :check-box-change="statusLabel" />
         </div>
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="store.contentDelete">
-            <p>Are you sure you want to delete this {{ store.routeType }}{{ selectCount > 1 ? 's' : '' }}?</p>
+        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="store.contentDelete">
+            <p>{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>
         </GenericModal>
     </div>
 </template>

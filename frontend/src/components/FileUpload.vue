@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { shortID } from '@/utils/helper'
 
+const { t } = useI18n()
 const auth = useAuth()
 const store = useIndex()
 
@@ -116,14 +118,14 @@ async function runJob() {
                 await uploadFile(file as File, id, i, length)
             } catch (err: any) {
                 store.msgAlert('error', err)
-                error.value = err.message || 'Upload failed'
+                error.value = err.message || t('upload.failed')
             } finally {
                 uploading.value = false
             }
         }
 
         store.progress = 100
-        store.msgAlert('success', 'Upload complete!')
+        store.msgAlert('success', t('upload.complete'))
 
         setTimeout(() => {
             store.progressShow = false
@@ -140,7 +142,7 @@ async function onFileChange(e: Event) {
 <template>
     <div>
         <fieldset class="fieldset">
-            <legend class="fieldset-legend">Pick one or multiple files</legend>
+            <legend class="fieldset-legend">{{ $t('upload.pickFiles') }}</legend>
             <input type="file" class="file-input w-full" @change="onFileChange" multiple />
         </fieldset>
 

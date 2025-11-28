@@ -8,11 +8,11 @@ const imagePlaceholder = ref(null as null | string)
 defineProps({
     title: {
         type: String,
-        default: 'Image',
+        default: undefined,
     },
     placeholder: {
         type: String,
-        default: 'Thumbnail',
+        default: undefined,
     },
 })
 

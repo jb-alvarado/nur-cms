@@ -208,19 +208,19 @@ function resetUpload() {
 <template>
     <div>
         <div class="flex">
-            <h1 class="text-2xl grow">Media</h1>
-            <button class="btn btn-sm btn-primary text-base" @click="uploadModal.showModal()">Upload</button>
+            <h1 class="text-2xl grow">{{ $t('button.media') }}</h1>
+            <button class="btn btn-sm btn-primary text-base" @click="uploadModal.showModal()">{{ $t('media.upload') }}</button>
         </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">
             <div class="grow join">
                 <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-74'">
                     <i class="bi bi-search opacity-45"></i>
-                    <input v-model="search" type="search" placeholder="Search" @keyup="selectMedia()" />
+                    <input v-model="search" type="search" :placeholder="$t('common.search')" @keyup="selectMedia()" />
                 </label>
                 <div v-if="selectCount > 0">
-                    <button class="btn text-warning join-item" @click="openDeleteModal">Delete</button>
-                    <span class="ms-2">{{ selectCount }} Selected</span>
+                    <button class="btn text-warning join-item" @click="openDeleteModal">{{ $t('common.delete') }}</button>
+                    <span class="ms-2">{{ selectCount }} {{ $t('common.selected') }}</span>
                 </div>
             </div>
 
@@ -265,12 +265,12 @@ function resetUpload() {
                     @click="openUpdateModal(media.id!)"
                 >
                     <ul class="list">
-                        <li class="break-all"><strong>Alt:</strong> {{ media.alt }}</li>
-                        <li><strong>Type:</strong> {{ mimeType(media) }}</li>
-                        <li v-if="media.width"><strong>Dimension:</strong> {{ media.width }}x{{ media.height }}</li>
-                        <li v-if="media.size"><strong>Size:</strong> {{ formatBytes(media.size!) }}</li>
+                        <li class="break-all"><strong>{{ $t('media.alt') }}:</strong> {{ media.alt }}</li>
+                        <li><strong>{{ $t('media.type') }}:</strong> {{ mimeType(media) }}</li>
+                        <li v-if="media.width"><strong>{{ $t('media.dimension') }}:</strong> {{ media.width }}x{{ media.height }}</li>
+                        <li v-if="media.size"><strong>{{ $t('media.size') }}:</strong> {{ formatBytes(media.size!) }}</li>
                         <li v-if="media.created_at">
-                            <strong>Uploaded:</strong> {{ dayjs(media.created_at).format('YYYY-MM-DD HH:mm:ss') }}
+                            <strong>{{ $t('media.uploaded') }}:</strong> {{ dayjs(media.created_at).format('YYYY-MM-DD HH:mm:ss') }}
                         </li>
                         <li v-if="media.variants">
                             <p><i class="bi bi-collection me-1"></i> {{ variantsExt(media.variants) }}</p>
@@ -282,17 +282,17 @@ function resetUpload() {
                 </div>
             </div>
         </div>
-        <GenericModal ref="uploadModal" title="Upload Files" :cancel-action="resetUpload" :ok-action="runUpload">
+        <GenericModal ref="uploadModal" :title="$t('media.uploadFiles')" :cancel-action="resetUpload" :ok-action="runUpload">
             <FileUpload ref="uploader" :key="uploadKey" />
         </GenericModal>
 
         <GenericProgress />
 
-        <GenericModal ref="deleteModal" title="Delete Selection" :ok-action="contentMedia">
-            <p>Are you sure you want to delete this file{{ selectCount > 1 ? 's' : '' }}?</p>
+        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="contentMedia">
+            <p>{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>
         </GenericModal>
 
-        <GenericModal ref="editModal" :key="editID" title="Edit Media" width="2xl" :ok-action="runUpdate">
+        <GenericModal ref="editModal" :key="editID" :title="$t('media.editTitle')" width="2xl" :ok-action="runUpdate">
             <MediaEdit ref="updater" :id="editID" />
         </GenericModal>
     </div>

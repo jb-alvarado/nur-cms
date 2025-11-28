@@ -97,8 +97,8 @@ async function deleteType() {
     <div class="h-10 mt-4 mb-6 flex items-center">
         <div class="grow join">
             <div v-if="selectCount > 0">
-                <button class="btn text-warning join-item" onclick="delete_modal.showModal()">Delete</button>
-                <span class="ms-2">{{ selectCount }} Selected</span>
+                <button class="btn text-warning join-item" onclick="delete_modal.showModal()">{{ $t('common.delete') }}</button>
+                <span class="ms-2">{{ selectCount }} {{ $t('common.selected') }}</span>
             </div>
         </div>
     </div>
@@ -153,12 +153,12 @@ async function deleteType() {
     </div>
     <dialog id="delete_modal" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box">
-            <h3 class="text-lg font-bold">Delete Selection</h3>
-            <p class="py-4">Are you sure you want to delete this article{{ selectCount > 1 ? 's' : '' }}?</p>
+            <h3 class="text-lg font-bold">{{ $t('dialog.deleteTitle') }}</h3>
+            <p class="py-4">{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>
             <div class="modal-action">
                 <form method="dialog">
-                    <button class="btn">Cancel</button>
-                    <button class="btn" @click="deleteType()">Ok</button>
+                    <button class="btn">{{ $t('common.cancel') }}</button>
+                    <button class="btn" @click="deleteType()">{{ $t('common.ok') }}</button>
                 </form>
             </div>
         </div>

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { cloneDeep, isEqual } from 'lodash-es'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { mediaPath } from '@/utils/helper'
 
+const { t } = useI18n()
 const auth = useAuth()
 const store = useIndex()
 const media = ref<Media>({})
@@ -60,7 +62,7 @@ async function updateMedia() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', 'No changes to save')
+        store.msgAlert('warning', t('media.noChanges'))
         return
     }
 
@@ -77,7 +79,7 @@ async function updateMedia() {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', `Update media (${props.id}) successfully!`)
+            store.msgAlert('success', t('media.updateSuccess', { id: props.id }))
         })
         .catch((err) => {
             store.msgAlert('error', err)
@@ -91,12 +93,12 @@ async function updateMedia() {
         </div>
         <div class="grow">
             <fieldset class="fieldset">
-                <legend class="fieldset-legend">Alt Text</legend>
-                <input v-model="media.alt" type="text" class="input w-full" placeholder="Alt" />
+                <legend class="fieldset-legend">{{ $t('media.altText') }}</legend>
+                <input v-model="media.alt" type="text" class="input w-full" :placeholder="$t('media.alt')" />
             </fieldset>
             <fieldset class="fieldset">
-                <legend class="fieldset-legend">Filename</legend>
-                <input v-model="media.filename" type="text" class="input w-full" placeholder="Alt" />
+                <legend class="fieldset-legend">{{ $t('media.filename') }}</legend>
+                <input v-model="media.filename" type="text" class="input w-full" :placeholder="$t('media.filename')" />
             </fieldset>
         </div>
     </div>

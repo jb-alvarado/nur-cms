@@ -47,8 +47,8 @@ defineExpose({
             <div class="modal-action">
                 <form method="dialog">
                     <div class="join">
-                        <button v-if="!hideCancel" class="btn join-item" @click="cancelAction()">Cancel</button>
-                        <button class="btn join-item" @click="okAction()">Ok</button>
+                        <button v-if="!hideCancel" class="btn join-item" @click="cancelAction()">{{ $t('common.cancel') }}</button>
+                        <button class="btn join-item" @click="okAction()">{{ $t('common.ok') }}</button>
                     </div>
                 </form>
             </div>
