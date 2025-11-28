@@ -316,9 +316,9 @@ async function save() {
         // Handle tag and author changes for existing entries
         if (contentId > 0) {
             await Promise.all([
-                ...deletedTags.map((tag) => deleteEntryTag(tag.id!)),
+                ...deletedTags.map((tag) => deleteEntryTag(contentId, tag.id!)),
                 ...newTags.map((tag) => insertEntryTag(contentId, tag.id!)),
-                ...deletedAuthors.map((author) => deleteEntryAuthor(author.id!)),
+                ...deletedAuthors.map((author) => deleteEntryAuthor(contentId, author.id!)),
                 ...newAuthors.map((author) => insertEntryAuthor(contentId, author.id!)),
             ])
         }
@@ -383,23 +383,6 @@ function deleteContent() {
     }
 }
 
-async function deleteEntryTag(id: number) {
-    await fetch(`/api/content/entry-tags/${id}`, {
-        method: 'DELETE',
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                store.msgAlert('success', `Deleted tag: ${id}`)
-            }
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
-}
 
 function addMedia(m: Media) {
     content.value.media_id = m.id
@@ -449,13 +432,32 @@ function insertTag(tag: string) {
         })
 }
 
+async function deleteEntryTag(entry_id: number, tag_id: number) {
+    await fetch(`/api/content/entries/${entry_id}/tag/${tag_id}`, {
+        method: 'DELETE',
+        headers: auth.authHeader,
+    })
+        .then(async (resp) => {
+            if (resp.status >= 400) {
+                const msg = await errMsg(resp)
+                throw new Error(msg)
+            } else {
+                store.msgAlert('success', `Deleted tag: ${tag_id}`)
+            }
+        })
+        .catch((e) => {
+            store.msgAlert('error', e)
+        })
+}
+
+
 async function insertEntryTag(entry: number, tag: number) {
     const payload = {
         entry_id: entry,
         tag_id: tag,
     }
 
-    await fetch('/api/content/entry-tags', {
+    await fetch('/api/content/entries/tag', {
         method: 'POST',
         headers: {
             ...auth.authHeader,
@@ -475,8 +477,8 @@ async function insertEntryTag(entry: number, tag: number) {
         })
 }
 
-async function deleteEntryAuthor(id: number) {
-    await fetch(`/api/content/entry-authors/${id}`, {
+async function deleteEntryAuthor(entry_id:number, author_id: number) {
+    await fetch(`/api/content/entries/${entry_id}/author/${author_id}`, {
         method: 'DELETE',
         headers: auth.authHeader,
     })
@@ -485,7 +487,7 @@ async function deleteEntryAuthor(id: number) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             } else {
-                store.msgAlert('success', `Deleted tag: ${id}`)
+                store.msgAlert('success', `Deleted author: ${author_id}`)
             }
         })
         .catch((e) => {
@@ -499,7 +501,7 @@ async function insertEntryAuthor(entry: number, author: number) {
         author_id: author,
     }
 
-    await fetch('/api/content/entry-authors', {
+    await fetch('/api/content/entries/author', {
         method: 'POST',
         headers: {
             ...auth.authHeader,
@@ -512,7 +514,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                 const msg = await errMsg(resp)
                 throw new Error(msg)
             }
-            store.msgAlert('success', 'Entry tag saved successfully')
+            store.msgAlert('success', 'Entry author saved successfully')
         })
         .catch((e) => {
             store.msgAlert('error', e)

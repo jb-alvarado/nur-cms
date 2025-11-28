@@ -17,12 +17,11 @@ use crate::{
     CONFIG,
     db::{
         fields::{
-            AuthRoleFields, AuthUserFields, ContentAuthorFields, ContentCategoryFields,
-            ContentEntryFields, ContentTagFields, ContentTypeFields, LocaleFields, MediaFields,
-            OutputType, Table,
+            ContentAuthorFields, ContentCategoryFields, ContentEntryFields, ContentTagFields,
+            ContentTypeFields, LocaleFields, MediaFields, OutputType, Table,
         },
         handles,
-        models::{AuthRole, AuthUser, AuthUserMeta, ContentType, Locale, Role, TSConfig},
+        models::{AuthUserMeta, ContentType, Locale, Role, TSConfig},
         queries::{QueryObj, RespondObj},
         serialize::*,
     },
@@ -31,30 +30,6 @@ use crate::{
     utils::{ast_serialize::to_structure_root, errors::ServiceError},
 };
 
-pub async fn auth_role_select(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
-    Query(mut params): Query<QueryObj<AuthRoleFields>>,
-    OriginalUri(original_uri): OriginalUri,
-    details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<AuthRole>>, ServiceError> {
-    if details.has_any_authority(&[&Role::Admin]) {
-        params.path = original_uri.path().into();
-        params.query = original_uri.query().unwrap_or("").into();
-
-        return match handles::select_record(&pool, &Table::AuthRoles, params).await {
-            Ok(role) => Ok(Json(role)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".into(),
-    ))
-}
-
 pub async fn ts_language_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
@@ -62,105 +37,6 @@ pub async fn ts_language_select(
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return match handles::select_ts_language(&pool).await {
             Ok(lang) => Ok(Json(lang)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".into(),
-    ))
-}
-
-pub async fn auth_user_select(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
-    Query(mut params): Query<QueryObj<AuthUserFields>>,
-    OriginalUri(original_uri): OriginalUri,
-    Extension(user): Extension<AuthUserMeta>,
-    details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<AuthUserSerializer>>, ServiceError> {
-    params.path = original_uri.path().into();
-
-    if details.has_any_authority(&[&Role::Author, &Role::User]) {
-        params.fields = vec![
-            AuthUserFields::Email,
-            AuthUserFields::FirstName,
-            AuthUserFields::LastName,
-            AuthUserFields::Username,
-        ];
-        params.query = format!("id={}", user.id);
-    } else if details.has_any_authority(&[&Role::Admin]) {
-        params.query = original_uri.query().unwrap_or("").into();
-    } else {
-        return Err(ServiceError::Forbidden(
-            "You do not have permission to access this resource.".into(),
-        ));
-    };
-
-    handles::select_auth_user(&pool, params)
-        .await
-        .map(Json)
-        .map_err(|e| {
-            error!("{e}");
-            ServiceError::InternalServerError
-        })
-}
-
-pub async fn auth_user_delete(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path(id): Path<i32>,
-    details: AuthDetails<Role>,
-) -> Result<(), ServiceError> {
-    if details.has_any_authority(&[&Role::Admin]) {
-        return match handles::delete_record(&pool, &Table::AuthUsers, id).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".into(),
-    ))
-}
-
-pub async fn auth_user_insert(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
-    details: AuthDetails<Role>,
-    Json(auth_user): Json<AuthUser>,
-) -> Result<Json<i32>, ServiceError> {
-    if details.has_any_authority(&[&Role::Admin]) {
-        return match handles::insert_record(&pool, &Table::AuthUsers, &auth_user).await {
-            Ok(id) => Ok(Json(id)),
-            Err(e) => {
-                error!("{e}");
-                Err(ServiceError::InternalServerError)
-            }
-        };
-    }
-
-    Err(ServiceError::Forbidden(
-        "You do not have permission to access this resource.".into(),
-    ))
-}
-
-pub async fn auth_user_update(
-    State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path(id): Path<i32>,
-    details: AuthDetails<Role>,
-    Json(auth_user): Json<AuthUser>,
-) -> Result<(), ServiceError> {
-    let mut auth_user: AuthUser = auth_user;
-    auth_user.updated_at = Some(Utc::now());
-    auth_user.last_login = None;
-
-    if details.has_any_authority(&[&Role::Admin]) {
-        return match handles::update_record(&pool, &Table::AuthUsers, id, &auth_user).await {
-            Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)
@@ -343,11 +219,11 @@ pub async fn author_delete(
 
 pub async fn entry_author_delete(
     State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path(id): Path<i32>,
+    Path((e_id, a_id)): Path<(i32, i32)>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return match handles::delete_record(&pool, &Table::ContentEntryAuthors, id).await {
+        return match handles::delete_author_from_entry(&pool, e_id, a_id).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
@@ -542,11 +418,11 @@ pub async fn tag_update(
 
 pub async fn entry_tag_delete(
     State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path(id): Path<i32>,
+    Path((e_id, t_id)): Path<(i32, i32)>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return match handles::delete_record(&pool, &Table::ContentEntryTags, id).await {
+        return match handles::delete_tag_from_entry(&pool, e_id, t_id).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");

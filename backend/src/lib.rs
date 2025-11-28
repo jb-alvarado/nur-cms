@@ -27,6 +27,7 @@ use crate::{
     api::{
         auth::{decode_jwt, login, refresh},
         routes::*,
+        routes_auth_user::*,
     },
     db::{
         handles,
@@ -124,20 +125,20 @@ pub fn router_entries() -> (
         .route("/types", get(content_types_select))
         .route("/authors", get(authors_select).post(author_insert))
         .route("/authors/{id}", put(author_update).delete(author_delete))
-        .route("/entry-authors", post(entry_author_insert))
-        .route("/entry-authors/{id}", delete(entry_author_delete))
         .route("/categories", get(categories_select).post(category_insert))
         .route(
             "/categories/{id}",
             put(category_update).delete(category_delete),
         )
-        .route("/tags", get(tags_select).post(tag_insert))
-        .route("/tags/{id}", put(tag_update))
-        .route("/entry-tags", post(entry_tag_insert))
-        .route("/entry-tags/{id}", delete(entry_tag_delete))
+        .route("/entries/author", post(entry_author_insert))
+        .route("/entries/{e_id}/author/{a_id}", delete(entry_author_delete))
+        .route("/entries/tag", post(entry_tag_insert))
+        .route("/entries/{e_id}/tag/{t_id}", delete(entry_tag_delete))
         .route("/entries", get(entries_select).post(entry_insert))
         .route("/entries/{id}", put(entry_update).delete(entry_delete))
-        .route("/entries/{param}/{slug}", get(entry_select));
+        .route("/entries/{param}/{slug}", get(entry_select))
+        .route("/tags", get(tags_select).post(tag_insert))
+        .route("/tags/{id}", put(tag_update));
 
     let media_routes = Router::new()
         .route("/", get(media_select))

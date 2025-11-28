@@ -538,6 +538,47 @@ where
     Ok(())
 }
 
+pub async fn delete_author_from_entry(
+    pool: &PgPool,
+    entry_id: i32,
+    author_id: i32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM content_entry_tags WHERE entry_id = $1 AND author_id = $2")
+        .bind(entry_id)
+        .bind(author_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn delete_tag_from_entry(
+    pool: &PgPool,
+    entry_id: i32,
+    tag_id: i32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM content_entry_tags WHERE entry_id = $1 AND tag_id = $2")
+        .bind(entry_id)
+        .bind(tag_id)
+        .execute(pool)
+        .await?;
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM content_entry_tags WHERE tag_id = $1")
+            .bind(tag_id)
+            .fetch_one(pool)
+            .await?;
+
+    if count == 0 {
+        sqlx::query("DELETE FROM content_tags WHERE id = $1")
+            .bind(tag_id)
+            .execute(pool)
+            .await?;
+    }
+
+    Ok(())
+}
+
 /* ------------------------------------
 Content
 --------------------------------------- */
