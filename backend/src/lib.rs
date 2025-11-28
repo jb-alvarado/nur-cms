@@ -27,7 +27,6 @@ use crate::{
     api::{
         auth::{decode_jwt, login, refresh},
         routes::*,
-        routes_auth_user::*,
     },
     db::{
         handles,
