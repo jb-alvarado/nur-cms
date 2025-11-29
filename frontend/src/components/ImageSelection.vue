@@ -34,7 +34,7 @@ function onFileChange(evt: any) {
 </script>
 
 <template>
-     <fieldset class="fieldset w-full">
+    <fieldset class="fieldset w-full">
         <legend class="fieldset-legend">{{ title }}</legend>
         <div class="join">
             <input

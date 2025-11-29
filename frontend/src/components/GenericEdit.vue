@@ -374,7 +374,10 @@ function deleteContent() {
                     const msg = await errMsg(resp)
                     throw new Error(msg)
                 } else {
-                    store.msgAlert('success', t('common.deleteSuccess', { name: content.value.title ?? content.value.id }))
+                    store.msgAlert(
+                        'success',
+                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id })
+                    )
 
                     router.push(`/${routeName}`)
                 }
@@ -384,7 +387,6 @@ function deleteContent() {
             })
     }
 }
-
 
 function addMedia(m: Media) {
     content.value.media_id = m.id
@@ -452,7 +454,6 @@ async function deleteEntryTag(entry_id: number, tag_id: number) {
         })
 }
 
-
 async function insertEntryTag(entry: number, tag: number) {
     const payload = {
         entry_id: entry,
@@ -479,7 +480,7 @@ async function insertEntryTag(entry: number, tag: number) {
         })
 }
 
-async function deleteEntryAuthor(entry_id:number, author_id: number) {
+async function deleteEntryAuthor(entry_id: number, author_id: number) {
     await fetch(`/api/content/entries/${entry_id}/author/${author_id}`, {
         method: 'DELETE',
         headers: auth.authHeader,
@@ -560,7 +561,10 @@ async function insertEntryAuthor(entry: number, author: number) {
                         <div class="join">
                             <details v-if="content.id === 0" class="dropdown">
                                 <summary class="btn join-item" @blur="closeDropdown">
-                                    {{ store.locales.find((l) => l.id === content.locale_id)?.name || $t('common.language') }}
+                                    {{
+                                        store.locales.find((l) => l.id === content.locale_id)?.name ||
+                                        $t('common.language')
+                                    }}
                                 </summary>
                                 <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
                                     <li v-for="l in locales" :key="l.id">
@@ -616,7 +620,9 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </div>
 
                         <div class="join">
-                            <button class="btn text-warning join-item" @click="openDeleteModal()">{{ $t('common.delete') }}</button>
+                            <button class="btn text-warning join-item" @click="openDeleteModal()">
+                                {{ $t('common.delete') }}
+                            </button>
                             <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
                                 {{ $t('user.save') }}
                             </button>

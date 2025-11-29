@@ -157,7 +157,10 @@ function contentDelete() {
                     const msg = await errMsg(resp)
                     throw new Error(msg)
                 } else {
-                    store.msgAlert('success', t('common.deleteSuccess', { name: category.value.title ?? category.value.id }))
+                    store.msgAlert(
+                        'success',
+                        t('common.deleteSuccess', { name: category.value.title ?? category.value.id })
+                    )
 
                     router.push(`/category`)
                 }
@@ -252,7 +255,10 @@ function addMedia(m: Media) {
                     <div class="join">
                         <details v-if="category.id === 0" class="dropdown">
                             <summary class="btn join-item" @blur="closeDropdown">
-                                {{ store.locales.find((l) => l.id === category.locale_id)?.name || $t('common.language') }}
+                                {{
+                                    store.locales.find((l) => l.id === category.locale_id)?.name ||
+                                    $t('common.language')
+                                }}
                             </summary>
                             <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
                                 <li v-for="l in locales" :key="l.id">
@@ -306,7 +312,9 @@ function addMedia(m: Media) {
                     </div>
 
                     <div class="join">
-                        <button class="btn text-warning join-item" @click="openDeleteModal()">{{ $t('common.delete') }}</button>
+                        <button class="btn text-warning join-item" @click="openDeleteModal()">
+                            {{ $t('common.delete') }}
+                        </button>
                         <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
                             {{ $t('user.save') }}
                         </button>

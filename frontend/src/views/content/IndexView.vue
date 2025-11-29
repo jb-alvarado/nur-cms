@@ -101,7 +101,7 @@ function onPageChange() {
 <template>
     <div>
         <div class="flex">
-            <h1 class="text-2xl grow">{{ store.routeType }}</h1>
+            <h1 class="text-2xl grow">{{ store.routeType.toLocaleUpperCase() }}</h1>
             <RouterLink :to="`/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">New</RouterLink>
         </div>
 
@@ -109,13 +109,20 @@ function onPageChange() {
             <div class="grow join">
                 <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-74'">
                     <i class="bi bi-search opacity-45"></i>
-                    <input v-model="store.search" type="search" :placeholder="$t('common.search')" @keyup="store.searchItem" />
+                    <input
+                        v-model="store.search"
+                        type="search"
+                        :placeholder="$t('common.search')"
+                        @keyup="store.searchItem"
+                    />
                 </label>
                 <div v-if="selectCount > 0">
                     <button v-if="store.routeType !== 'author'" class="btn join-item" @click="setStatus()">
                         {{ published }}
                     </button>
-                    <button class="btn text-warning join-item" @click="openDeleteModal">{{ $t('common.delete') }}</button>
+                    <button class="btn text-warning join-item" @click="openDeleteModal">
+                        {{ $t('common.delete') }}
+                    </button>
                     <span class="ms-2">{{ selectCount }} {{ $t('common.selected') }}</span>
                 </div>
             </div>

@@ -97,7 +97,9 @@ async function deleteType() {
     <div class="h-10 mt-4 mb-6 flex items-center">
         <div class="grow join">
             <div v-if="selectCount > 0">
-                <button class="btn text-warning join-item" onclick="delete_modal.showModal()">{{ $t('common.delete') }}</button>
+                <button class="btn text-warning join-item" onclick="delete_modal.showModal()">
+                    {{ $t('common.delete') }}
+                </button>
                 <span class="ms-2">{{ selectCount }} {{ $t('common.selected') }}</span>
             </div>
         </div>
@@ -132,11 +134,7 @@ async function deleteType() {
                 <tr v-for="(col, i) in types" :key="i">
                     <th>
                         <label>
-                            <input
-                                v-model="col.check"
-                                type="checkbox"
-                                class="checkbox checkbox-sm"
-                            />
+                            <input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" />
                         </label>
                     </th>
                     <td v-for="row in typeRows" :key="row.field">

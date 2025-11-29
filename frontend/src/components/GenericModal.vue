@@ -26,7 +26,7 @@ defineProps({
     },
     width: {
         type: String,
-        default: ''
+        default: '',
     },
 })
 
@@ -47,7 +47,9 @@ defineExpose({
             <div class="modal-action">
                 <form method="dialog">
                     <div class="join">
-                        <button v-if="!hideCancel" class="btn join-item" @click="cancelAction()">{{ $t('common.cancel') }}</button>
+                        <button v-if="!hideCancel" class="btn join-item" @click="cancelAction()">
+                            {{ $t('common.cancel') }}
+                        </button>
                         <button class="btn join-item" @click="okAction()">{{ $t('common.ok') }}</button>
                     </div>
                 </form>

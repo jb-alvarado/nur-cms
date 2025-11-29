@@ -33,6 +33,6 @@ app.use(router)
 
 const store = useIndex()
 
-store.darkMode = (theme === 'dark')
+store.darkMode = theme === 'dark'
 
 app.mount('#app')

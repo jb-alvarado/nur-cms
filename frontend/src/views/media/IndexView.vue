@@ -209,7 +209,9 @@ function resetUpload() {
     <div>
         <div class="flex">
             <h1 class="text-2xl grow">{{ $t('button.media') }}</h1>
-            <button class="btn btn-sm btn-primary text-base" @click="uploadModal.showModal()">{{ $t('media.upload') }}</button>
+            <button class="btn btn-sm btn-primary text-base" @click="uploadModal.showModal()">
+                {{ $t('media.upload') }}
+            </button>
         </div>
 
         <div class="h-10 mt-4 mb-6 flex items-center">
@@ -219,7 +221,9 @@ function resetUpload() {
                     <input v-model="search" type="search" :placeholder="$t('common.search')" @keyup="selectMedia()" />
                 </label>
                 <div v-if="selectCount > 0">
-                    <button class="btn text-warning join-item" @click="openDeleteModal">{{ $t('common.delete') }}</button>
+                    <button class="btn text-warning join-item" @click="openDeleteModal">
+                        {{ $t('common.delete') }}
+                    </button>
                     <span class="ms-2">{{ selectCount }} {{ $t('common.selected') }}</span>
                 </div>
             </div>
@@ -265,12 +269,21 @@ function resetUpload() {
                     @click="openUpdateModal(media.id!)"
                 >
                     <ul class="list">
-                        <li class="break-all"><strong>{{ $t('media.alt') }}:</strong> {{ media.alt }}</li>
-                        <li><strong>{{ $t('media.type') }}:</strong> {{ mimeType(media) }}</li>
-                        <li v-if="media.width"><strong>{{ $t('media.dimension') }}:</strong> {{ media.width }}x{{ media.height }}</li>
-                        <li v-if="media.size"><strong>{{ $t('media.size') }}:</strong> {{ formatBytes(media.size!) }}</li>
+                        <li class="break-all">
+                            <strong>{{ $t('media.alt') }}:</strong> {{ media.alt }}
+                        </li>
+                        <li>
+                            <strong>{{ $t('media.type') }}:</strong> {{ mimeType(media) }}
+                        </li>
+                        <li v-if="media.width">
+                            <strong>{{ $t('media.dimension') }}:</strong> {{ media.width }}x{{ media.height }}
+                        </li>
+                        <li v-if="media.size">
+                            <strong>{{ $t('media.size') }}:</strong> {{ formatBytes(media.size!) }}
+                        </li>
                         <li v-if="media.created_at">
-                            <strong>{{ $t('media.uploaded') }}:</strong> {{ dayjs(media.created_at).format('YYYY-MM-DD HH:mm:ss') }}
+                            <strong>{{ $t('media.uploaded') }}:</strong>
+                            {{ dayjs(media.created_at).format('YYYY-MM-DD HH:mm:ss') }}
                         </li>
                         <li v-if="media.variants">
                             <p><i class="bi bi-collection me-1"></i> {{ variantsExt(media.variants) }}</p>
@@ -282,7 +295,12 @@ function resetUpload() {
                 </div>
             </div>
         </div>
-        <GenericModal ref="uploadModal" :title="$t('media.uploadFiles')" :cancel-action="resetUpload" :ok-action="runUpload">
+        <GenericModal
+            ref="uploadModal"
+            :title="$t('media.uploadFiles')"
+            :cancel-action="resetUpload"
+            :ok-action="runUpload"
+        >
             <FileUpload ref="uploader" :key="uploadKey" />
         </GenericModal>
 
