@@ -4,6 +4,7 @@ import { useIndex } from '@/stores/index'
 
 import AuthorEdit from '@/components/AuthorEdit.vue'
 import CategoryEdit from '@/components/CategoryEdit.vue'
+import CommentEdit from '@/components/CommentEdit.vue'
 import GenericEdit from '@/components/GenericEdit.vue'
 
 const route = useRoute()
@@ -16,5 +17,6 @@ store.typeID = store.types.find(type => type.slug === typeName)?.id ?? 1
 <template>
     <AuthorEdit v-if="typeName === 'author'" />
     <CategoryEdit v-else-if="typeName === 'category'" />
+    <CommentEdit v-else-if="typeName === 'comments'" />
     <GenericEdit v-else />
 </template>

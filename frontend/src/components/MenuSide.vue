@@ -67,63 +67,56 @@ function setLanguage(code: string) {
 </script>
 
 <template>
-    <div class="w-36 h-full bg-base-300 flex flex-col">
+    <div class="w-38 h-full bg-base-300 flex flex-col">
         <div class="flex justify-center">
             <RouterLink class="text-2xl font-bold" to="/">{{ $t('app.title') }}</RouterLink>
         </div>
-        <div class="flex flex-col justify-center p-6">
-            <div class="join join-vertical w-40 mb-2">
-                <RouterLink to="/author" class="btn join-item w-28 p-1 justify-normal items-center">
-                    <i class="bi bi-person-lines-fill p-1 text-2xl leading-0"></i>
-                    Author
+        <div class="flex flex-col justify-center items-center mt-4">
+            <div class="join join-vertical mb-2">
+                <RouterLink to="/author" class="btn join-item w-31 p-1 justify-normal items-center">
+                    <i class="bi bi-person-lines-fill ps-0.5 text-2xl leading-0"></i>
+                    {{ $t('button.author') }}
                 </RouterLink>
-                <RouterLink to="/category" class="btn join-item w-28 p-1 justify-normal items-center">
-                    <i class="bi bi-boxes p-1 text-2xl leading-0"></i>
-                    Category
+                <RouterLink to="/category" class="btn join-item w-31 p-1 justify-normal items-center">
+                    <i class="bi bi-boxes ps-0.5 text-2xl leading-0"></i>
+                    {{ $t('button.category') }}
                 </RouterLink>
             </div>
-            <div v-if="store.types.length > 0" class="join join-vertical w-40">
+            <div v-if="store.types.length > 0" class="join join-vertical">
                 <RouterLink
                     v-for="item in store.types"
                     :key="item.name"
                     :to="`/${item.slug}`"
-                    class="btn join-item w-28 p-1 justify-normal items-center"
+                    class="btn join-item w-31 p-1 justify-normal items-center"
                     @click="store.typeID = item.id ?? 0"
                 >
-                    <i class="bi p-1 text-2xl leading-0" :class="item.icon"></i>
+                    <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon"></i>
                     {{ item.name }}
                 </RouterLink>
-                <RouterLink to="/media" class="btn join-item w-28 p-1 justify-normal items-center">
-                    <i class="bi bi-card-image p-1 text-2xl leading-0"></i>
-                    Media
+                <RouterLink to="/media" class="btn join-item w-31 p-1 justify-normal items-center">
+                    <i class="bi bi-card-image ps-0.5 text-2xl leading-0"></i>
+                    {{ $t('button.media') }}
+                </RouterLink>
+            </div>
+            <div class="mt-2">
+                <RouterLink to="/comments" class="btn join-item w-31 p-1 justify-normal items-center">
+                    <i class="bi bi-chat-left-text ps-0.5 text-2xl leading-0"></i>
+                    {{ $t('button.comment') }}
                 </RouterLink>
             </div>
         </div>
         <div class="grow"></div>
-        <div class="flex flex-col justify-center items-center">
-            <div class="dropdown dropdown-top">
-                <div tabindex="0" role="button" class="join-item btn btn-sm p-2" :title="t('common.language')">
-                    <i class="bi bi-translate text-lg" />
-                    <span class="px-1">{{ locale }}</span>
-                </div>
-                <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-40">
-                    <li v-for="l in languageOptions" :key="l.code">
-                        <button @click="setLanguage(l.code)">{{ l.name }}</button>
-                    </li>
-                </ul>
-            </div>
-        </div>
-        <div class="flex flex-col justify-center items-center p-3 gap-2">
+        <div class="flex flex-col justify-center items-center pb-6 gap-2">
             <RouterLink
                 to="/user"
-                class="btn btn-sm bg-accent hover:bg-accent/90 text-accent-content w-27 p-1 justify-normal items-center"
+                class="btn btn-sm bg-accent hover:bg-accent/90 text-accent-content w-31 p-1 justify-normal items-center"
             >
                 <i class="bi bi-person-circle text-xl leading-0"></i>
                 <span class="px-1 truncate">{{ auth.user.first_name }} {{ auth.user.last_name }}</span>
             </RouterLink>
 
             <div class="join flex">
-                <label class="join-item btn btn-sm swap swap-rotate p-2">
+                <label class="join-item btn btn-sm swap swap-rotate p-1.5">
                     <input
                         type="checkbox"
                         :checked="store.darkMode"
@@ -133,10 +126,20 @@ function setLanguage(code: string) {
                     <i class="swap-on bi bi-brightness-high text-lg"></i>
                     <i class="swap-off bi bi-moon text-lg"></i>
                 </label>
-                <RouterLink to="/configuration" class="join-item btn btn-sm p-2" :title="t('button.configure')">
+                <RouterLink to="/configuration" class="join-item btn btn-sm p-1.5" :title="t('button.configure')">
                     <i class="bi bi-gear text-lg" />
                 </RouterLink>
-                <button class="join-item btn btn-sm p-2" @click="logout()" :title="t('button.logout')">
+                <div class="dropdown dropdown-top">
+                    <div tabindex="0" role="button" class="join-item btn btn-sm p-1.5" :title="t('common.language')">
+                        <i class="bi bi-translate text-lg" />
+                    </div>
+                    <ul tabindex="0" class="dropdown-content menu p-1.5 shadow bg-base-100 rounded-box w-40">
+                        <li v-for="l in languageOptions" :key="l.code">
+                            <button @click="setLanguage(l.code)">{{ l.name }}</button>
+                        </li>
+                    </ul>
+                </div>
+                <button class="join-item btn btn-sm p-1.5" @click="logout()" :title="t('button.logout')">
                     <i class="bi bi-door-closed text-lg" />
                 </button>
             </div>

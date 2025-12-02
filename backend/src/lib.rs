@@ -120,6 +120,10 @@ pub fn router_entries() -> (
         .route("/", get(locale_select).post(locale_insert))
         .route("/{id}", delete(locale_delete));
 
+    let comment_routes = Router::new()
+        .route("/", get(comments_select).post(comment_insert))
+        .route("/{id}", delete(comment_delete).put(comment_update));
+
     let content_routes = Router::new()
         .route("/types", get(content_types_select))
         .route("/authors", get(authors_select).post(author_insert))
@@ -149,6 +153,7 @@ pub fn router_entries() -> (
         .route("/upload", post(upload_chunk))
         .nest("/auth-user", auth_user_routes)
         .nest("/locales", locale_routes)
+        .nest("/comments", comment_routes)
         .nest("/content", content_routes)
         .nest("/media", media_routes)
         .layer(GrantsLayer::with_extractor(extract));

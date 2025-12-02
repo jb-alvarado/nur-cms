@@ -9,7 +9,8 @@ declare global {
     type AuthRole = import('./models.d').AuthRole
     type AuthUser = import('./serialized.d').AuthUserSerializer
     type ContentAuthor = import('./models.d').ContentAuthor
-    type ContentCategory = import('./models.d').ContentCategorySerializer
+    type CommentExt = import('./models.d').Comment
+    type ContentCategory = import('./serialized.d').ContentCategorySerializer
     type Locale = import('./models.d').Locale
     type GroupMember = import('./serialized.d').GroupMemberSerializer
     type Variants = import('./serialized.d').MediaVariantSerializer

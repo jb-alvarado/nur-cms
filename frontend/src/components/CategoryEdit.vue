@@ -159,7 +159,7 @@ function contentDelete() {
                 } else {
                     store.msgAlert(
                         'success',
-                        t('common.deleteSuccess', { name: category.value.title ?? category.value.id })
+                        t('common.deleteSuccess', { name: category.value.name ?? category.value.id })
                     )
 
                     router.push(`/category`)

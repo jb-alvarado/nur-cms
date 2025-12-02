@@ -39,6 +39,10 @@ pub async fn entries_select(
         output = typ.clone();
     }
 
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        params.search_status = Some("published".to_string());
+    }
+
     let mut content = handles::select_content_entries(&pool, &params).await?;
 
     if params.fields.contains(&ContentEntryFields::Body) && output != OutputType::Markdown {

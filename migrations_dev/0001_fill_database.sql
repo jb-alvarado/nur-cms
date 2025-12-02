@@ -425,3 +425,105 @@ INSERT INTO
 VALUES
     (1, 1, 6),
     (1, 2, 10);
+
+INSERT INTO
+    comments (
+        entry_id,
+        parent_id,
+        user_id,
+        author_name,
+        author_email,
+        text,
+        status
+    )
+VALUES
+    (
+        1,
+        NULL,
+        1,
+        NULL,
+        NULL,
+        'Great article! Thanks for sharing this.',
+        'approved'
+    ),
+    (
+        1,
+        NULL,
+        NULL,
+        'Anna Schmidt',
+        'anna@example.com',
+        'Very informative post, looking forward to more!',
+        'approved'
+    ),
+    (
+        1,
+        1,
+        NULL,
+        'Tom Weber',
+        'tom@example.com',
+        'I agree, this is really helpful.',
+        'approved'
+    ),
+    (
+        2,
+        NULL,
+        1,
+        NULL,
+        NULL,
+        'Excellent content, keep up the good work!',
+        'approved'
+    ),
+    (
+        2,
+        NULL,
+        NULL,
+        'Maria Garcia',
+        'maria@example.com',
+        'I have a question about this topic...',
+        'pending'
+    ),
+    (
+        4,
+        NULL,
+        NULL,
+        'Pierre Dubois',
+        'pierre@example.com',
+        'Très bon article, merci!',
+        'approved'
+    ),
+    (
+        10,
+        NULL,
+        1,
+        NULL,
+        NULL,
+        'Looking forward to the meetup!',
+        'approved'
+    ),
+    (
+        10,
+        7,
+        NULL,
+        'Julia Müller',
+        'julia@example.com',
+        'Me too! What time does it start?',
+        'approved'
+    ),
+    (
+        12,
+        NULL,
+        NULL,
+        'Carlos Rodriguez',
+        'carlos@example.com',
+        'This conference looks amazing.',
+        'approved'
+    ),
+    (
+        16,
+        NULL,
+        NULL,
+        'Sarah Johnson',
+        'sarah@example.com',
+        'Nice use of blocks in this article.',
+        'pending'
+    );

@@ -10,9 +10,9 @@ export type ContentBlockSerializer = { id?: number, type?: string, data: JsonVal
 
 export type ContentCategorySerializer = { id?: number | null, group_id?: number | null, locale_id?: number | null, name?: string | null, slug?: string | null, status?: string | null, media_id?: number | null, media?: MediaSerializer | null, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 
-export type ContentMetaSerializer = { data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
+export type ContentEntrySerializer = { id?: number | null, group_id?: number | null, category_id?: number | null, locale_id?: number | null, media_id?: number | null, slug?: string | null, status?: string | null, authors?: Array<AuthorSerializer>, meta?: ContentMetaSerializer | null, category?: ContentCategorySerializer | null, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, ast?: any, html?: any, created_at?: string | null, updated_at?: string | null, media?: MediaSerializer | null, embeds?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 
-export type ContentEntrySerializer = { id?: number | null, group_id?: number | null, category_id?: number | null, locale_id?: number | null, media_id?: number | null, slug?: string | null, status?: string | null, authors?: Array<AuthorSerializer>, meta?: ContentMetaSerializer | null, category?: ContentCategorySerializer | null, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, body?: any, created_at?: string | null, updated_at?: string | null, media?: MediaSerializer | null, embeds?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
+export type ContentMetaSerializer = { data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
 
 export type ContentTagSerializer = { id?: number | null, name?: string | null, slug?: string | null, total_count?: bigint | null, };
 

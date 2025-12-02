@@ -1,14 +1,30 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import dayjs from 'dayjs'
+import localizedFormat from 'dayjs/plugin/localizedFormat'
+import 'dayjs/locale/de'
+import 'dayjs/locale/en'
 import { RouterLink, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import { closeDropdown } from '@/utils/helper'
 
+dayjs.extend(localizedFormat)
+
 const route = useRoute()
 const store = useIndex()
+const { locale } = useI18n()
 const select = ref(false)
 const groupedColumns = ref<any[]>([])
+
+// Set dayjs locale based on i18n locale
+watch(
+    () => locale.value,
+    (newLocale) => {
+        dayjs.locale(newLocale)
+    },
+    { immediate: true }
+)
 
 const props = defineProps({
     type: {
@@ -186,7 +202,7 @@ function onChangeCheckbox() {
                         </div>
                     </label>
                 </th>
-                <th v-if="type !== 'author'">{{ $t('common.languages') }}</th>
+                <th v-if="type !== 'author' && type !== 'comments'">{{ $t('common.languages') }}</th>
                 <th class="w-10"></th>
             </tr>
         </thead>
@@ -212,16 +228,28 @@ function onChangeCheckbox() {
                     :key="row.field"
                 >
                     <span v-if="col[row.field] === 'published'" class="text-success bg-base-100 p-1 rounded border">
-                        {{ formatField(col, row.field) }}
+                        {{ $t('status.published') }}
+                    </span>
+                    <span v-else-if="col[row.field] === 'approved'" class="text-success bg-base-100 p-1 rounded border">
+                        {{ $t('status.approved') }}
                     </span>
                     <span v-else-if="col[row.field] === 'draft'" class="bg-base-100 p-1 rounded border">
-                        {{ formatField(col, row.field) }}
+                        {{ $t('status.draft') }}
+                    </span>
+                    <span v-else-if="col[row.field] === 'pending'" class="bg-base-100 p-1 rounded border">
+                        {{ $t('status.pending') }}
                     </span>
                     <span
                         v-else-if="col[row.field] === 'archived'"
                         class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60"
                     >
-                        {{ formatField(col, row.field) }}
+                        {{ $t('status.archived') }}
+                    </span>
+                    <span
+                        v-else-if="col[row.field] === 'rejected'"
+                        class="text-error bg-base-100 p-1 rounded border border-error/60"
+                    >
+                        {{ $t('status.rejected') }}
                     </span>
                     <span v-else>
                         {{ formatField(col, row.field) }}

@@ -36,7 +36,7 @@ export const useIndex = defineStore('index', {
             { active: false, up: false, name: 'Language', field: 'locale_id' },
             { active: false, up: false, name: 'Group ID', field: 'group_id' },
         ],
-        suffix: 'entries',
+        suffix: 'content/entries',
         search: '',
         tableCols: [] as Content[],
         authors: [] as ContentAuthor[],
@@ -198,7 +198,7 @@ export const useIndex = defineStore('index', {
 
             let url = u
                 ? u
-                : `/api/content/${this.suffix}?${type}fields=${fields}&limit=${this.limit}${offsetVar}&ordering=${this.ordering}`
+                : `/api/${this.suffix}?${type}fields=${fields}&limit=${this.limit}${offsetVar}&ordering=${this.ordering}`
 
             if (sr) {
                 url = `${url}&search=${sr}`
@@ -234,7 +234,7 @@ export const useIndex = defineStore('index', {
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`/api/content/${this.suffix}/${item.id}`, {
+                    await fetch(`/api/${this.suffix}/${item.id}`, {
                         method: 'PUT',
                         headers: { ...this.contentType, ...auth.authHeader },
                         body: JSON.stringify({ status }),
@@ -261,7 +261,7 @@ export const useIndex = defineStore('index', {
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`/api/content/${this.suffix}/${item.id}`, {
+                    await fetch(`/api/${this.suffix}/${item.id}`, {
                         method: 'DELETE',
                         headers: auth.authHeader,
                     })

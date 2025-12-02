@@ -6,6 +6,8 @@ export type AuthRole = { id?: number, name: Role, total_count?: bigint | null, }
 
 export type AuthUser = { id?: number, email?: string, username?: string, first_name?: string, last_name?: string, password?: string, role_id?: number, created_at?: string | null, updated_at?: string | null, last_login?: string | null, };
 
+export type Comment = { id?: number, entry_id?: number | null, parent_id?: number | null, user_id?: number | null, author_name?: string | null, author_email?: string | null, text?: string | null, status?: string | null, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
+
 export type ContentAuthor = { id?: number, first_name?: string, last_name?: string, slug?: string, bio?: string | null, media_id?: number | null, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
 
 export type ContentCategory = { id?: number, group_id?: number, locale_id?: number, name?: string, slug?: string, status?: string, media_id?: number | null, total_count?: bigint | null, };

@@ -178,8 +178,8 @@ CREATE TABLE comments (
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     parent_id INT REFERENCES comments (id) ON DELETE CASCADE, -- for Threading
     user_id INT REFERENCES auth_users (id) ON DELETE SET NULL,
-    author_name TEXT,
-    author_email TEXT,
+    author_name VARCHAR(160),
+    author_email VARCHAR(160),
     text TEXT NOT NULL,
     status VARCHAR(16) CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

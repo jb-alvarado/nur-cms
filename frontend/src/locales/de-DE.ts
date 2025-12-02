@@ -10,6 +10,15 @@ export default {
         media: 'Medien',
         configure: 'Einstellungen',
         logout: 'Abmelden',
+        author: 'Autor',
+        category: 'Kategorie',
+        comment: 'Kommentar',
+        publish: 'Veröffentlichen',
+        unpublish: 'Zurückziehen',
+        approve: 'Genehmigen',
+        reject: 'Ablehnen',
+        pending: 'Ausstehend',
+        archived: 'Archiviert',
     },
 
     common: {
@@ -24,6 +33,27 @@ export default {
         addLanguage: 'Sprache hinzufügen',
         deleteSuccess: 'Gelöscht: {name}',
         languages: 'Sprachen',
+    },
+    table: {
+        id: 'ID',
+        firstName: 'Vorname',
+        lastName: 'Nachname',
+        createdAt: 'Erstellt am',
+        name: 'Name',
+        status: 'Status',
+        language: 'Sprache',
+        groupId: 'Gruppen-ID',
+        authorName: 'Autor Name',
+        text: 'Text',
+        title: 'Titel',
+    },
+    status: {
+        published: 'Veröffentlicht',
+        draft: 'Entwurf',
+        archived: 'Archiviert',
+        approved: 'Genehmigt',
+        pending: 'Ausstehend',
+        rejected: 'Abgelehnt',
     },
     dialog: {
         deleteTitle: 'Auswahl löschen',
@@ -92,6 +122,14 @@ export default {
     },
     category: {
         deleteConfirm: 'Möchten Sie diese Kategorie wirklich löschen?',
+    },
+    comment: {
+        title: 'Kommentar',
+        authorName: 'Verfasser',
+        authorEmail: 'E-Mail',
+        text: 'Kommentar Text',
+        status: 'Status',
+        deleteConfirm: 'Möchten Sie diesen Kommentar wirklich löschen?',
     },
     user: {
         title: 'Benutzer-Konfiguration',

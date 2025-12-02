@@ -541,3 +541,55 @@ impl ColumnCounter for MediaVariant {
         self.total_count.unwrap_or_default()
     }
 }
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+pub struct Comment {
+    #[ts(as = "i32")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for Comment {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").ok(),
+            entry_id: row.try_get("entry_id").ok(),
+            parent_id: row.try_get("parent_id").ok(),
+            user_id: row.try_get("user_id").ok(),
+            author_name: row.try_get("author_name").ok(),
+            author_email: row.try_get("author_email").ok(),
+            text: row.try_get("text").ok(),
+            status: row.try_get("status").ok(),
+            created_at: row.try_get("created_at").ok(),
+            updated_at: row.try_get("updated_at").ok(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+impl ColumnCounter for Comment {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}

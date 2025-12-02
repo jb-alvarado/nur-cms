@@ -1,5 +1,6 @@
 pub mod auth_role;
 pub mod auth_user;
+pub mod comment;
 pub mod content_author;
 pub mod content_category;
 pub mod content_entry;
@@ -14,6 +15,7 @@ pub mod ts_language;
 
 pub use auth_role::*;
 pub use auth_user::*;
+pub use comment::*;
 pub use content_author::*;
 pub use content_category::*;
 pub use content_entry::*;
