@@ -8,4 +8,4 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_DB: nur_cms
     volumes:
-      - ./postgres-data/:/var/lib/postgresql/data:Z
+      - ./postgres-data/:/var/lib/postgresql/data:z

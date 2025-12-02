@@ -28,6 +28,9 @@ export default {
     dialog: {
         deleteTitle: 'Auswahl löschen',
         deleteConfirm: 'Möchten Sie wirklich {count} Element(e) löschen?',
+        linkTitle: 'Link erstellen',
+        linkName: 'Link Name',
+        linkURL: 'URL',
     },
     upload: {
         failed: 'Upload fehlgeschlagen',

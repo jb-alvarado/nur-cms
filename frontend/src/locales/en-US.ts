@@ -27,6 +27,9 @@ export default {
     dialog: {
         deleteTitle: 'Delete Selection',
         deleteConfirm: 'Are you sure you want to delete {count} item(s)?',
+        linkTitle: 'Create Link',
+        linkName: 'Link Name',
+        linkURL: 'URL',
     },
     upload: {
         failed: 'Upload failed',

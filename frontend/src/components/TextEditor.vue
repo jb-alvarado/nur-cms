@@ -3,11 +3,18 @@ import { type ModelRef, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 
+import GenericModal from '@/components/GenericModal.vue'
+import MediaBrowser from '@/components/MediaBrowser.vue'
+
 const { t } = useI18n()
 const model: ModelRef<string | undefined> = defineModel()
 const store = useIndex()
 
 const textareaRef = ref()
+const linkModal = ref()
+const mediaModal = ref()
+const linkName = ref('')
+const linkURL = ref('https://')
 const lastBody = ref('')
 const lastPos = ref(0)
 const format = ref(0)
@@ -26,8 +33,8 @@ const editorButtons = [
     { id: 1, icon: 'bi-type-italic', func: italic },
     { id: 2, icon: 'bi-type-underline', func: underline },
     { id: 3, icon: 'bi-type-strikethrough', func: strikethrough },
-    { id: 4, icon: 'bi-link-45deg', func: link },
-    { id: 5, icon: 'bi-image', func: image },
+    { id: 4, icon: 'bi-link-45deg', func: openLinkModal },
+    { id: 5, icon: 'bi-image', func: openMediaBrowser },
     { id: 6, icon: 'bi-quote', func: quote },
 ]
 
@@ -37,6 +44,21 @@ const props = defineProps({
         default() {},
     },
 })
+
+function openLinkModal() {
+    const textarea = textareaRef.value
+    if (!textarea) return
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+
+    linkName.value = textarea.value.substring(start, end)
+    linkModal.value.showModal()
+}
+
+function openMediaBrowser() {
+    mediaModal.value.showModal()
+}
 
 function keyHandler(e: KeyboardEvent) {
     const textarea = textareaRef.value
@@ -96,15 +118,10 @@ function insertMarkdown(before: string, after = '') {
 
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
-    let selected = textarea.value.substring(start, end)
+    const selected = textarea.value.substring(start, end)
 
     lastBody.value = model.value ?? ''
     lastPos.value = start
-
-    if (before.startsWith('[]')) {
-        before = before.replace('[]', `[${selected}]`)
-        selected = selected.startsWith('http') ? selected : `https://${selected}`
-    }
 
     const value = model.value ?? ''
     let cursorPos = start + before.length
@@ -140,12 +157,42 @@ function strikethrough() {
     insertMarkdown('~~', '~~')
 }
 
-function link() {
-    insertMarkdown('[](', ')')
+function clearLink() {
+    linkName.value = ''
+    linkURL.value = 'https://'
 }
 
-function image() {
-    insertMarkdown('![', ']()')
+function addLink() {
+    const textarea = textareaRef.value
+    if (!textarea) return
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const value = model.value ?? ''
+
+    lastBody.value = model.value ?? ''
+    lastPos.value = start
+
+    const linkMarkdown = `[${linkName.value}](${linkURL.value})`
+    model.value = value.slice(0, start) + linkMarkdown + value.slice(end)
+
+    nextTick(() => {
+        const cursorPos = start + linkMarkdown.length
+        textarea.setSelectionRange(cursorPos, cursorPos)
+        textarea.focus()
+
+        linkName.value = ''
+        linkURL.value = 'https://'
+    })
+}
+
+function addMedia(m: Media) {
+    const alt = m.alt ?? m.filename
+    const path = `${m.path}/${m.filename}`
+
+    insertMarkdown(`![${alt}](${path})`)
+
+    mediaModal.value.close()
 }
 
 function textPosition() {
@@ -253,5 +300,18 @@ function quote() {
                 @click="textPosition"
             ></textarea>
         </div>
+
+        <GenericModal ref="linkModal" :title="$t('dialog.linkTitle')" :cancel-action="clearLink" :ok-action="addLink">
+            <fieldset class="fieldset">
+                <legend class="fieldset-legend">{{ $t('dialog.linkName') }}</legend>
+                <input v-model="linkName" type="text" class="input w-full" placeholder="Name" />
+            </fieldset>
+            <fieldset class="fieldset">
+                <legend class="fieldset-legend">{{ $t('dialog.linkURL') }}</legend>
+                <input v-model="linkURL" type="text" class="input w-full" placeholder="URL" autofocus />
+            </fieldset>
+        </GenericModal>
+
+        <MediaBrowser ref="mediaModal" :update="addMedia" />
     </div>
 </template>
