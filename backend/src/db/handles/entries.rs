@@ -321,10 +321,15 @@ pub async fn select_content_entries(
             Some("OR"),
             "ca2.last_name ILIKE CONCAT('%', ",
             search.clone(),
-            Some(", '%'))))"),
+            Some(", '%'))"),
         );
 
-        // TODO: add full text search
+        where_chain.push_and_bind(
+            Some("OR"),
+            "ce.text_vector @@ websearch_to_tsquery((SELECT tsv_dict::regconfig FROM locales WHERE id = ce.locale_id), ",
+            search,
+            Some(")))"),
+        );
     }
 
     // take builder back from where_chain
