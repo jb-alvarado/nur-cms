@@ -29,10 +29,18 @@ clap = { version = "4", features = ["derive"] }
 colored = "3"
 derive_more = { version = "2", features = ["full"] }
 dotenvy = "0.15"
+html_parser = "0.7"
 image = { version = "0.25", features = ["avif", "rayon", "png"] }
 include_dir = "0.7"
 inquire = "0.9"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+lettre = { version = "0.11", features = [
+    "builder",
+    "file-transport",
+    "tokio1",
+    "tokio1-rustls-tls",
+    "smtp-transport",
+], default-features = false }
 libwebp-sys = "0.14"
 markdown = { version = "1", features = ["serde"] }
 mime_guess = "2"
@@ -61,8 +69,13 @@ tracing-subscriber = { version = "=0.3.19", features = [
     "time",
     "chrono",
 ] }
-ts-rs = { version = "11", features = ["chrono-impl", "no-serde-warnings", "serde-json-impl"] }
+ts-rs = { version = "11", features = [
+    "chrono-impl",
+    "no-serde-warnings",
+    "serde-json-impl",
+] }
 uuid = { version = "1.18", features = ["v4"] }
+voca_rs = "1.15"
 
 [profile.dev.package.image]
 opt-level = 3

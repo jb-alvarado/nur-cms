@@ -8,7 +8,7 @@ use {std::env, tokio::fs};
 #[cfg(debug_assertions)]
 use crate::db::{
     format_sql,
-    models::{AuthUser, Media},
+    models::{AuthUser, MailTarget, Media},
 };
 
 use crate::db::{
@@ -107,12 +107,39 @@ pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, Servic
     Ok(data)
 }
 
-pub async fn select_ts_language(
-    pool: &PgPool,
-) -> Result<crate::db::queries::RespondObj<crate::db::models::TSConfig>, ServiceError> {
+pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget, ServiceError> {
+    const QUERY: &str =
+        "select id, name, subject, recipients, allow_html FROM mail_targets WHERE name = $1;";
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(QUERY));
+
+    let data: MailTarget = sqlx::query_as(QUERY).bind(name).fetch_one(pool).await?;
+
+    Ok(data)
+}
+
+pub async fn select_mail_targets(pool: &PgPool) -> Result<RespondObj<MailTarget>, ServiceError> {
+    const QUERY: &str = "select id, name, subject, recipients, allow_html FROM mail_targets;";
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(QUERY));
+
+    let data: Vec<MailTarget> = sqlx::query_as(QUERY).fetch_all(pool).await?;
+    let resp = RespondObj {
+        count: data.first().and_then(|d| d.total_count).unwrap_or_default(),
+        previous: None,
+        next: None,
+        results: data,
+    };
+
+    Ok(resp)
+}
+
+pub async fn select_ts_language(pool: &PgPool) -> Result<RespondObj<TSConfig>, ServiceError> {
     const QUERY: &str =
         "select cfgname, count(*) OVER() AS total_count from pg_catalog.pg_ts_config;";
-    let query_obj: crate::db::queries::QueryObj<TSLanguage> = crate::db::queries::QueryObj {
+    let query_obj: QueryObj<TSLanguage> = QueryObj {
         limit: 200,
         ..Default::default()
     };

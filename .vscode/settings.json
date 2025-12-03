@@ -29,9 +29,11 @@
         "axum",
         "cfgname",
         "ILIKE",
+        "lettre",
         "postgres",
         "serde",
         "sqlx",
+        "starttls",
         "unseparated",
         "uuids",
         "webp"

@@ -19,6 +19,7 @@ use tracing::{error, warn};
 pub mod api;
 pub mod db;
 pub mod file;
+pub mod mail;
 pub mod serve;
 pub mod sse;
 pub mod utils;
@@ -147,11 +148,16 @@ pub fn router_entries() -> (
         .route("/", get(media_select))
         .route("/{id}", put(media_update).delete(media_delete));
 
+    let contact_routes = Router::new()
+        .route("/targets", get(targets_select))
+        .route("/target/{target}", post(mailer));
+
     let api_routes = Router::new()
         .route("/ts-language", get(ts_language_select))
         .route("/auth-role", get(auth_role_select))
         .route("/upload", post(upload_chunk))
         .nest("/auth-user", auth_user_routes)
+        .nest("/contact", contact_routes)
         .nest("/locales", locale_routes)
         .nest("/comments", comment_routes)
         .nest("/content", content_routes)

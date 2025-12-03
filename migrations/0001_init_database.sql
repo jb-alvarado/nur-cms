@@ -190,13 +190,20 @@ CREATE TABLE configuration (
     id SERIAL PRIMARY KEY,
     jwt_secret VARCHAR(255) NOT NULL,
     output_type VARCHAR(16) NOT NULL CHECK (output_type IN ('ast', 'html', 'markdown')) DEFAULT 'ast',
-    mail_recipience VARCHAR(160)[],
     mail_smtp VARCHAR(160),
     mail_user VARCHAR(160),
     mail_password VARCHAR(255),
     mail_starttls BOOLEAN NOT NULL DEFAULT false,
     image_extensions VARCHAR(4)[],
     image_resolutions INT[]
+);
+
+CREATE TABLE mail_targets (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(160) NOT NULL UNIQUE,
+    subject VARCHAR(160),
+    recipients VARCHAR(160)[] NOT NULL,
+    allow_html BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE OR REPLACE FUNCTION content_text_vector_update () RETURNS trigger AS $$

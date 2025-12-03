@@ -132,6 +132,27 @@ impl From<sqlx::migrate::MigrateError> for ServiceError {
     }
 }
 
+impl From<lettre::transport::smtp::Error> for ServiceError {
+    fn from(err: lettre::transport::smtp::Error) -> Self {
+        error!("{err:?}");
+        Self::InternalServerError
+    }
+}
+
+impl From<lettre::address::AddressError> for ServiceError {
+    fn from(err: lettre::address::AddressError) -> Self {
+        error!("{err:?}");
+        Self::InternalServerError
+    }
+}
+
+impl From<lettre::error::Error> for ServiceError {
+    fn from(err: lettre::error::Error) -> Self {
+        error!("{err:?}");
+        Self::InternalServerError
+    }
+}
+
 impl From<sqlx::Error> for ServiceError {
     fn from(err: sqlx::Error) -> ServiceError {
         error!("{err:?}");

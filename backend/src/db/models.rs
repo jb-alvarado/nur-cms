@@ -55,7 +55,6 @@ pub struct Configuration {
     pub id: i32,
     pub jwt_secret: String,
     pub output_type: OutputType,
-    pub mail_recipience: Option<Vec<String>>,
     pub mail_smtp: Option<String>,
     pub mail_user: Option<String>,
     pub mail_password: Option<String>,
@@ -589,6 +588,29 @@ impl FromRow<'_, PgRow> for Comment {
 }
 
 impl ColumnCounter for Comment {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS, FromRow)]
+#[ts(export, export_to = "models.d.ts")]
+pub struct MailTarget {
+    #[serde(default)]
+    pub id: i32,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub recipients: Vec<String>,
+    #[serde(default)]
+    pub allow_html: bool,
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl ColumnCounter for MailTarget {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }
