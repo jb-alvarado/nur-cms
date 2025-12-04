@@ -68,11 +68,11 @@ CREATE TABLE content_types (
 );
 
 INSERT INTO
-    content_types (id, name, slug)
+    content_types (name, slug)
 VALUES
-    (1, 'Article', 'article'),
-    (2, 'Page', 'page'),
-    (3, 'Event', 'event');
+    ('Article', 'article'),
+    ('Page', 'page'),
+    ('Event', 'event');
 
 CREATE SEQUENCE category_group_seq START 1001;
 

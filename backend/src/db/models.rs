@@ -51,8 +51,11 @@ impl fmt::Display for Role {
 }
 
 #[derive(Clone, Debug, Default, FromRow, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+#[serde(rename_all = "snake_case")]
 pub struct Configuration {
     pub id: i32,
+    #[serde(default, skip_serializing)]
     pub jwt_secret: String,
     pub output_type: OutputType,
     pub mail_smtp: Option<String>,
@@ -61,6 +64,12 @@ pub struct Configuration {
     pub mail_starttls: bool,
     pub image_extensions: Option<Vec<String>>,
     pub image_resolutions: Option<Vec<i32>>,
+}
+
+impl ColumnCounter for Configuration {
+    fn total_count(&self) -> i64 {
+        1
+    }
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, TS)]
@@ -211,6 +220,7 @@ pub struct ContentType {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
+    #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
 

@@ -6,6 +6,7 @@ use ts_rs::TS;
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, TS, sqlx::Type)]
 #[sqlx(type_name = "VARCHAR")]
 #[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum OutputType {
     #[default]
     AST,

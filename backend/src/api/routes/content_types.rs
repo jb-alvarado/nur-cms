@@ -1,12 +1,10 @@
-use std::str::FromStr;
-
 use axum::{
     Json,
     extract::{OriginalUri, Path, Query, State},
 };
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
+use serde_json::Value;
 use sqlx::postgres::PgPool;
-use strum::IntoEnumIterator;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
@@ -18,7 +16,7 @@ use crate::db::{
 };
 use crate::utils::errors::ServiceError;
 
-pub async fn content_types_select(
+pub async fn types_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ContentTypeFields>>,
     OriginalUri(original_uri): OriginalUri,
@@ -35,19 +33,33 @@ pub async fn content_types_select(
     }
 }
 
-pub async fn content_delete(
+pub async fn type_insert(
     State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path((table, id)): Path<(String, i32)>,
+    details: AuthDetails<Role>,
+    Json(content): Json<serde_json::Value>,
+) -> Result<Json<i32>, ServiceError> {
+    if details.has_any_authority(&[&Role::Admin]) {
+        return match handles::insert_record(&pool, &Table::ContentTypes, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
+pub async fn type_delete(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
     details: AuthDetails<Role>,
 ) -> Result<(), ServiceError> {
-    let table = Table::from_str(&format!("content_{table}"))?;
-
-    if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
-        || (table != Table::ContentTypes
-            && Table::iter().any(|t| t == table)
-            && details.has_any_authority(&[&Role::Admin, &Role::Author]))
-    {
-        return match handles::delete_record(&pool, &table, id).await {
+    if details.has_any_authority(&[&Role::Admin]) {
+        return match handles::delete_record(&pool, &Table::ContentTypes, id).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
@@ -61,21 +73,15 @@ pub async fn content_delete(
     ))
 }
 
-pub async fn content_insert(
+pub async fn type_update(
     State((pool, _)): State<(PgPool, Sender<String>)>,
-    Path(table): Path<String>,
+    Path(id): Path<i32>,
     details: AuthDetails<Role>,
-    Json(content): Json<serde_json::Value>,
-) -> Result<Json<i32>, ServiceError> {
-    let table = Table::from_str(&format!("content_{table}"))?;
-
-    if (table == Table::ContentTypes && details.has_any_authority(&[&Role::Admin]))
-        || (table != Table::ContentTypes
-            && Table::iter().any(|t| t == table)
-            && details.has_any_authority(&[&Role::Admin, &Role::Author]))
-    {
-        return match handles::insert_record(&pool, &table, &content).await {
-            Ok(id) => Ok(Json(id)),
+    Json(content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return match handles::update_record(&pool, &Table::ContentTypes, id, &content).await {
+            Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)

@@ -592,7 +592,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 <i class="bi bi-plus-lg"></i>
                             </RouterLink>
 
-                            <button class="btn btn-disabled bg-base-300 p-1"></button>
+                            <!-- <button class="btn btn-disabled bg-base-300 p-1"></button> -->
 
                             <details class="dropdown">
                                 <summary

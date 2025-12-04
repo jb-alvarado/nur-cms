@@ -8,6 +8,7 @@ declare global {
     type Role = import('./Role').Role
     type AuthRole = import('./models.d').AuthRole
     type AuthUser = import('./serialized.d').AuthUserSerializer
+    type Configuration = import('./models.d').Configuration
     type ContentAuthor = import('./models.d').ContentAuthor
     type CommentExt = import('./models.d').Comment
     type ContentCategory = import('./serialized.d').ContentCategorySerializer
@@ -31,7 +32,7 @@ declare global {
 
     interface ContentTypeExt extends ContentType {
         active?: boolean
-        check: boolean
+        check?: boolean
         field?: string
         icon?: string
     }

@@ -188,7 +188,7 @@ export const useIndex = defineStore('index', {
             let type = ''
             let offsetVar = ''
 
-            if (this.suffix === 'entries') {
+            if (this.suffix === 'content/entries') {
                 type = `type_id=${this.typeID}&`
             }
 

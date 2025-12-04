@@ -19,6 +19,8 @@ export default {
         reject: 'Ablehnen',
         pending: 'Ausstehend',
         archived: 'Archiviert',
+        new: 'Neu',
+        save: 'Speichern',
     },
 
     common: {
@@ -55,9 +57,27 @@ export default {
         pending: 'Ausstehend',
         rejected: 'Abgelehnt',
     },
+    contentType: {
+        title: 'Inhaltstypen',
+        name: 'Name',
+        slug: 'Slug',
+    },
+    globalSettings: {
+        title: 'Globale Einstellungen',
+        jwtSecret: 'JWT Geheimnis',
+        outputType: 'Ausgabetyp',
+        mailSmtp: 'Mail SMTP',
+        mailUser: 'Mail Benutzer',
+        mailPassword: 'Mail Passwort',
+        mailStarttls: 'Mail STARTTLS',
+        imageExtensions: 'Bilderweiterungen',
+        imageResolutions: 'Bildauflösungen',
+    },
     dialog: {
         deleteTitle: 'Auswahl löschen',
         deleteConfirm: 'Möchten Sie wirklich {count} Element(e) löschen?',
+        createTypeTitle: 'Inhaltstyp erstellen',
+        editTypeTitle: 'Inhaltstyp bearbeiten',
         linkTitle: 'Link erstellen',
         linkName: 'Link Name',
         linkURL: 'URL',

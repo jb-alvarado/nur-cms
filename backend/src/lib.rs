@@ -117,6 +117,8 @@ pub fn router_entries() -> (
         .route("/", get(auth_user_select).post(auth_user_insert))
         .route("/{id}", delete(auth_user_delete).put(auth_user_update));
 
+    let config_routes = Router::new().route("/", get(config_select).put(config_update));
+
     let locale_routes = Router::new()
         .route("/", get(locale_select).post(locale_insert))
         .route("/{id}", delete(locale_delete));
@@ -126,7 +128,8 @@ pub fn router_entries() -> (
         .route("/{id}", delete(comment_delete).put(comment_update));
 
     let content_routes = Router::new()
-        .route("/types", get(content_types_select))
+        .route("/types", get(types_select).post(type_insert))
+        .route("/types/{id}", put(type_update).delete(type_delete))
         .route("/authors", get(authors_select).post(author_insert))
         .route("/authors/{id}", put(author_update).delete(author_delete))
         .route("/categories", get(categories_select).post(category_insert))
@@ -157,6 +160,7 @@ pub fn router_entries() -> (
         .route("/auth-role", get(auth_role_select))
         .route("/upload", post(upload_chunk))
         .nest("/auth-user", auth_user_routes)
+        .nest("/configuration", config_routes)
         .nest("/contact", contact_routes)
         .nest("/locales", locale_routes)
         .nest("/comments", comment_routes)
