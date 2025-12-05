@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
+    string::ToString,
 };
 
 use argon2::{
@@ -250,7 +251,21 @@ where
 
         match val {
             Value::Array(a) => {
-                separated.push_bind_unseparated(a);
+                if a.iter().all(Value::is_string) {
+                    let vec: Vec<String> = a
+                        .iter()
+                        .filter_map(|v| v.as_str().map(ToString::to_string))
+                        .collect();
+                    separated.push_bind_unseparated(vec);
+                } else if a.iter().all(Value::is_number) {
+                    let vec: Vec<i32> = a
+                        .iter()
+                        .filter_map(|v| v.as_i64().map(|n| n as i32))
+                        .collect();
+                    separated.push_bind_unseparated(vec);
+                } else {
+                    separated.push_bind_unseparated(a);
+                }
             }
             Value::String(s) => {
                 if type_time.contains(&key.as_str()) {

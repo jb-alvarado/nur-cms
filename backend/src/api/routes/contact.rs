@@ -5,6 +5,7 @@ use axum::{
 };
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
@@ -14,7 +15,7 @@ use crate::{
     db::{
         fields::{MailTargetFields, Table},
         handles,
-        models::{AuthRole, Role},
+        models::{MailTarget, Role},
         queries::{QueryObj, RespondObj},
     },
     mail::client::{Msg, message},
@@ -33,13 +34,74 @@ pub async fn targets_select(
     Query(mut params): Query<QueryObj<MailTargetFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<AuthRole>>, ServiceError> {
+) -> Result<Json<RespondObj<MailTarget>>, ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         params.path = original_uri.path().into();
         params.query = original_uri.query().unwrap_or("").into();
 
-        return match handles::select_record(&pool, &Table::AuthRoles, params).await {
+        return match handles::select_record(&pool, &Table::MailTargets, params).await {
             Ok(role) => Ok(Json(role)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
+pub async fn target_insert(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<Json<i32>, ServiceError> {
+    if details.has_any_authority(&[&Role::Admin]) {
+        return match handles::insert_record(&pool, &Table::MailTargets, &content).await {
+            Ok(id) => Ok(Json(id)),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
+pub async fn target_update(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(content): Json<Value>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin]) {
+        return match handles::update_record(&pool, &Table::MailTargets, id, &content).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("{e}");
+                Err(ServiceError::InternalServerError)
+            }
+        };
+    }
+
+    Err(ServiceError::Forbidden(
+        "You do not have permission to access this resource.".into(),
+    ))
+}
+
+pub async fn target_delete(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), ServiceError> {
+    if details.has_any_authority(&[&Role::Admin]) {
+        return match handles::delete_record(&pool, &Table::MailTargets, id).await {
+            Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)
@@ -59,11 +121,7 @@ pub async fn mailer(
 ) -> Result<(), ServiceError> {
     let target = handles::select_mail_target(&pool, &target).await?;
     let text = format!(
-        r#"
-        Name: {} | Mail: {}\n
-        ---------------------------------------------------------\n\n
-        {}
-    "#,
+        "Name: {}\nMail: {}\n------------------------------------\n\n{}",
         contact.name, contact.mail, contact.text
     );
     let msg = Msg::new(contact.mail, contact.name, None, text, target);

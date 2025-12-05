@@ -5,11 +5,19 @@ resolver = "2"
 [workspace.package]
 description = "nur CMS backend"
 readme = "README.md"
-version = "0.1.0"
+version = "0.0.1"
 license = "MIT"
 repository = "https://github.com/jb-alvarado/nur-cms"
 authors = ["Jonathan Baecker <jonbae77@gmail.com>"]
 edition = "2024"
+
+[profile.dev.package.image]
+opt-level = 3
+debug = true
+codegen-units = 1
+
+[profile.dev.package.rav1e]
+opt-level = 3
 
 [profile.release]
 strip = true

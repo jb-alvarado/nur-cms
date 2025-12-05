@@ -21,6 +21,7 @@ export default {
         archived: 'Archiviert',
         new: 'Neu',
         save: 'Speichern',
+        add: 'Hinzufügen',
     },
 
     common: {
@@ -67,6 +68,7 @@ export default {
         jwtSecret: 'JWT Geheimnis',
         outputType: 'Ausgabetyp',
         mailSmtp: 'Mail SMTP',
+        mailPort: 'Mail Port',
         mailUser: 'Mail Benutzer',
         mailPassword: 'Mail Passwort',
         mailStarttls: 'Mail STARTTLS',
@@ -78,6 +80,8 @@ export default {
         deleteConfirm: 'Möchten Sie wirklich {count} Element(e) löschen?',
         createTypeTitle: 'Inhaltstyp erstellen',
         editTypeTitle: 'Inhaltstyp bearbeiten',
+        createMailTargetTitle: 'Mail Ziel erstellen',
+        editMailTargetTitle: 'Mail Ziel bearbeiten',
         linkTitle: 'Link erstellen',
         linkName: 'Link Name',
         linkURL: 'URL',
@@ -175,5 +179,13 @@ export default {
     },
     home: {
         welcome: 'Willkommen, du bist eingeloggt!',
+    },
+    mail: {
+        title: 'Mail Ziele',
+        name: 'Name',
+        subject: 'Betreff',
+        recipients: 'Empfänger',
+        recipientPlaceholder: 'E-Mail-Adresse eingeben',
+        allowHtml: 'HTML erlauben',
     },
 }

@@ -166,7 +166,7 @@ function saveType() {
             </div>
         </div>
 
-        <div class="overflow-x-auto mt-4 max-h-52">
+        <div class="overflow-x-auto mt-4 max-h-96">
             <table class="table bg-base-300 table-pin-rows table-zebra [&_td]:py-2 rounded-sm">
                 <thead>
                     <tr>

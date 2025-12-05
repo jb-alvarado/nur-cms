@@ -59,6 +59,7 @@ pub struct Configuration {
     pub jwt_secret: String,
     pub output_type: OutputType,
     pub mail_smtp: Option<String>,
+    pub mail_port: Option<i32>,
     pub mail_user: Option<String>,
     pub mail_password: Option<String>,
     pub mail_starttls: bool,
@@ -189,6 +190,7 @@ pub struct Locale {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tsv_dict: String,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -220,6 +222,7 @@ pub struct ContentType {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -259,6 +262,7 @@ pub struct ContentCategory {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_id: Option<i32>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -293,6 +297,7 @@ pub struct ContentTag {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -348,6 +353,7 @@ pub struct ContentEntry {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -400,6 +406,7 @@ pub struct ContentAuthor {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -439,6 +446,7 @@ pub struct ContentMeta {
     pub start_time: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<DateTime<Utc>>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -486,6 +494,7 @@ pub struct Media {
     pub uploaded_by: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -528,6 +537,7 @@ pub struct MediaVariant {
     pub height: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub filename: String,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -575,6 +585,7 @@ pub struct Comment {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -603,7 +614,7 @@ impl ColumnCounter for Comment {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, TS, FromRow)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
 pub struct MailTarget {
     #[serde(default)]
@@ -616,8 +627,22 @@ pub struct MailTarget {
     pub recipients: Vec<String>,
     #[serde(default)]
     pub allow_html: bool,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for MailTarget {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").unwrap_or_default(),
+            name: row.try_get("name").unwrap_or_default(),
+            subject: row.try_get("subject").ok(),
+            recipients: row.try_get("recipients").unwrap_or_default(),
+            allow_html: row.try_get("allow_html").unwrap_or_default(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
 }
 
 impl ColumnCounter for MailTarget {

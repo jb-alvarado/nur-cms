@@ -191,6 +191,7 @@ CREATE TABLE configuration (
     jwt_secret VARCHAR(255) NOT NULL,
     output_type VARCHAR(16) NOT NULL CHECK (output_type IN ('ast', 'html', 'markdown')) DEFAULT 'ast',
     mail_smtp VARCHAR(160),
+    mail_port INT,
     mail_user VARCHAR(160),
     mail_password VARCHAR(255),
     mail_starttls BOOLEAN NOT NULL DEFAULT false,

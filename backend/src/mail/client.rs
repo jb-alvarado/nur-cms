@@ -5,6 +5,7 @@ use lettre::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::time::Duration;
+use tracing::error;
 use voca_rs::Voca;
 
 use crate::{CONFIG, db::models::MailTarget, utils::errors::ServiceError};
@@ -88,8 +89,18 @@ pub async fn message(msg: Msg) -> Result<(), ServiceError> {
         .reply_to(format!("{} <{}>", msg.name, msg.mail).parse()?);
 
     for recipient in &msg.target.recipients {
-        message = message.to(recipient.parse()?);
+        let addr = recipient.trim();
+        if addr.is_empty() {
+            continue;
+        }
+
+        match addr.parse() {
+            Ok(parsed) => message = message.to(parsed),
+            Err(e) => error!("Invalid recipient address '{addr}': {e}"),
+        }
     }
+
+    println!("message: {message:?}");
 
     let message_text = match msg.target.allow_html {
         true => msg.text.clone(),

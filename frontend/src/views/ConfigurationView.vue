@@ -6,6 +6,7 @@
 
 import GlobalSettings from '@/components/config/GlobalSettings.vue'
 import ContentType from '@/components/config/ContentType.vue'
+import MailTargets from '@/components/config/MailTargets.vue';
 
 // const auth = useAuth()
 // const store = useIndex()
@@ -21,5 +22,6 @@ import ContentType from '@/components/config/ContentType.vue'
     <div class="flex flex-wrap gap-4">
         <GlobalSettings />
         <ContentType />
+        <MailTargets />
     </div>
 </template>

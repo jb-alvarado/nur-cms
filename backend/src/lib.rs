@@ -152,7 +152,8 @@ pub fn router_entries() -> (
         .route("/{id}", put(media_update).delete(media_delete));
 
     let contact_routes = Router::new()
-        .route("/targets", get(targets_select))
+        .route("/targets", get(targets_select).post(target_insert))
+        .route("/targets/{id}", put(target_update).delete(target_delete))
         .route("/target/{target}", post(mailer));
 
     let api_routes = Router::new()

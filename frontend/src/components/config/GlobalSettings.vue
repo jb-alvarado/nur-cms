@@ -24,6 +24,7 @@ const settingsFields = computed(() => [
     { key: 'image_extensions', label: t('globalSettings.imageExtensions'), type: 'multiselect' },
     { key: 'image_resolutions', label: t('globalSettings.imageResolutions'), type: 'multiselect' },
     { key: 'mail_smtp', label: t('globalSettings.mailSmtp'), type: 'text' },
+    { key: 'mail_port', label: t('globalSettings.mailPort'), type: 'number' },
     { key: 'mail_user', label: t('globalSettings.mailUser'), type: 'text' },
     { key: 'mail_password', label: t('globalSettings.mailPassword'), type: 'password' },
     { key: 'mail_starttls', label: t('globalSettings.mailStarttls'), type: 'checkbox' },
@@ -62,6 +63,14 @@ function configUpdate() {
             return !isEqual(value, (configOriginal.value as Record<string, unknown>)[key])
         })
     )
+
+    if (payload.image_extensions && typeof payload.image_extensions === 'string') {
+        payload.image_extensions = payload.image_extensions.split(/[,;]/).map(e => e.trim())
+    }
+
+    if (payload.image_resolutions && typeof payload.image_resolutions === 'string') {
+        payload.image_resolutions = payload.image_resolutions.split(/[,;]/).map(e => Number(e.trim()))
+    }
 
     fetch('/api/configuration', {
         method: 'PUT',
@@ -119,6 +128,7 @@ function configUpdate() {
                                 v-else
                                 v-model="(config as any)[field.key]"
                                 :type="field.type"
+                                :name="field.key"
                                 class="input input-bordered w-full max-w-xs"
                                 :placeholder="field.label"
                             />

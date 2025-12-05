@@ -7,26 +7,26 @@ export type AuthRole = { id?: number, name: Role, total_count?: bigint | null, }
 
 export type AuthUser = { id?: number, email?: string, username?: string, first_name?: string, last_name?: string, password?: string, role_id?: number, created_at?: string | null, updated_at?: string | null, last_login?: string | null, };
 
-export type Comment = { id?: number, entry_id?: number | null, parent_id?: number | null, user_id?: number | null, author_name?: string | null, author_email?: string | null, text?: string | null, status?: string | null, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
+export type Comment = { id?: number, entry_id?: number | null, parent_id?: number | null, user_id?: number | null, author_name?: string | null, author_email?: string | null, text?: string | null, status?: string | null, created_at?: string | null, updated_at?: string | null, };
 
-export type Configuration = { id: number, jwt_secret: string, output_type: OutputType, mail_smtp: string | null, mail_user: string | null, mail_password: string | null, mail_starttls: boolean, image_extensions: Array<string> | null, image_resolutions: Array<number> | null, };
+export type Configuration = { id: number, jwt_secret?: string, output_type: OutputType, mail_smtp: string | null, mail_port: number | null, mail_user: string | null, mail_password: string | null, mail_starttls: boolean, image_extensions: Array<string> | null, image_resolutions: Array<number> | null, };
 
-export type ContentAuthor = { id?: number, first_name?: string, last_name?: string, slug?: string, bio?: string | null, media_id?: number | null, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
+export type ContentAuthor = { id?: number, first_name?: string, last_name?: string, slug?: string, bio?: string | null, media_id?: number | null, created_at?: string | null, updated_at?: string | null, };
 
-export type ContentCategory = { id?: number, group_id?: number, locale_id?: number, name?: string, slug?: string, status?: string, media_id?: number | null, total_count?: bigint | null, };
+export type ContentCategory = { id?: number, group_id?: number, locale_id?: number, name?: string, slug?: string, status?: string, media_id?: number | null, };
 
-export type ContentEntry = { id?: number, group_id?: number | null, type_id?: number, category_id?: number | null, locale_id?: number, media_id?: number | null, slug?: string, title?: string, description?: string, text?: string, status?: string, created_by?: number, updated_by?: number, created_at?: string | null, updated_at?: string | null, total_count?: bigint | null, };
+export type ContentEntry = { id?: number, group_id?: number | null, type_id?: number, category_id?: number | null, locale_id?: number, media_id?: number | null, slug?: string, title?: string, description?: string, text?: string, status?: string, created_by?: number, updated_by?: number, created_at?: string | null, updated_at?: string | null, };
 
-export type ContentMeta = { id?: number, entry_id?: number, data?: JsonValue | null, start_time?: string | null, end_time?: string | null, total_count?: bigint | null, };
+export type ContentMeta = { id?: number, entry_id?: number, data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
 
-export type ContentTag = { id?: number, name?: string, slug?: string, total_count?: bigint | null, };
+export type ContentTag = { id?: number, name?: string, slug?: string, };
 
-export type ContentType = { id?: number, name?: string, slug?: string, total_count?: bigint | null, };
+export type ContentType = { id?: number, name?: string, slug?: string, };
 
-export type Locale = { id?: number, code?: string, name?: string, tsv_dict?: string, total_count?: bigint | null, };
+export type Locale = { id?: number, code?: string, name?: string, tsv_dict?: string, };
 
-export type MailTarget = { id: number, name: string, subject: string | null, recipients: Array<string>, allow_html: boolean, total_count?: bigint | null, };
+export type MailTarget = { id: number, name: string, subject: string | null, recipients: Array<string>, allow_html: boolean, };
 
-export type Media = { id?: number, alt?: string | null, filename?: string, path?: string, type?: string | null, width?: number | null, height?: number | null, size?: number | null, uploaded_by?: number | null, created_at?: string | null, total_count?: bigint | null, };
+export type Media = { id?: number, alt?: string | null, filename?: string, path?: string, type?: string | null, width?: number | null, height?: number | null, size?: number | null, uploaded_by?: number | null, created_at?: string | null, };
 
-export type MediaVariant = { id?: number, media_id?: number, width?: number, height?: number, filename?: string, total_count?: bigint | null, };
+export type MediaVariant = { id?: number, media_id?: number, width?: number, height?: number, filename?: string, };
