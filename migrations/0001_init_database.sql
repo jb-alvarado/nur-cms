@@ -195,6 +195,7 @@ CREATE TABLE configuration (
     mail_user VARCHAR(160),
     mail_password VARCHAR(255),
     mail_starttls BOOLEAN NOT NULL DEFAULT false,
+    notification_emails TEXT[],
     image_extensions VARCHAR(4)[],
     image_resolutions INT[]
 );
@@ -202,8 +203,8 @@ CREATE TABLE configuration (
 CREATE TABLE mail_targets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(160) NOT NULL UNIQUE,
-    subject VARCHAR(160),
-    recipients VARCHAR(160)[] NOT NULL,
+    subject VARCHAR(255),
+    recipients TEXT[] NOT NULL,
     allow_html BOOLEAN NOT NULL DEFAULT false
 );
 

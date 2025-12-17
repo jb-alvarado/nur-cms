@@ -21,13 +21,14 @@ const outputTypeOptions = [
 
 const settingsFields = computed(() => [
     { key: 'output_type', label: t('globalSettings.outputType'), type: 'select' },
-    { key: 'image_extensions', label: t('globalSettings.imageExtensions'), type: 'multiselect' },
-    { key: 'image_resolutions', label: t('globalSettings.imageResolutions'), type: 'multiselect' },
+    { key: 'image_extensions', label: t('globalSettings.imageExtensions'), type: 'text' },
+    { key: 'image_resolutions', label: t('globalSettings.imageResolutions'), type: 'text' },
     { key: 'mail_smtp', label: t('globalSettings.mailSmtp'), type: 'text' },
     { key: 'mail_port', label: t('globalSettings.mailPort'), type: 'number' },
     { key: 'mail_user', label: t('globalSettings.mailUser'), type: 'text' },
     { key: 'mail_password', label: t('globalSettings.mailPassword'), type: 'password' },
     { key: 'mail_starttls', label: t('globalSettings.mailStarttls'), type: 'checkbox' },
+    { key: 'notification_emails', label: t('globalSettings.notificationEmails'), type: 'text' },
 ])
 
 async function configSelect() {
@@ -72,6 +73,10 @@ function configUpdate() {
         payload.image_resolutions = payload.image_resolutions.split(/[,;]/).map(e => Number(e.trim()))
     }
 
+    if (payload.notification_emails && typeof payload.notification_emails === 'string') {
+        payload.notification_emails = payload.notification_emails.split(/[,;]/).map(e => e.trim())
+    }
+
     fetch('/api/configuration', {
         method: 'PUT',
         headers: {
@@ -97,7 +102,7 @@ function configUpdate() {
 </script>
 
 <template>
-    <div v-if="config" class="bg-base-200 mt-4 p-2 border border-base-content/25 rounded-sm max-w-xl">
+    <div v-if="config" class="bg-base-200 p-2 border border-base-content/25 rounded-sm max-w-xl">
         <div class="flex mb-4">
             <div class="grow font-bold">{{ $t('globalSettings.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="configUpdate()">{{ $t('button.save') }}</button>
@@ -107,8 +112,8 @@ function configUpdate() {
             <table class="table bg-base-300 table-zebra">
                 <tbody>
                     <tr v-for="field in settingsFields" :key="field.key">
-                        <td class="font-semibold w-48">{{ field.label }}</td>
-                        <td>
+                        <td class="font-semibold">{{ field.label }}</td>
+                        <td class="min-w-46 md:min-w-86">
                             <input
                                 v-if="field.type === 'checkbox'"
                                 v-model="(config as any)[field.key]"

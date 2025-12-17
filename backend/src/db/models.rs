@@ -63,6 +63,7 @@ pub struct Configuration {
     pub mail_user: Option<String>,
     pub mail_password: Option<String>,
     pub mail_starttls: bool,
+    pub notification_emails: Option<Vec<String>>,
     pub image_extensions: Option<Vec<String>>,
     pub image_resolutions: Option<Vec<i32>>,
 }

@@ -165,7 +165,7 @@ function saveTarget() {
 </script>
 
 <template>
-    <div class="bg-base-200 mt-4 p-2 max-w-full border border-base-content/25 rounded-sm">
+    <div class="bg-base-200 p-2 max-w-full border border-base-content/25 rounded-sm">
         <div class="flex">
             <div class="grow font-bold">{{ $t('mail.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="openCreateModal()">{{ $t('button.new') }}</button>

@@ -8,13 +8,16 @@ use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
-use crate::db::{
-    fields::{ConfigurationFields, Table},
-    handles,
-    models::{Configuration, Role},
-    queries::QueryObj,
+use crate::{
+    CONFIG,
+    db::{
+        fields::{ConfigurationFields, Table},
+        handles,
+        models::{Configuration, Role},
+        queries::QueryObj,
+    },
+    utils::errors::ServiceError,
 };
-use crate::utils::errors::ServiceError;
 
 pub async fn config_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
@@ -40,7 +43,15 @@ pub async fn config_update(
 ) -> Result<(), ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return match handles::update_record(&pool, &Table::Configuration, 1, &content).await {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                {
+                    let config = handles::select_configuration(&pool).await?;
+                    let mut cfg = CONFIG.write().await;
+                    *cfg = config;
+                }
+
+                Ok(())
+            }
             Err(e) => {
                 error!("{e}");
                 Err(ServiceError::InternalServerError)

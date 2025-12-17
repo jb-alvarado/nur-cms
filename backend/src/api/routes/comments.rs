@@ -9,17 +9,53 @@ use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
-use crate::db::{
-    fields::{CommentFields, Table},
-    handles,
-    models::{Comment, Role},
-    queries::{QueryObj, RespondObj},
-};
 use crate::{
     AuthUserMeta,
     sse::{SSELevel, SSEMessage},
     utils::errors::ServiceError,
 };
+use crate::{
+    CONFIG,
+    db::{
+        fields::{CommentFields, Table},
+        handles,
+        models::{Comment, MailTarget, Role},
+        queries::{QueryObj, RespondObj},
+    },
+    mail::client::{Msg, message},
+};
+
+async fn notify(comment: Comment) -> Result<(), ServiceError> {
+    let author_name = comment.author_name.unwrap_or_default();
+    let author_email = comment.author_email.unwrap_or_default();
+    let comment_text = comment.text.unwrap_or_default();
+
+    // Format notification message
+    let message_body = format!(
+        "Name: {}\nEmail: {}\n------------------------------------\n\n{}",
+        author_name, author_email, comment_text
+    );
+
+    let target = MailTarget {
+        id: 0,
+        name: "New Comment".to_string(),
+        subject: Some(format!("New Comment from: {author_name}")),
+        recipients: CONFIG
+            .read()
+            .await
+            .notification_emails
+            .clone()
+            .unwrap_or_default(),
+        allow_html: true,
+        total_count: None,
+    };
+
+    let msg = Msg::new(author_email, author_name, None, message_body, target);
+
+    message(msg).await?;
+
+    Ok(())
+}
 
 pub async fn comments_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
@@ -47,36 +83,31 @@ pub async fn comment_insert(
     State((pool, tx)): State<(PgPool, Sender<String>)>,
     Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
-    Json(mut content): Json<Value>,
-) -> Result<Json<i32>, ServiceError> {
+    Json(mut content): Json<Comment>,
+) -> Result<Json<i64>, ServiceError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
-        content["user_id"] = Value::Number(user.id.into());
-        content["status"] = Value::String("approved".to_string());
+        content.user_id = Some(user.id);
+        content.status = Some("approved".to_string());
     } else {
         // require both name and email and ensure they're not empty strings
-        if content
-            .get("author_name")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(true)
-            || content
-                .get("author_email")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().is_empty())
-                .unwrap_or(true)
+        if content.author_name.as_ref().is_some_and(String::is_empty)
+            || content.author_email.as_ref().is_some_and(String::is_empty)
         {
             return Err(ServiceError::Conflict(
                 "Name and email are required.".to_string(),
             ));
         }
 
-        content["status"] = Value::String("pending".to_string());
+        content.status = Some("pending".to_string());
     }
 
-    match handles::insert_record(&pool, &Table::Comments, &content).await {
+    match handles::insert_record::<Comment, i64>(&pool, &Table::Comments, &content).await {
         Ok(id) => {
             let msg = SSEMessage::new(SSELevel::Success, &format!("New Comment received: {id}"));
             let _ = tx.send(msg.to_string());
+
+            notify(content).await?;
+
             Ok(Json(id))
         }
         Err(e) => {

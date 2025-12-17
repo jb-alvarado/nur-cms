@@ -38,12 +38,12 @@ pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), 
     let rows_affected = query.execute(pool).await?.rows_affected();
 
     if rows_affected == 0 {
-        let msg = format!("No record with id={} found in {}", id, table);
+        let msg = format!("No record with id={id} found in {table}");
         warn!("{msg}");
         return Err(ServiceError::UnprocessableEntity(msg));
     }
 
-    debug!("Deleted record with id={} from {}", id, table);
+    debug!("Deleted record with id={id} from {table}");
 
     Ok(())
 }

@@ -72,6 +72,7 @@ export default {
         mailUser: 'Mail Benutzer',
         mailPassword: 'Mail Passwort',
         mailStarttls: 'Mail STARTTLS',
+        notificationEmails: 'Benachrichtigungs-E-Mails',
         imageExtensions: 'Bilderweiterungen',
         imageResolutions: 'Bildauflösungen',
     },

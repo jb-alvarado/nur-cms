@@ -100,8 +100,6 @@ pub async fn message(msg: Msg) -> Result<(), ServiceError> {
         }
     }
 
-    println!("message: {message:?}");
-
     let message_text = match msg.target.allow_html {
         true => msg.text.clone(),
         false => msg.text._strip_tags(),

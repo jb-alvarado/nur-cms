@@ -18,6 +18,7 @@ pub enum ConfigurationFields {
     MailUser,
     MailPassword,
     MailStarttls,
+    NotificationEmails,
     ImageExtensions,
     ImageResolutions,
 }
@@ -33,6 +34,7 @@ impl StrCompare for ConfigurationFields {
             Self::MailUser => other == "mail_user",
             Self::MailPassword => other == "mail_password",
             Self::MailStarttls => other == "mail_starttls",
+            Self::NotificationEmails => other == "notification_emails",
             Self::ImageExtensions => other == "image_extensions",
             Self::ImageResolutions => other == "image_resolutions",
         }
@@ -52,6 +54,7 @@ impl FromStr for ConfigurationFields {
             "mail_user" => Ok(Self::MailUser),
             "mail_password" => Ok(Self::MailPassword),
             "mail_starttls" => Ok(Self::MailStarttls),
+            "notification_emails" => Ok(Self::NotificationEmails),
             "image_extensions" => Ok(Self::ImageExtensions),
             "image_resolutions" => Ok(Self::ImageResolutions),
             _ => Err(format!("Field '{input}' not found!")),
@@ -70,6 +73,7 @@ impl fmt::Display for ConfigurationFields {
             Self::MailUser => write!(f, "mail_user"),
             Self::MailPassword => write!(f, "mail_password"),
             Self::MailStarttls => write!(f, "mail_starttls"),
+            Self::NotificationEmails => write!(f, "notification_emails"),
             Self::ImageExtensions => write!(f, "image_extensions"),
             Self::ImageResolutions => write!(f, "image_resolutions"),
         }
