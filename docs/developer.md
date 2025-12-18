@@ -52,7 +52,8 @@ npm run dev
 ## Project Structure
 
 - `backend/` - Rust backend with Axum
-- `frontend/` - Vue 3 frontend with TypeScript
+- `example/` - Vue 3 example frontend with TypeScript
+- `frontend/` - Vue 3 admin frontend with TypeScript
 - `migrations/` - Database schema migrations
 - `migrations_dev/` - Development database seed data
 - `uploads/` - File upload directory

@@ -179,9 +179,9 @@ VALUES
         2,
         NULL,
         'third-article',
-        'Otro article',
+        'Third article',
         'Third article description.',
-        E'# Tercer Post\nMás contenido con _italic_ y **bold**.',
+        E'# Third Post\nMore content with _italic_ and **bold**.',
         'published',
         1,
         1
