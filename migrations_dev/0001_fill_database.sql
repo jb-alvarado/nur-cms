@@ -177,7 +177,7 @@ VALUES
         1,
         4,
         2,
-        NULL,
+        3,
         'third-article',
         'Third article',
         'Third article description.',
@@ -331,7 +331,7 @@ VALUES
         1,
         NULL,
         2,
-        NULL,
+        2,
         'blocks-article',
         'Blocks Article',
         'An article with blocks.',
@@ -424,7 +424,9 @@ INSERT INTO
     content_media (entry_id, media_id, ast_line)
 VALUES
     (1, 1, 6),
-    (1, 2, 10);
+    (1, 2, 10),
+    (2, 1, 6),
+    (2, 2, 10);
 
 INSERT INTO
     comments (

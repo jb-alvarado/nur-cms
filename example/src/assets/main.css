@@ -3,3 +3,8 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 @plugin "daisyui";
+
+.bg-green-100 {
+    @apply text-info-content border-info;
+    --alert-color: var(--color-info);
+}
