@@ -34,6 +34,7 @@ export default {
         saveSuccess: 'Inhalt erfolgreich gespeichert',
         language: 'Sprache',
         addLanguage: 'Sprache hinzufügen',
+        selectLanguage: 'Sprache auswählen',
         deleteSuccess: 'Gelöscht: {name}',
         languages: 'Sprachen',
     },

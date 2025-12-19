@@ -162,7 +162,7 @@ CREATE TABLE content_entry_tags (
 );
 
 CREATE TABLE content_media (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
     ast_line INT NOT NULL DEFAULT 0,

@@ -48,15 +48,16 @@ defineProps({
 })
 
 defineExpose({
-    showModal: () => mediaModal.value?.showModal(),
+    showModal: async () => {
+        await selectMedia()
+        mediaModal.value?.showModal()
+    },
     close: () => mediaModal.value?.close(),
 })
 
 function onPageChange() {
     selectMedia()
 }
-
-selectMedia()
 
 async function selectMedia(u: string | null = null) {
     const url = u
@@ -98,7 +99,12 @@ async function selectMedia(u: string | null = null) {
                     <div class="grow">
                         <label class="input">
                             <i class="bi bi-search opacity-45"></i>
-                            <input v-model="search" type="search" :placeholder="$t('common.search')" @keyup="selectMedia()" />
+                            <input
+                                v-model="search"
+                                type="search"
+                                :placeholder="$t('common.search')"
+                                @keyup="selectMedia()"
+                            />
                         </label>
                     </div>
 

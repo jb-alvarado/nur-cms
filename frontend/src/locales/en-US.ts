@@ -33,6 +33,7 @@ export default {
         saveSuccess: 'Content saved successfully',
         language: 'Language',
         addLanguage: 'Add Language',
+        selectLanguage: 'Select a language',
         deleteSuccess: 'Deleted: {name}',
         languages: 'Languages',
     },

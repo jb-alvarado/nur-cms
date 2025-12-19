@@ -19,12 +19,13 @@ import TextEditor from '@/components/TextEditor.vue'
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const auth = useAuth()
+const store = useIndex()
+
 const contentId = Number(route.params.id ?? 0)
 const routeName = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
 const groupID = Number(route.params.group_id ?? 0)
 
-const auth = useAuth()
-const store = useIndex()
 const deleteModal = ref()
 const mediaModal = ref()
 const content = ref({
@@ -323,6 +324,8 @@ async function save() {
                 ...deletedAuthors.map((author) => deleteEntryAuthor(contentId, author.id!)),
                 ...newAuthors.map((author) => insertEntryAuthor(contentId, author.id!)),
             ])
+        } else {
+            payload.type_id = store.typeID
         }
 
         // Save entry if there are payload changes
@@ -546,6 +549,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 v-model="content.title"
                                 type="text"
                                 class="input"
+                                name="article_title"
                                 :placeholder="$t('article.title')"
                                 @input="updateSlug()"
                             />
@@ -718,7 +722,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 
         <div
             v-if="store.preview"
-            class="grow max-w-[800px] hidden 2xl:flex flex-col mb-6 mt-12 bg-base-300 p-4 rounded overflow-hidden"
+            class="grow max-w-200 hidden 2xl:flex flex-col mb-6 mt-12 bg-base-300 p-4 rounded overflow-hidden"
         >
             <MarkdownRender v-if="content.text" :text="content.text" />
         </div>

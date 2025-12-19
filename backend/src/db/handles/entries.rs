@@ -55,6 +55,39 @@ pub async fn delete_tag_from_entry(
     Ok(())
 }
 
+pub async fn select_media_id_by_path(
+    pool: &PgPool,
+    path: &str,
+    filename: &str,
+) -> Result<Option<i32>, sqlx::Error> {
+    sqlx::query_scalar::<_, i32>("SELECT id FROM media WHERE path = $1 AND filename = $2")
+        .bind(path)
+        .bind(filename)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn delete_content_media_for_entry(
+    pool: &PgPool,
+    entry_id: i32,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM content_media WHERE entry_id = $1")
+        .bind(entry_id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+pub async fn select_entry_text(
+    pool: &PgPool,
+    entry_id: i32,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>("SELECT text FROM content_entries WHERE id = $1")
+        .bind(entry_id)
+        .fetch_optional(pool)
+        .await
+}
+
 pub async fn select_content_entries(
     pool: &PgPool,
     query_obj: &QueryObj<CF>,
