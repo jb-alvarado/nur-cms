@@ -26,7 +26,7 @@ const uploadKey = ref(shortID())
 const apiURL = ref('/api/media')
 const editID = ref(0)
 const total = ref(0)
-const limit = ref(20)
+const limit = ref(12)
 const ordering = ref('-created_at')
 const offset = ref(0)
 const offsetVar = computed({
@@ -37,7 +37,7 @@ const offsetVar = computed({
         offset.value = Number(newValue)
     },
 })
-const limits = [2, 10, 20, 50]
+const limits = [2, 12, 24, 50]
 const search = ref('')
 const searchVar = computed({
     get() {

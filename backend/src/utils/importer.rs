@@ -19,6 +19,15 @@ use crate::{
     utils::errors::ServiceError,
 };
 
+#[derive(Debug, Clone)]
+pub struct ImportOptions {
+    pub content_type_id: Option<i32>,
+    pub locale_id: Option<i32>,
+    pub created_by: Option<i32>,
+    pub media_root: Option<PathBuf>,
+    pub ignores: Vec<PathBuf>,
+}
+
 #[derive(Debug, Deserialize)]
 struct Frontmatter {
     #[serde(default)]
@@ -45,84 +54,107 @@ pub async fn import_markdown(
     ignore: Vec<PathBuf>,
     media_path: Option<PathBuf>,
 ) -> Result<(), ServiceError> {
+    // Prepare options, will prompt for missing values.
+    let mut opts = ImportOptions {
+        content_type_id: None,
+        locale_id: None,
+        created_by: None,
+        media_root: media_path,
+        ignores: ignore,
+    };
+
     if !path.exists() {
         return Err(ServiceError::BadRequest(format!(
             "Path does not exist: {path:?}"
         )));
     }
 
-    let query: QueryObj<ContentTypeFields> = QueryObj::default();
-    let content_types =
-        handles::select_record::<ContentTypeFields, ContentType>(pool, &Table::ContentTypes, query)
-            .await?;
-    let query: QueryObj<AuthUserFields> = QueryObj::default();
-    let auth_users = handles::select_auth_user(pool, query).await?;
+    prompt_missing_options(pool, &mut opts).await?;
 
-    let type_list: Vec<String> = content_types
-        .results
-        .iter()
-        .map(|t| t.name.clone())
-        .collect();
-    let type_name = Select::new("Content Type:", type_list).prompt()?;
-    let content_type = content_types
-        .results
-        .iter()
-        .find(|t| t.name == type_name)
-        .ok_or(ServiceError::NoContent)?;
-
-    let user_list: Vec<String> = auth_users
-        .results
-        .iter()
-        .filter_map(|t| t.last_name.clone())
-        .collect();
-    let user_name = Select::new("User:", user_list).prompt()?;
-    let auth_user = auth_users
-        .results
-        .iter()
-        .find(|t| t.last_name.as_ref() == Some(&user_name))
-        .ok_or(ServiceError::NoContent)?;
-
-    let query: QueryObj<LocaleFields> = QueryObj::default();
-    let locales =
-        handles::select_record::<LocaleFields, Locale>(pool, &Table::Locales, query).await?;
-
-    let locale_list: Vec<String> = locales.results.iter().map(|l| l.code.clone()).collect();
-    let locale_code = Select::new("Locale:", locale_list).prompt()?;
-    let locale = locales
-        .results
-        .iter()
-        .find(|l| l.code == locale_code)
-        .ok_or(ServiceError::NoContent)?;
-
-    let files = if path.is_file() {
+    let mut files = if path.is_file() {
         vec![path]
     } else {
-        collect_markdown_files(&path, &ignore).await?
+        collect_markdown_files(&path, &opts.ignores).await?
     };
 
+    files.sort();
+
     let mut count = 0;
+    let total_count = files.len();
     for file in files {
-        match import_file(
-            pool,
-            &file,
-            media_path.clone(),
-            content_type.id,
-            locale.id,
-            auth_user.id.unwrap_or(1),
-        )
-        .await
-        {
+        match import_file(pool, &file, &opts).await {
             Ok(_) => {
                 count += 1;
-                info!("✓ Imported: {}", file.display());
+                info!("✓ Imported {count} of {total_count}: {file:?}");
             }
             Err(e) => {
-                error!("✗ Error importing {}: {e}", file.display());
+                error!("✗ Error importing {file:?}: {e}");
             }
         }
     }
 
-    info!("✓ Successfully imported {count} file(s)", count = count);
+    info!("✓ Successfully imported {count} file(s)");
+    Ok(())
+}
+
+async fn prompt_missing_options(
+    pool: &PgPool,
+    opts: &mut ImportOptions,
+) -> Result<(), ServiceError> {
+    if opts.content_type_id.is_none() {
+        let query: QueryObj<ContentTypeFields> = QueryObj::default();
+        let content_types = handles::select_record::<ContentTypeFields, ContentType>(
+            pool,
+            &Table::ContentTypes,
+            query,
+        )
+        .await?;
+
+        let type_list: Vec<String> = content_types
+            .results
+            .iter()
+            .map(|t| t.name.clone())
+            .collect();
+        let type_name = Select::new("Content Type:", type_list).prompt()?;
+        let content_type = content_types
+            .results
+            .iter()
+            .find(|t| t.name == type_name)
+            .ok_or(ServiceError::NoContent)?;
+        opts.content_type_id = Some(content_type.id);
+    }
+
+    if opts.created_by.is_none() {
+        let query: QueryObj<AuthUserFields> = QueryObj::default();
+        let auth_users = handles::select_auth_user(pool, query).await?;
+        let user_list: Vec<String> = auth_users
+            .results
+            .iter()
+            .filter_map(|t| t.last_name.clone())
+            .collect();
+        let user_name = Select::new("User:", user_list).prompt()?;
+        let auth_user = auth_users
+            .results
+            .iter()
+            .find(|t| t.last_name.as_ref() == Some(&user_name))
+            .ok_or(ServiceError::NoContent)?;
+        opts.created_by = auth_user.id;
+    }
+
+    if opts.locale_id.is_none() {
+        let query: QueryObj<LocaleFields> = QueryObj::default();
+        let locales =
+            handles::select_record::<LocaleFields, Locale>(pool, &Table::Locales, query).await?;
+        let locale_list: Vec<String> = locales.results.iter().map(|l| l.code.clone()).collect();
+        let locale_code = Select::new("Locale:", locale_list).prompt()?;
+        let locale = locales
+            .results
+            .iter()
+            .find(|l| l.code == locale_code)
+            .ok_or(ServiceError::NoContent)?;
+        opts.locale_id = Some(locale.id);
+    }
+
     Ok(())
 }
 
@@ -178,14 +210,7 @@ async fn collect_markdown_files(
     Ok(files)
 }
 
-async fn import_file(
-    pool: &PgPool,
-    path: &Path,
-    media_path: Option<PathBuf>,
-    type_id: i32,
-    locale_id: i32,
-    created_by: i32,
-) -> Result<(), ServiceError> {
+async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result<(), ServiceError> {
     let content = fs::read_to_string(path).await?;
 
     let custom = markdown::Constructs {
@@ -242,14 +267,22 @@ async fn import_file(
     };
 
     let mut entry = ContentEntry {
-        type_id,
-        locale_id,
+        type_id: opts
+            .content_type_id
+            .ok_or(ServiceError::BadRequest("Missing content_type_id".into()))?,
+        locale_id: opts
+            .locale_id
+            .ok_or(ServiceError::BadRequest("Missing locale_id".into()))?,
         slug,
         title,
         text: body,
         status,
-        created_by,
-        updated_by: created_by,
+        created_by: opts
+            .created_by
+            .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
+        updated_by: opts
+            .created_by
+            .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
         created_at,
         ..Default::default()
     };
@@ -258,20 +291,29 @@ async fn import_file(
     if let Some(ref fm) = frontmatter
         && let Some(ref category_name) = fm.category
     {
-        if let Ok(Some(cat_id)) = lookup_or_create_category(pool, category_name, locale_id).await {
+        if let Ok(Some(cat_id)) =
+            lookup_or_create_category(pool, category_name, entry.locale_id).await
+        {
             entry.category_id = Some(cat_id);
         }
 
         // Lookup/create thumbnail media if present
         if let Some(ref thumb) = fm.thumbnail {
-            match lookup_or_create_media(pool, thumb, media_path, created_at.as_ref(), created_by)
-                .await
+            match ensure_media(
+                pool,
+                thumb,
+                opts.media_root.as_deref(),
+                path.parent().unwrap_or(Path::new(".")),
+                created_at.as_ref(),
+                entry.created_by,
+            )
+            .await
             {
                 Ok(Some(media_id)) => {
                     entry.media_id = Some(media_id);
                 }
                 Err(e) => {
-                    warn!("Failed to process media {}: {}", thumb, e);
+                    warn!("Failed to process media {thumb}: {e}");
                 }
                 _ => {}
             }
@@ -285,7 +327,9 @@ async fn import_file(
     if let Some(ref fm) = frontmatter {
         if let Some(ref authors) = fm.author {
             for author_name in authors {
-                if let Ok(Some(author_id)) = lookup_or_create_author(pool, author_name).await {
+                if let Ok(Some(author_id)) =
+                    lookup_or_create_author(pool, author_name, created_at.unwrap_or_default()).await
+                {
                     let _ = insert_entry_author(pool, entry_id, author_id).await;
                 }
             }
@@ -407,7 +451,11 @@ async fn lookup_or_create_category(
     Ok(Some(id))
 }
 
-async fn lookup_or_create_author(pool: &PgPool, name: &str) -> Result<Option<i32>, sqlx::Error> {
+async fn lookup_or_create_author(
+    pool: &PgPool,
+    name: &str,
+    created_at: DateTime<Utc>,
+) -> Result<Option<i32>, sqlx::Error> {
     let parts: Vec<&str> = name.splitn(2, ' ').collect();
     let (first_name, last_name) = match parts.as_slice() {
         [first, last] => (*first, *last),
@@ -429,11 +477,13 @@ async fn lookup_or_create_author(pool: &PgPool, name: &str) -> Result<Option<i32
 
     let slug = slugify(name);
     let id: i32 = sqlx::query_scalar(
-        "INSERT INTO content_authors (first_name, last_name, slug) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO content_authors (first_name, last_name, slug, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(first_name)
     .bind(last_name)
     .bind(&slug)
+    .bind(created_at)
+    .bind(created_at)
     .fetch_one(pool)
     .await?;
 
@@ -463,89 +513,106 @@ async fn lookup_or_create_tag(pool: &PgPool, name: &str) -> Result<Option<i32>, 
     Ok(Some(id))
 }
 
-async fn lookup_or_create_media(
-    pool: &PgPool,
+fn resolve_source_path(
     thumbnail_path: &str,
-    media_path: Option<PathBuf>,
-    date: Option<&DateTime<Utc>>,
-    user_id: i32,
-) -> Result<Option<i32>, Box<dyn std::error::Error>> {
+    media_root: Option<&Path>,
+    file_dir: &Path,
+) -> PathBuf {
+    let t = thumbnail_path.trim();
+    // If it looks like a URL, we can't copy locally.
+    if t.starts_with("http://") || t.starts_with("https://") {
+        return PathBuf::from(t);
+    }
+
+    // If it's under PUBLIC_UPLOADS, interpret relative to STORAGE
+    if t.starts_with(PUBLIC_UPLOADS) {
+        let rel = t.trim_start_matches(PUBLIC_UPLOADS).trim_start_matches('/');
+        return PathBuf::from(STORAGE.as_str()).join(rel);
+    }
+
     let thumb = thumbnail_path
         .trim_start_matches('/')
         .split('/')
         .skip(1)
         .collect::<Vec<_>>()
         .join("/");
-    let source_path = media_path.unwrap_or(PathBuf::from("./")).join(thumb);
 
-    let filename = source_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or("Invalid filename")?;
+    if let Some(root) = media_root {
+        root.join(thumb)
+    } else {
+        file_dir.join(thumb)
+    }
+}
 
-    // Determine target directory from date: /YYYY/MM/
+fn ensure_target_paths(date: Option<&DateTime<Utc>>) -> (String, PathBuf) {
     let (year, month) = if let Some(d) = date {
         (d.format("%Y").to_string(), d.format("%m").to_string())
     } else {
         let now = Utc::now();
         (now.format("%Y").to_string(), now.format("%m").to_string())
     };
-
     let target_dir = format!("{PUBLIC_UPLOADS}/{year}/{month}");
-    let target_path = PathBuf::from(STORAGE.as_str()).join(&year).join(&month);
+    let target_fs = PathBuf::from(STORAGE.as_str()).join(&year).join(&month);
+    (target_dir, target_fs)
+}
 
-    // Check if media already exists
-    let existing: Option<i32> =
-        sqlx::query_scalar("SELECT id FROM media WHERE path = $1 AND filename = $2 LIMIT 1")
-            .bind(&target_dir)
-            .bind(filename)
-            .fetch_optional(pool)
-            .await?;
+async fn ensure_media(
+    pool: &PgPool,
+    thumbnail_path: &str,
+    media_root: Option<&Path>,
+    file_dir: &Path,
+    date: Option<&DateTime<Utc>>,
+    user_id: i32,
+) -> Result<Option<i32>, ServiceError> {
+    let source_path = resolve_source_path(thumbnail_path, media_root, file_dir);
+    let filename = source_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| ServiceError::BadRequest("Invalid filename".into()))?;
 
-    if let Some(id) = existing {
+    let (target_dir, target_path) = ensure_target_paths(date);
+
+    // Check if media record already exists
+    if let Some(id) = sqlx::query_scalar::<_, i32>(
+        "SELECT id FROM media WHERE path = $1 AND filename = $2 LIMIT 1",
+    )
+    .bind(&target_dir)
+    .bind(filename)
+    .fetch_optional(pool)
+    .await?
+    {
         return Ok(Some(id));
     }
 
-    // Try to copy file from source to target
-    // let source_full = PathBuf::from("./").join(&source_path);
+    // Ensure target directory exists
+    if !target_path.exists() {
+        fs::create_dir_all(&target_path).await?;
+    }
+
     let target_file = target_path.join(filename);
 
-    // Create target directory if it doesn't exist
-    if !target_path.exists() {
-        fs::create_dir_all(&target_path).await.ok();
-    }
-
-    // Copy file
-    if source_path.exists() {
-        match fs::copy(&source_path, &target_file).await {
-            Ok(_) => {
-                info!(
-                    "Copied media: {} → {}",
-                    source_path.display(),
-                    target_file.display()
-                );
-            }
-            Err(e) => {
-                warn!("Failed to copy media {source_path:?}: {e}");
+    // Skip copy if already in place
+    if source_path != target_file {
+        if source_path.exists() {
+            if let Err(e) = fs::copy(&source_path, &target_file).await {
+                warn!("Failed to copy media {source_path:?} → {target_file:?}: {e}");
                 return Ok(None);
             }
+            info!("Copied media: {source_path:?} → {target_file:?}");
+        } else {
+            warn!("Source media not found: {source_path:?}");
+            return Ok(None);
         }
-    } else {
-        warn!("Source media not found: {source_path:?}");
-        return Ok(None);
     }
 
-    // Get file metadata
+    // Gather metadata
     let metadata = fs::metadata(&target_file).await?;
     let size = metadata.len() as i64;
-
-    // Get image dimensions if it's an image
     let (width, height) = if let Ok(img) = image::open(&target_file) {
         (Some(img.width() as i32), Some(img.height() as i32))
     } else {
         (None, None)
     };
-
     let mime_type = mime_guess::from_path(&target_file)
         .first_or_octet_stream()
         .to_string();
@@ -591,12 +658,11 @@ async fn lookup_or_create_media(
                         .bind(&variant_filename)
                         .execute(pool)
                         .await;
-
-                        info!("Created variant: {}", variant_filename);
+                        info!("Created variant: {variant_filename}");
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to generate variants for media {}: {}", id, e);
+                    warn!("Failed to generate variants for media {id}: {e}");
                 }
             }
         }

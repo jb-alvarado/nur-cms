@@ -166,7 +166,7 @@ function onPageChange() {
             <GenericFilter v-if="!['author', 'category'].includes(store.routeType)" />
         </div>
 
-        <div class="overflow-x-auto mt-4">
+        <div class="overflow-x-auto mt-4 pb-4">
             <GenericTable ref="tableRef" :type="store.routeType" :check-box-change="statusLabel" />
         </div>
         <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="store.contentDelete">
