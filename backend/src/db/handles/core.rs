@@ -48,111 +48,6 @@ pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), 
     Ok(())
 }
 
-pub async fn insert_record<T, R>(pool: &PgPool, table: &Table, data: &T) -> Result<R, ServiceError>
-where
-    T: Serialize,
-    R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
-{
-    let value = serde_json::to_value(data)?;
-    let return_field = match table {
-        Table::ContentEntryTags => "tag_id",
-        Table::ContentEntryAuthors => "author_id",
-        _ => "id",
-    };
-
-    let obj = match value.as_object() {
-        Some(map) => map.clone(),
-        None => return Err(ServiceError::NoContent),
-    };
-
-    let type_ignore = [
-        "id",
-        "created_at",
-        "updated_at",
-        "last_login",
-        "total_count",
-    ];
-
-    let mut keys = Vec::new();
-    let mut qb = QueryBuilder::<Postgres>::new(format!("INSERT INTO {table} ("));
-
-    for key in obj.keys() {
-        if type_ignore.contains(&key.as_str()) {
-            continue;
-        }
-        keys.push(key.clone());
-    }
-
-    if keys.is_empty() {
-        return Err(ServiceError::NoContent);
-    }
-
-    qb.push(keys.join(", "));
-    qb.push(") VALUES (");
-
-    let mut separated = qb.separated(", ");
-    for key in &keys {
-        let val = &obj[key];
-
-        match val {
-            Value::Array(a) => {
-                separated.push_bind(a);
-            }
-            Value::Bool(b) => {
-                separated.push_bind(b);
-            }
-            Value::Null => {
-                separated.push_bind("DEFAULT");
-            }
-            Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    separated.push_bind(i as i32);
-                } else if let Some(f) = n.as_f64() {
-                    separated.push_bind(f);
-                }
-            }
-            Value::String(s) => {
-                if key == "password" {
-                    use argon2::{
-                        Argon2, PasswordHasher,
-                        password_hash::{SaltString, rand_core::OsRng},
-                    };
-                    let pw = s.clone();
-                    let password_hash =
-                        tokio::task::spawn_blocking(move || -> Result<String, ServiceError> {
-                            let salt = SaltString::generate(&mut OsRng);
-                            let hash = Argon2::default()
-                                .hash_password(pw.as_bytes(), &salt)
-                                .map_err(|_| ServiceError::InternalServerError)?;
-
-                            Ok(hash.to_string())
-                        })
-                        .await??;
-
-                    separated.push_bind(password_hash);
-                } else {
-                    separated.push_bind(s);
-                }
-            }
-            other => {
-                error!("Unknown Type {key}={other:?} in Insert!");
-                separated.push_bind("DEFAULT");
-            }
-        }
-    }
-
-    qb.push(format!(") RETURNING {return_field}"));
-
-    let query = qb.build_query_scalar();
-
-    #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
-
-    let id = query.fetch_one(pool).await?;
-
-    Ok(id)
-}
-
 pub async fn select_record<T, M>(
     pool: &PgPool,
     table: &Table,
@@ -216,6 +111,113 @@ where
     let data: Vec<M> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(&query_obj, data))
+}
+
+pub async fn insert_record<T, R>(pool: &PgPool, table: &Table, data: &T) -> Result<R, ServiceError>
+where
+    T: Serialize,
+    R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
+{
+    let value = serde_json::to_value(data)?;
+    let return_field = match table {
+        Table::ContentEntryTags => "tag_id",
+        Table::ContentEntryAuthors => "author_id",
+        _ => "id",
+    };
+
+    let obj = match value.as_object() {
+        Some(map) => map.clone(),
+        None => return Err(ServiceError::NoContent),
+    };
+
+    let type_ignore = ["id", "last_login", "total_count"];
+    let type_time = ["created_at", "updated_at"];
+
+    let mut keys = Vec::new();
+    let mut qb = QueryBuilder::<Postgres>::new(format!("INSERT INTO {table} ("));
+
+    for key in obj.keys() {
+        if type_ignore.contains(&key.as_str()) {
+            continue;
+        }
+        keys.push(key.clone());
+    }
+
+    if keys.is_empty() {
+        return Err(ServiceError::NoContent);
+    }
+
+    qb.push(keys.join(", "));
+    qb.push(") VALUES (");
+
+    let mut separated = qb.separated(", ");
+    for key in &keys {
+        let val = &obj[key];
+
+        match val {
+            Value::Array(a) => {
+                separated.push_bind(a);
+            }
+            Value::Bool(b) => {
+                separated.push_bind(b);
+            }
+            Value::Null => {
+                separated.push_bind("DEFAULT");
+            }
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    separated.push_bind(i as i32);
+                } else if let Some(f) = n.as_f64() {
+                    separated.push_bind(f);
+                }
+            }
+            Value::String(s) => {
+                if type_time.contains(&key.as_str()) {
+                    let dt: DateTime<Utc> = match DateTime::parse_from_rfc3339(s) {
+                        Ok(t) => t.into(),
+                        Err(_) => Utc::now(),
+                    };
+
+                    separated.push_bind(dt);
+                } else if key == "password" {
+                    use argon2::{
+                        Argon2, PasswordHasher,
+                        password_hash::{SaltString, rand_core::OsRng},
+                    };
+                    let pw = s.clone();
+                    let password_hash =
+                        tokio::task::spawn_blocking(move || -> Result<String, ServiceError> {
+                            let salt = SaltString::generate(&mut OsRng);
+                            let hash = Argon2::default()
+                                .hash_password(pw.as_bytes(), &salt)
+                                .map_err(|_| ServiceError::InternalServerError)?;
+
+                            Ok(hash.to_string())
+                        })
+                        .await??;
+
+                    separated.push_bind(password_hash);
+                } else {
+                    separated.push_bind(s);
+                }
+            }
+            other => {
+                error!("Unknown Type {key}={other:?} in Insert!");
+                separated.push_bind("DEFAULT");
+            }
+        }
+    }
+
+    qb.push(format!(") RETURNING {return_field}"));
+
+    let query = qb.build_query_scalar();
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(query.sql()));
+
+    let id = query.fetch_one(pool).await?;
+
+    Ok(id)
 }
 
 pub async fn update_record<T, I>(

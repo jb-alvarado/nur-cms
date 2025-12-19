@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use inquire::{Password, PasswordDisplayMode, Select, Text};
 use sqlx::{Pool, Postgres};
@@ -19,6 +21,15 @@ use crate::{
 pub struct Args {
     #[clap(short, long, help = "Add user with role")]
     pub add_user: bool,
+
+    #[clap(short, long, help = "Import Markdown files from given path")]
+    pub import_markdown: Option<PathBuf>,
+
+    #[clap(long, help = "Media folder for Markdown import")]
+    pub import_media: Option<PathBuf>,
+
+    #[clap(long, help = "Ignore files from import by its names")]
+    pub ignore_files: Option<Vec<PathBuf>>,
 
     #[clap(short, long, help = "Listen on IP:PORT, like: 127.0.0.1:7777")]
     pub listen: Option<String>,

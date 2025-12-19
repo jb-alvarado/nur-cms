@@ -262,7 +262,12 @@ pub fn process_variants(
     // Process each image sequentially to avoid excessive task spawning
     for (output_file, media_id, mime_type) in batch_files {
         if mime_type.contains("image") {
-            match save_image(resolutions.clone(), &extensions, &output_file, tx.clone()) {
+            match save_image(
+                resolutions.clone(),
+                &extensions,
+                &output_file,
+                Some(tx.clone()),
+            ) {
                 Ok(variants) => {
                     for (width, height, filename) in variants {
                         let pool_clone = pool.clone();

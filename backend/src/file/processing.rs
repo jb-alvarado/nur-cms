@@ -12,7 +12,7 @@ use image::{
 };
 use libwebp_sys::{WebPEncodeRGB, WebPEncodeRGBA};
 use tokio::sync::broadcast::Sender;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     sse::{SSELevel as Level, SSEMessage},
@@ -61,7 +61,7 @@ pub fn save_image(
     mut image_resolutions: Vec<i32>,
     image_types: &[String],
     input_file: &Path,
-    tx: Sender<String>,
+    tx: Option<Sender<String>>,
 ) -> Result<VarianceType, Box<dyn std::error::Error>> {
     let img = image::open(input_file)?;
     let (orig_w, orig_h) = img.dimensions();
@@ -164,8 +164,13 @@ pub fn save_image(
                 variants.push((w as i32, h as i32, output_name.clone()));
             }
 
-            let msg = SSEMessage::new(Level::Success, &format!("Created: '{output_name}'"));
-            let _ = tx.send(msg.to_string());
+            match tx {
+                Some(ref tx) => {
+                    let msg = SSEMessage::new(Level::Success, &format!("Created: '{output_name}'"));
+                    let _ = tx.send(msg.to_string());
+                }
+                None => info!("Created: '{output_name}'"),
+            }
         }
     }
 

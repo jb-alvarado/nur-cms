@@ -51,6 +51,7 @@ protect-endpoints-core = { version = "0.2", features = ["tower"] }
 sanitize-filename = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 strum = "0.27"
 strum_macros = "0.27"
 sqlformat = "0.5"

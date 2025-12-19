@@ -26,6 +26,7 @@ use nur_cms::{
     utils::{
         cmd_args::{Args, add_user},
         errors::ServiceError,
+        importer,
         logging::init_tracing,
     },
 };
@@ -50,7 +51,12 @@ async fn main() -> Result<(), ServiceError> {
 
     if args.add_user {
         add_user(&pool).await?;
+        return Ok(());
+    }
 
+    if let Some(path) = args.import_markdown {
+        let ignore = args.ignore_files.unwrap_or_default();
+        importer::import_markdown(&pool, path, ignore, args.import_media.clone()).await?;
         return Ok(());
     }
 
