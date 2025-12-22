@@ -1,12 +1,16 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use html_parser::Dom;
 use inquire::Select;
 use serde::Deserialize;
+use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::fs;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
+use crate::utils::ast_serialize::persist_content_media;
 use crate::{
     CONFIG, PUBLIC_UPLOADS, STORAGE,
     db::{
@@ -29,6 +33,13 @@ pub struct ImportOptions {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum AuthorField {
+    Single(String),
+    List(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
 struct Frontmatter {
     #[serde(default)]
     title: Option<String>,
@@ -39,13 +50,17 @@ struct Frontmatter {
     #[serde(default)]
     url: Option<String>,
     #[serde(default)]
-    author: Option<Vec<String>>,
+    author: Option<AuthorField>,
     #[serde(default)]
     category: Option<String>,
     #[serde(default)]
     tags: Option<Vec<String>>,
     #[serde(default)]
     thumbnail: Option<String>,
+    #[serde(default)]
+    event_start: Option<String>,
+    #[serde(default)]
+    event_end: Option<String>,
 }
 
 pub async fn import_markdown(
@@ -213,37 +228,21 @@ async fn collect_markdown_files(
 async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result<(), ServiceError> {
     let content = fs::read_to_string(path).await?;
 
-    let custom = markdown::Constructs {
-        frontmatter: true,
-        ..markdown::Constructs::gfm()
-    };
+    // Extract body and fallback title early, ensuring media for inline images
+    let (frontmatter, created_at, body, fallback_title) = extract_body_and_title(
+        &content,
+        pool,
+        opts.media_root.as_deref(),
+        path.parent().unwrap_or(Path::new(".")),
+        opts.created_by
+            .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
+    )
+    .await?;
 
-    let options = markdown::ParseOptions {
-        constructs: custom,
-        ..markdown::ParseOptions::default()
-    };
+    let ast = markdown::to_mdast(&body, &markdown::ParseOptions::default())?;
 
-    let ast = markdown::to_mdast(&content, &options)?;
-
-    // Extract YAML frontmatter from ast
-    let yaml_str = ast.children().as_ref().and_then(|children| {
-        children.iter().find_map(|node| {
-            if let markdown::mdast::Node::Yaml(yaml) = node {
-                Some(yaml.value.clone())
-            } else {
-                None
-            }
-        })
-    });
-
-    let frontmatter: Option<Frontmatter> =
-        yaml_str.as_ref().and_then(|y| serde_yaml::from_str(y).ok());
-
-    // Extract body (everything after frontmatter)
-    let body = extract_body(&content);
-
-    let (title, slug, status, created_at) = if let Some(ref fm) = frontmatter {
-        let title = fm.title.clone().unwrap_or_else(|| "Untitled".to_string());
+    let (title, slug, status) = if let Some(ref fm) = frontmatter {
+        let title = fm.title.clone().unwrap_or_else(|| fallback_title.clone());
         let slug = fm
             .url
             .as_ref()
@@ -255,15 +254,10 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
             "published"
         }
         .to_string();
-        let created_at = fm
-            .date
-            .as_ref()
-            .and_then(|d| d.parse::<DateTime<Utc>>().ok());
-        (title, slug, status, created_at)
+        (title, slug, status)
     } else {
-        let (title, _) = parse_markdown(&content);
-        let slug = slugify(&title);
-        (title, slug, "draft".to_string(), None)
+        let slug = slugify(&fallback_title);
+        (fallback_title, slug, "draft".to_string())
     };
 
     let mut entry = ContentEntry {
@@ -283,7 +277,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
         updated_by: opts
             .created_by
             .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
-        created_at,
+        created_at: Some(created_at),
         ..Default::default()
     };
 
@@ -304,7 +298,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
                 thumb,
                 opts.media_root.as_deref(),
                 path.parent().unwrap_or(Path::new(".")),
-                created_at.as_ref(),
+                &created_at,
                 entry.created_by,
             )
             .await
@@ -323,14 +317,29 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let entry_id =
         handles::insert_record::<ContentEntry, i32>(pool, &Table::ContentEntries, &entry).await?;
 
+    // Build AST from body content and persist content_media links (with positions)
+    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+    persist_content_media(pool, entry_id, &tree).await?;
+
     // Insert authors if present
     if let Some(ref fm) = frontmatter {
         if let Some(ref authors) = fm.author {
-            for author_name in authors {
-                if let Ok(Some(author_id)) =
-                    lookup_or_create_author(pool, author_name, created_at.unwrap_or_default()).await
-                {
-                    let _ = insert_entry_author(pool, entry_id, author_id).await;
+            match authors {
+                AuthorField::List(list) => {
+                    for author_name in list {
+                        if let Ok(Some(author_id)) =
+                            lookup_or_create_author(pool, author_name, created_at).await
+                        {
+                            let _ = insert_entry_author(pool, entry_id, author_id).await;
+                        }
+                    }
+                }
+                AuthorField::Single(name) => {
+                    if let Ok(Some(author_id)) =
+                        lookup_or_create_author(pool, name, created_at).await
+                    {
+                        let _ = insert_entry_author(pool, entry_id, author_id).await;
+                    }
                 }
             }
         }
@@ -348,48 +357,108 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     Ok(())
 }
 
-fn parse_markdown(content: &str) -> (String, String) {
-    let lines = content.lines();
+async fn extract_body_and_title(
+    content: &str,
+    pool: &PgPool,
+    media_root: Option<&Path>,
+    file_dir: &Path,
+    user_id: i32,
+) -> Result<(Option<Frontmatter>, DateTime<Utc>, String, String), ServiceError> {
+    let mut lines = content.lines();
     let mut title = String::new();
-    let mut body_lines = Vec::new();
 
-    for line in lines {
-        if line.starts_with("# ") && title.is_empty() {
-            title = line.trim_start_matches("# ").trim().to_string();
+    // Skip YAML frontmatter
+    let mut in_frontmatter = false;
+    let mut frontmatter_raw = Vec::new();
+    let mut frontmatter: Option<Frontmatter> = None;
+    let mut created_at = Utc::now();
+    let mut body_lines: Vec<String> = Vec::new();
+
+    for line in lines.by_ref() {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            if in_frontmatter {
+                let front = frontmatter_raw.join("\n");
+                frontmatter = serde_yaml::from_str(&front).ok();
+
+                created_at = frontmatter
+                    .as_ref()
+                    .and_then(|f| f.date.as_ref())
+                    .and_then(|d| d.parse::<DateTime<Utc>>().ok())
+                    .unwrap_or(Utc::now());
+            }
+
+            in_frontmatter = !in_frontmatter;
+            continue;
+        }
+        if in_frontmatter {
+            frontmatter_raw.push(trimmed);
+            continue;
+        }
+
+        // Capture first H1 as title
+        if trimmed.starts_with("# ") && title.is_empty() {
+            title = trimmed.trim_start_matches("# ").trim().to_string();
+            continue;
+        }
+
+        // Handle custom DOM/image syntax
+        if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
+            let mut ln = trimmed
+                .trim_start_matches("{{")
+                .trim_end_matches("}}")
+                .to_string();
+
+            if let Ok(dom_parsed) = Dom::parse(&ln)
+                && let Some(element) = dom_parsed.children.first().and_then(|c| c.element())
+                && element.name == "img"
+            {
+                let get_attr = |name: &str| {
+                    element
+                        .attributes
+                        .get(name)
+                        .and_then(|c| c.as_ref())
+                        .map_or("", |v| v)
+                };
+                let align = get_attr("align");
+                let alt = get_attr("alt");
+                let caption = get_attr("caption");
+                let src = get_attr("src");
+
+                // Try to ensure/copy media and use new public path when successful
+                let ensured =
+                    ensure_media(pool, src, media_root, file_dir, &created_at, user_id).await;
+                let new_src = match ensured {
+                    Ok(Some(_media_id)) => {
+                        // Compute public path consistent with ensure_media
+                        let source = resolve_source_path(src, media_root, file_dir);
+                        let filename = source.file_name().and_then(|n| n.to_str()).unwrap_or(src);
+                        let (target_dir, _target_fs) = ensure_target_paths(&created_at);
+                        format!("{}/{}", target_dir, filename)
+                    }
+                    _ => src.to_string(),
+                };
+
+                if align.is_empty() && caption.is_empty() {
+                    ln = format!("![{alt}]({new_src})");
+                }
+            }
+
+            body_lines.push(ln);
         } else {
-            body_lines.push(line);
+            body_lines.push(line.to_string());
         }
     }
 
     let body = body_lines.join("\n").trim().to_string();
-
-    if title.is_empty() {
-        title = "Untitled".to_string();
-    }
-
-    (title, body)
-}
-
-fn extract_body(content: &str) -> String {
-    let lines: Vec<&str> = content.lines().collect();
-    let mut in_frontmatter = false;
-    let mut frontmatter_end = 0;
-
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim() == "---" {
-            if in_frontmatter {
-                frontmatter_end = i + 1;
-                break;
-            }
-            in_frontmatter = true;
-        }
-    }
-
-    if frontmatter_end > 0 {
-        lines[frontmatter_end..].join("\n").trim().to_string()
+    let fallback_title = if title.is_empty() {
+        let random_suffix = Uuid::new_v4().to_string()[0..8].to_string();
+        format!("Untitled-{random_suffix}")
     } else {
-        content.to_string()
-    }
+        title
+    };
+
+    Ok((frontmatter, created_at, body, fallback_title))
 }
 
 fn extract_slug(url: &str) -> String {
@@ -544,13 +613,9 @@ fn resolve_source_path(
     }
 }
 
-fn ensure_target_paths(date: Option<&DateTime<Utc>>) -> (String, PathBuf) {
-    let (year, month) = if let Some(d) = date {
-        (d.format("%Y").to_string(), d.format("%m").to_string())
-    } else {
-        let now = Utc::now();
-        (now.format("%Y").to_string(), now.format("%m").to_string())
-    };
+fn ensure_target_paths(date: &DateTime<Utc>) -> (String, PathBuf) {
+    let year = date.format("%Y").to_string();
+    let month = date.format("%m").to_string();
     let target_dir = format!("{PUBLIC_UPLOADS}/{year}/{month}");
     let target_fs = PathBuf::from(STORAGE.as_str()).join(&year).join(&month);
     (target_dir, target_fs)
@@ -561,7 +626,7 @@ async fn ensure_media(
     thumbnail_path: &str,
     media_root: Option<&Path>,
     file_dir: &Path,
-    date: Option<&DateTime<Utc>>,
+    date: &DateTime<Utc>,
     user_id: i32,
 ) -> Result<Option<i32>, ServiceError> {
     let source_path = resolve_source_path(thumbnail_path, media_root, file_dir);
@@ -592,7 +657,7 @@ async fn ensure_media(
     let target_file = target_path.join(filename);
 
     // Skip copy if already in place
-    if source_path != target_file {
+    if source_path != target_file && !target_file.is_file() {
         if source_path.exists() {
             if let Err(e) = fs::copy(&source_path, &target_file).await {
                 warn!("Failed to copy media {source_path:?} → {target_file:?}: {e}");
@@ -638,31 +703,40 @@ async fn ensure_media(
     .fetch_one(pool)
     .await?;
 
-    // Generate variants for images
+    // Generate variants for images (only if they don't already exist)
     if mime_type.starts_with("image") {
-        let config = CONFIG.read().await;
-        let resolutions = config.image_resolutions.clone().unwrap_or_default();
-        let extensions = config.image_extensions.clone().unwrap_or_default();
-        drop(config);
+        let existing_variants: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM media_variants WHERE media_id = $1")
+                .bind(id)
+                .fetch_one(pool)
+                .await
+                .unwrap_or(0);
 
-        if !resolutions.is_empty() && !extensions.is_empty() {
-            match save_image(resolutions, &extensions, &target_file, None) {
-                Ok(variants) => {
-                    for (w, h, variant_filename) in variants {
-                        let _ = sqlx::query(
-                            "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
-                        )
-                        .bind(id)
-                        .bind(w)
-                        .bind(h)
-                        .bind(&variant_filename)
-                        .execute(pool)
-                        .await;
-                        info!("Created variant: {variant_filename}");
+        if existing_variants == 0 {
+            let config = CONFIG.read().await;
+            let resolutions = config.image_resolutions.clone().unwrap_or_default();
+            let extensions = config.image_extensions.clone().unwrap_or_default();
+            drop(config);
+
+            if !resolutions.is_empty() && !extensions.is_empty() {
+                match save_image(resolutions, &extensions, &target_file, None) {
+                    Ok(variants) => {
+                        for (w, h, variant_filename) in variants {
+                            let _ = sqlx::query(
+                                "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                            )
+                            .bind(id)
+                            .bind(w)
+                            .bind(h)
+                            .bind(&variant_filename)
+                            .execute(pool)
+                            .await;
+                            info!("Created variant: {variant_filename}");
+                        }
                     }
-                }
-                Err(e) => {
-                    warn!("Failed to generate variants for media {id}: {e}");
+                    Err(e) => {
+                        warn!("Failed to generate variants for media {id}: {e}");
+                    }
                 }
             }
         }
@@ -694,3 +768,5 @@ async fn insert_entry_tag(pool: &PgPool, entry_id: i32, tag_id: i32) -> Result<(
     .await?;
     Ok(())
 }
+
+// content_media linking is handled via utils::ast_serialize::persist_content_media

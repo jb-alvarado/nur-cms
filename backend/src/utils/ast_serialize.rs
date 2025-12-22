@@ -1,8 +1,16 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
 
 use serde_json::{Map, Value, json};
+use sqlx::postgres::PgPool;
+use tracing::error;
 
-use crate::db::serialize::MediaSerializer;
+use crate::{
+    PUBLIC_UPLOADS, ServiceError,
+    db::{fields::Table, handles, models::ContentMedia, serialize::MediaSerializer},
+};
 
 pub static STYLE_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     HashMap::from([
@@ -13,6 +21,14 @@ pub static STYLE_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::
         ("inlineCode", "code"),
     ])
 });
+
+#[derive(Debug)]
+struct AstImageRef {
+    url: String,
+    ast_line: i32,
+    start_offset: Option<i32>,
+    end_offset: Option<i32>,
+}
 
 // Try to find and remove a matching media node from `media` based on the AST node's start line.
 // Returns the serde_json::Value representation of the removed media if found.
@@ -247,4 +263,140 @@ pub fn to_structure_root(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value
     } else {
         Value::Array(vec![to_structure(ast, media)])
     }
+}
+
+fn collect_image_refs(node: &Value, acc: &mut Vec<AstImageRef>) {
+    match node {
+        Value::Object(map) => {
+            if map.get("type").and_then(Value::as_str) == Some("image") {
+                let url = map
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+
+                let position = map.get("position");
+                let ast_line = position
+                    .and_then(|pos| pos.get("start"))
+                    .and_then(|start| start.get("line"))
+                    .and_then(Value::as_i64)
+                    .and_then(|v| i32::try_from(v).ok())
+                    .unwrap_or_default();
+
+                let start_offset = position
+                    .and_then(|pos| pos.get("start"))
+                    .and_then(|start| start.get("offset"))
+                    .and_then(Value::as_i64)
+                    .and_then(|v| i32::try_from(v).ok());
+
+                let end_offset = position
+                    .and_then(|pos| pos.get("end"))
+                    .and_then(|end| end.get("offset"))
+                    .and_then(Value::as_i64)
+                    .and_then(|v| i32::try_from(v).ok());
+
+                acc.push(AstImageRef {
+                    url,
+                    ast_line,
+                    start_offset,
+                    end_offset,
+                });
+            }
+
+            if let Some(children) = map.get("children").and_then(Value::as_array) {
+                for child in children {
+                    collect_image_refs(child, acc);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for child in arr {
+                collect_image_refs(child, acc);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_media_path(raw_url: &str) -> Option<(String, String)> {
+    let mut path = raw_url.trim().to_string();
+    if path.is_empty() {
+        return None;
+    }
+
+    if let Some(pos) = path.find("://") {
+        if let Some(slash_pos) = path[pos + 3..].find('/') {
+            path = path[pos + 3 + slash_pos..].to_string();
+        } else {
+            return None;
+        }
+    }
+
+    if let Some(pos) = path.find('#') {
+        path.truncate(pos);
+    }
+
+    if let Some(pos) = path.find('?') {
+        path.truncate(pos);
+    }
+
+    if !path.starts_with(PUBLIC_UPLOADS) {
+        return None;
+    }
+
+    let (dir, filename) = path.rsplit_once('/')?;
+    if filename.is_empty() {
+        return None;
+    }
+
+    let dir = if dir.is_empty() {
+        "/".to_string()
+    } else {
+        dir.to_string()
+    };
+
+    Some((dir, filename.to_string()))
+}
+
+pub async fn persist_content_media(
+    pool: &PgPool,
+    entry_id: i32,
+    ast: &Value,
+) -> Result<(), ServiceError> {
+    let mut images = Vec::new();
+    collect_image_refs(ast, &mut images);
+
+    if images.is_empty() {
+        return Ok(());
+    }
+
+    let mut seen = HashSet::new();
+
+    for image in images {
+        let Some((path, filename)) = normalize_media_path(&image.url) else {
+            continue;
+        };
+
+        if let Some(media_id) = handles::select_media_id_by_path(pool, &path, &filename).await? {
+            if !seen.insert((media_id, image.ast_line)) {
+                continue;
+            }
+
+            let link = ContentMedia {
+                entry_id,
+                media_id,
+                ast_line: image.ast_line,
+                start_offset: image.start_offset,
+                end_offset: image.end_offset,
+            };
+
+            if let Err(e) =
+                handles::insert_record::<ContentMedia, i64>(pool, &Table::ContentMedia, &link).await
+            {
+                error!("content_media insert error: {e}");
+            }
+        }
+    }
+
+    Ok(())
 }
