@@ -9,7 +9,7 @@ export const useIndex = defineStore('index', {
         contentType: { 'content-type': 'application/json;charset=UTF-8' },
         preview: false,
         limit: localStorage.getItem('limit') ?? 10,
-        limits: [2, 10, 25, 50, 100],
+        limits: [10, 25, 50, 100],
         offset: 0,
         total: 0,
         ordering: 'id',

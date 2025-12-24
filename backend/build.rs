@@ -5,16 +5,11 @@ use std::{
 };
 
 #[cfg(not(debug_assertions))]
-macro_rules! p {
-    ($($tokens: tt)*) => {
-        println!("cargo:warning={}", format!($($tokens)*))
-    }
-}
+use build_print::info;
 
 fn main() {
     #[cfg(not(debug_assertions))]
     {
-        p!("Build frontend");
         let output = Command::new("npm")
             .args(["run", "build"])
             .current_dir("../frontend")
@@ -25,7 +20,7 @@ fn main() {
                 let stdout = child.stdout.take().expect("Failed to capture stdout");
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
-                    p!("{}", line?);
+                    info!("{}", line?);
                 }
                 child.wait_with_output()
             })

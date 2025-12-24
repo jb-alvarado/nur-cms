@@ -131,7 +131,7 @@ where
     };
 
     let type_ignore = ["id", "last_login", "total_count"];
-    let type_time = ["created_at", "updated_at"];
+    let type_time = ["created_at", "updated_at", "start_time", "end_time"];
 
     let mut keys = Vec::new();
     let mut qb = QueryBuilder::<Postgres>::new(format!("INSERT INTO {table} ("));

@@ -1,5 +1,9 @@
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
+
+#[cfg(debug_assertions)]
+use sqlx::Execute;
+#[cfg(debug_assertions)]
 use tracing::debug;
 
 use crate::db::{
@@ -11,8 +15,6 @@ use crate::utils::errors::ServiceError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
-#[cfg(debug_assertions)]
-use sqlx::Execute;
 
 pub async fn delete_author_from_entry(
     pool: &PgPool,

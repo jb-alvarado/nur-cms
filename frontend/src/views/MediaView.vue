@@ -37,7 +37,7 @@ const offsetVar = computed({
         offset.value = Number(newValue)
     },
 })
-const limits = [2, 12, 24, 50]
+const limits = [12, 24, 50]
 const search = ref('')
 const searchVar = computed({
     get() {

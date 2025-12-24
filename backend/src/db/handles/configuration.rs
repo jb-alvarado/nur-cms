@@ -1,20 +1,24 @@
 use rand::{Rng, distr::Alphanumeric};
 use sqlx::postgres::PgPool;
-use tracing::{debug, info};
 
 #[cfg(debug_assertions)]
-use {std::env, tokio::fs};
+use {
+    std::env,
+    tokio::fs,
+    tracing::{debug, info},
+};
 
 #[cfg(debug_assertions)]
 use crate::db::{
+    fields::MediaFields,
     format_sql,
-    models::{AuthUser, MailTarget, Media},
+    handles::{insert_record, select_auth_user, select_record},
+    models::{AuthUser, Media},
 };
 
 use crate::db::{
-    fields::{MediaFields, TSLanguage},
-    handles::{insert_record, select_auth_user, select_record},
-    models::{Configuration, TSConfig},
+    fields::TSLanguage,
+    models::{Configuration, MailTarget, TSConfig},
     queries::{QueryObj, RespondObj},
 };
 use crate::utils::errors::ServiceError;

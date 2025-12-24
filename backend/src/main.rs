@@ -14,8 +14,11 @@ use tracing::{debug, error};
 #[cfg(debug_assertions)]
 use tower_http::services::ServeDir;
 
+#[cfg(debug_assertions)]
+use nur_cms::STORAGE;
+
 use nur_cms::{
-    CONFIG, STORAGE,
+    CONFIG,
     db::handles,
     extract, init_db, router_entries,
     serve::routes::admin_routes,
@@ -76,7 +79,15 @@ async fn main() -> Result<(), ServiceError> {
         .route("/generate-uuid", post(generate_uuid).with_state(sse_state))
         .layer(GrantsLayer::with_extractor(extract));
 
+    #[cfg(debug_assertions)]
     let mut app = Router::new()
+        .nest("/auth", auth_routes.with_state(pool.clone()))
+        .nest("/api", api_routes.with_state((pool, tx.clone())))
+        .merge(admin_routes())
+        .nest("/sse", sse_router);
+
+    #[cfg(not(debug_assertions))]
+    let app = Router::new()
         .nest("/auth", auth_routes.with_state(pool.clone()))
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_routes())

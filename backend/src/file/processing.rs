@@ -12,7 +12,7 @@ use image::{
 };
 use libwebp_sys::{WebPEncodeRGB, WebPEncodeRGBA};
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{
     sse::{SSELevel as Level, SSEMessage},
@@ -115,6 +115,22 @@ pub fn save_image(
             let mut buffer = Vec::new();
             let mut output_name = format!("{img_name}-{w}.{ext}");
             let mut output_path = input_file.with_file_name(&output_name);
+
+            if output_path.is_file() {
+                if ["jpg", "jpeg"].contains(&ext.as_str()) && has_alpha {
+                    output_path = output_path.with_extension("png");
+                    output_name = output_name.replace(ext, "png");
+                }
+
+                warn!(
+                    "Skip existing file: {}",
+                    output_path.to_string_lossy().bright_magenta()
+                );
+
+                variants.push((w as i32, h as i32, output_name.clone()));
+
+                continue;
+            }
 
             match ext.as_str() {
                 // PNG/JPEG handling

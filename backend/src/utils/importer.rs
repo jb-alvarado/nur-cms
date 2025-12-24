@@ -1,6 +1,26 @@
+/// Markdown importer module for bulk importing content from markdown files with YAML frontmatter.
+///
+/// This module provides functionality to:
+/// - Import markdown files with optional YAML frontmatter containing metadata
+/// - Extract and process frontmatter fields (title, date, draft status, author, category, tags, etc.)
+/// - Handle inline image syntax with custom DOM parsing for `{{ <img> }}` elements
+/// - Manage media files (copy, resize, and track in database)
+/// - Create or link associated database records (categories, authors, tags, media entries)
+///
+/// # Import Workflow
+///
+/// 1. Collects markdown files from a directory (recursively or single file)
+/// 2. Extracts YAML frontmatter and markdown body from each file
+/// 3. Parses custom image syntax `{{ <img src="..." alt="..." caption="..." align="..." /> }}`
+/// 4. Resolves and copies media files to dated storage directories (YYYY/MM)
+/// 5. Converts markdown to an AST and links embedded media
+/// 6. Creates ContentEntry record with title, slug, and content
+/// 7. Inserts associated metadata: category, thumbnail, authors, tags, event dates
+///
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use colored::Colorize;
 use html_parser::Dom;
 use inquire::Select;
 use serde::Deserialize;
@@ -10,17 +30,16 @@ use tokio::fs;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::utils::ast_serialize::persist_content_media;
 use crate::{
     CONFIG, PUBLIC_UPLOADS, STORAGE,
     db::{
         fields::{AuthUserFields, ContentTypeFields, LocaleFields, Table},
         handles,
-        models::{ContentEntry, ContentType, Locale},
+        models::{ContentEntry, ContentMeta, ContentType, Locale},
         queries::QueryObj,
     },
     file::processing::save_image,
-    utils::errors::ServiceError,
+    utils::{ast_serialize::persist_content_media, errors::ServiceError},
 };
 
 #[derive(Debug, Clone)]
@@ -32,14 +51,14 @@ pub struct ImportOptions {
     pub ignores: Vec<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
 enum AuthorField {
     Single(String),
     List(Vec<String>),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 struct Frontmatter {
     #[serde(default)]
     title: Option<String>,
@@ -225,6 +244,29 @@ async fn collect_markdown_files(
     Ok(files)
 }
 
+async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<(), ServiceError> {
+    let start_time = fm
+        .event_start
+        .as_ref()
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+    let end_time = fm
+        .event_end
+        .as_ref()
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+    let meta = ContentMeta {
+        id: 0,
+        entry_id: type_id,
+        data: None,
+        start_time,
+        end_time,
+        total_count: None,
+    };
+
+    handles::insert_record::<ContentMeta, i32>(pool, &Table::ContentMeta, &meta).await?;
+
+    Ok(())
+}
+
 async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result<(), ServiceError> {
     let content = fs::read_to_string(path).await?;
 
@@ -321,8 +363,12 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
     persist_content_media(pool, entry_id, &tree).await?;
 
-    // Insert authors if present
+    // Insert authors/meta/tags if present
     if let Some(ref fm) = frontmatter {
+        if entry.type_id == 3 {
+            insert_meta(pool, entry_id, fm).await?;
+        }
+
         if let Some(ref authors) = fm.author {
             match authors {
                 AuthorField::List(list) => {
@@ -355,6 +401,36 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     }
 
     Ok(())
+}
+
+fn build_picture_tag(fallback_src: &str, alt: &str, variants: Vec<(i32, i32, String)>) -> String {
+    let mut sources = String::new();
+
+    // Group variants by breakpoint (width)
+    let mut breakpoints: Vec<i32> = variants.iter().map(|(w, _, _)| *w).collect();
+    breakpoints.sort_by(|a, b| b.cmp(a)); // Descending order
+    breakpoints.dedup();
+
+    for bp in breakpoints {
+        let bp_variants: Vec<_> = variants.iter().filter(|(w, _, _)| *w == bp).collect();
+
+        for (_, _, filename) in bp_variants {
+            let media_query = format!("(min-width: {}px)", bp + 100);
+
+            // Build path consistent with ensure_target_paths output
+            let src_path = if let Some(dir_end) = fallback_src.rfind('/') {
+                format!("{}/{}", &fallback_src[..dir_end], filename)
+            } else {
+                filename.to_string()
+            };
+
+            sources.push_str(&format!(
+                r#"<source media="{media_query}" srcset="{src_path}" width="100%">"#
+            ));
+        }
+    }
+
+    format!(r#"<picture>{sources}<img src="{fallback_src}" alt="{alt}" width="100%"></picture>"#)
 }
 
 async fn extract_body_and_title(
@@ -405,8 +481,9 @@ async fn extract_body_and_title(
         // Handle custom DOM/image syntax
         if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
             let mut ln = trimmed
-                .trim_start_matches("{{")
-                .trim_end_matches("}}")
+                .replace("{{", "")
+                .replace("}}", "")
+                .replace(r#" render="markdown""#, "")
                 .to_string();
 
             if let Ok(dom_parsed) = Dom::parse(&ln)
@@ -441,6 +518,32 @@ async fn extract_body_and_title(
 
                 if align.is_empty() && caption.is_empty() {
                     ln = format!("![{alt}]({new_src})");
+                } else {
+                    let al = match align {
+                        "right" => " class=\"float-right\"",
+                        "left" => " class=\"float-left\"",
+                        _ => "",
+                    };
+
+                    let img = // Fetch media variants if media_id exists
+                        if let Ok(Some(media_id)) = ensured {
+                            match fetch_media_variants(pool, media_id).await {
+                                Ok(variants) if !variants.is_empty() => {
+                                    build_picture_tag(&new_src, alt, variants)
+                                }
+                                _ => {
+                                    format!("<img src=\"{new_src}\" alt=\"{alt}\" />")
+                                }
+                            }
+                        } else {
+                            format!("<img src=\"{new_src}\" alt=\"{alt}\" />")
+                        };
+
+                    ln = if caption.is_empty() {
+                        img.replace(" />", &format!("{al} />"))
+                    } else {
+                        format!("<figure{al}>{img}<figcaption>{caption}</figcaption></figure>")
+                    }
                 }
             }
 
@@ -488,6 +591,18 @@ fn slugify(s: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+async fn fetch_media_variants(
+    pool: &PgPool,
+    media_id: i32,
+) -> Result<Vec<(i32, i32, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (i32, i32, String)>(
+        "SELECT width, height, filename FROM media_variants WHERE media_id = $1 ORDER BY width DESC",
+    )
+    .bind(media_id)
+    .fetch_all(pool)
+    .await
 }
 
 async fn lookup_or_create_category(
@@ -731,7 +846,7 @@ async fn ensure_media(
                             .bind(&variant_filename)
                             .execute(pool)
                             .await;
-                            info!("Created variant: {variant_filename}");
+                            info!("Insert variant: {}", variant_filename.bright_magenta());
                         }
                     }
                     Err(e) => {

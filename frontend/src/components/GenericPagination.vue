@@ -7,7 +7,7 @@ const offset: ModelRef<number | undefined> = defineModel('offset')
 const props = defineProps({
     total: { type: Number, required: true },
     maxButtons: { type: Number, default: 3 },
-    hideStat: {type: Boolean, default: false},
+    hideStat: { type: Boolean, default: false },
     pageSizes: { type: Array as PropType<number[]>, default: () => [5, 10, 25, 50, 100] },
 })
 
@@ -110,6 +110,8 @@ function onLimitChange() {
 
         limit.value = newLimit
         offset.value = newOffset
+
+        localStorage.setItem('limit', newLimit.toString())
         emitUpdate(newPage)
     })
 }
@@ -120,7 +122,9 @@ function emitUpdate(pageVal: number) {
 </script>
 
 <template>
-    <div v-if="!hideStat" class="text-sm text-base-content/70 me-4 mt-1.3 leading-0">{{ displayFrom }}–{{ displayTo }} of {{ total }}</div>
+    <div v-if="!hideStat" class="text-sm text-base-content/70 me-4 mt-1.3 leading-0">
+        {{ displayFrom }}–{{ displayTo }} of {{ total }}
+    </div>
     <nav class="flex join" aria-label="Pagination">
         <!-- prev -->
         <button class="btn join-item border-base-content/20" :disabled="isFirst" @click="prev">Prev</button>
@@ -135,7 +139,9 @@ function emitUpdate(pageVal: number) {
             >
                 {{ p }}
             </button>
-            <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20">…</button>
+            <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20">
+                …
+            </button>
         </template>
 
         <!-- next -->

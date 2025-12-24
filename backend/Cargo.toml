@@ -78,3 +78,5 @@ ts-rs = { version = "11", features = [
 uuid = { version = "1.18", features = ["v4"] }
 voca_rs = "1.15"
 
+[build-dependencies]
+build-print = "1"
