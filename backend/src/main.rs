@@ -37,7 +37,7 @@ use nur_cms::{
 #[tokio::main]
 async fn main() -> Result<(), ServiceError> {
     if dotenv().is_err() {
-        from_filename(".env.example").ok();
+        from_filename("./assets/.env.example").ok();
     }
 
     let args = Args::parse();

@@ -3,10 +3,10 @@ members = ["backend"]
 resolver = "2"
 
 [workspace.package]
-description = "nur CMS backend"
+description = "NUR CMS backend"
 readme = "README.md"
-version = "0.0.1"
-license = "MIT"
+version = "0.1.0"
+license = "GPL-3.0"
 repository = "https://github.com/jb-alvarado/nur-cms"
 authors = ["Jonathan Baecker <jonbae77@gmail.com>"]
 edition = "2024"

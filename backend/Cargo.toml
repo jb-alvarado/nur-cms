@@ -80,3 +80,39 @@ voca_rs = "1.15"
 
 [build-dependencies]
 build-print = "1"
+
+# DEBIAN DEB PACKAGE
+[package.metadata.deb]
+name = "nur-cms"
+priority = "optional"
+section = "net"
+license-file = ["../LICENSE", "0"]
+depends = ""
+copyright = "Copyright (c) 2025, Jonathan Baecker. All rights reserved."
+assets = [
+    [
+        "target/release/nur-cms",
+        "/usr/bin/",
+        "755",
+    ],
+    [
+        "../assets/.env.example",
+        "/home/nur-cms/.env",
+        "644",
+    ],
+]
+maintainer-scripts = "../debian/"
+systemd-units = { enable = true, unit-scripts = "../assets" }
+
+# RHEL RPM PACKAGE
+[package.metadata.generate-rpm]
+name = "nur-cms"
+license = "GPL-3.0"
+assets = [
+    { source = "../target/x86_64-unknown-linux-musl/release/nur-cms", dest = "/usr/bin/nur-cms", mode = "755" },
+    { source = "../assets/nur-cms.service", dest = "/lib/systemd/system/nur-cms.service", mode = "644" },
+    { source = "../assets/.env.example", dest = "/home/nur-cms/.env", mode = "644" },
+    { source = "../debian/postinst", dest = "/usr/share/nur-cms/postinst", mode = "755" },
+]
+auto-req = "no"
+post_install_script = "/usr/share/nur-cms/postinst"

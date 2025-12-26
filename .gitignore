@@ -31,5 +31,7 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+*.deb
+*.rpm
 
 *.tsbuildinfo

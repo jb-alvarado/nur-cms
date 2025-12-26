@@ -1,0 +1,15 @@
+[Unit]
+Description=Rust based headless CMS
+After=network.target remote-fs.target
+
+[Service]
+WorkingDirectory=/home/nur-cms
+ExecStart=/usr/bin/nur-cms -l 0.0.0.0:8777
+Restart=always
+StartLimitInterval=20
+RestartSec=1
+KillMode=mixed
+User=nur-cms
+
+[Install]
+WantedBy=multi-user.target
