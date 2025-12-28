@@ -36,6 +36,8 @@ export default {
         selectLanguage: 'Select a language',
         deleteSuccess: 'Deleted: {name}',
         languages: 'Languages',
+        key: 'Key',
+        value: 'Value',
     },
     table: {
         id: 'ID',
@@ -188,5 +190,9 @@ export default {
         recipients: 'Recipients',
         recipientPlaceholder: 'Enter email address',
         allowHtml: 'Allow HTML',
+    },
+    block: {
+        create: 'Create Block',
+        empty: 'No key-value pairs added',
     },
 }

@@ -100,14 +100,14 @@ pub async fn select_content_entries(
     for f in &query_obj.fields {
         match *f {
             CF::Authors => sep.push(format!("COALESCE(authors.data, '[]') AS {f}")),
-            CF::Category => sep.push(format!("COALESCE(cats.data, '{{}}'::json) AS {f}")),
+            CF::Category => sep.push(format!("COALESCE(cats.data, NULL) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(cm.data, cm.start_time, cm.end_time) AS {f}")),
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
             CF::Body => sep.push("ce.text".to_string()),
             CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
             CF::Embeds => sep.push(format!("COALESCE(embed_data.media, '[]') AS {f}")),
-            CF::Media => sep.push("COALESCE(media.data, '{}'::json) AS \"media\""),
+            CF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
             _ => sep.push(format!("ce.{f}")),
         };
     }
@@ -218,7 +218,7 @@ pub async fn select_content_entries(
                 SELECT jsonb_agg(
                     jsonb_build_object(
                         'id', bl.id,
-                        'type', bl.type,
+                        'order_index', bl.order_index,
                         'data', bl.data
                     )
                     ORDER BY bl.order_index

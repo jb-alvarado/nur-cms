@@ -150,7 +150,6 @@ CREATE TABLE content_meta (
 CREATE TABLE content_blocks (
     id SERIAL PRIMARY KEY,
     entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
-    type VARCHAR(64) NOT NULL,
     order_index INT NOT NULL DEFAULT 0,
     data JSONB NOT NULL
 );

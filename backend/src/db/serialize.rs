@@ -6,7 +6,6 @@ use ts_rs::TS;
 
 use crate::db::{
     fields::ColumnCounter,
-    is_zero,
     models::{AuthRole, Role},
 };
 
@@ -200,7 +199,7 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
         let category = row
             .try_get::<Option<serde_json::Value>, _>("category")
             .unwrap_or_default()
-            .map(|v| serde_json::from_value::<ContentCategorySerializer>(v).unwrap_or_default());
+            .and_then(|v| serde_json::from_value::<ContentCategorySerializer>(v).ok());
 
         for (id, name, slug) in row
             .try_get::<Vec<Option<(i32, String, String)>>, &str>("tags")
@@ -231,7 +230,7 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
         let media = row
             .try_get::<Option<serde_json::Value>, _>("media")
             .unwrap_or_default()
-            .map(|v| serde_json::from_value::<MediaSerializer>(v).unwrap_or_default());
+            .and_then(|v| serde_json::from_value::<MediaSerializer>(v).ok());
 
         let embeds = row
             .try_get::<Option<serde_json::Value>, _>("embeds")
@@ -377,10 +376,10 @@ pub struct ContentMetaSerializer {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentBlockSerializer {
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub id: i32,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub r#type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_index: Option<i32>,
     #[serde(default)]
     pub data: Value,
 }

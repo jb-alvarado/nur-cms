@@ -11,10 +11,12 @@ import { errMsg } from '@/utils/error'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 
-import GenericModal from '@/components/GenericModal.vue'
+import GenericBlock from './GenericBlock.vue'
+import GenericModal from './GenericModal.vue'
+import BlockModal from './BlockModal.vue'
 import MarkdownRender from './MarkdownRender.vue'
-import MediaBrowser from '@/components/MediaBrowser.vue'
-import TextEditor from '@/components/TextEditor.vue'
+import MediaBrowser from './MediaBrowser.vue'
+import TextEditor from './TextEditor.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -28,6 +30,7 @@ const groupID = Number(route.params.group_id ?? 0)
 
 const deleteModal = ref()
 const mediaModal = ref()
+const blockModal = ref()
 const content = ref({
     id: 0,
     group_id: groupID,
@@ -239,6 +242,18 @@ const openDeleteModal = () => {
 
 const openMediaBrowser = () => {
     mediaModal.value.showModal()
+}
+
+const openBlockModal = () => {
+    blockModal.value.showModal()
+}
+
+function addBlock(block: Record<string, any>) {
+    if (!content.value.blocks) {
+        content.value.blocks = []
+    }
+
+    content.value.blocks.push({ data: block, order_index: content.value.blocks.length + 1 } as any)
 }
 
 function updateDescription() {
@@ -538,7 +553,7 @@ async function insertEntryAuthor(entry: number, author: number) {
             <!-- Form + Editor Container -->
             <div
                 v-if="content"
-                class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
+                class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded"
             >
                 <!-- Form inputs -->
                 <div class="flex flex-wrap-reverse gap-4">
@@ -717,6 +732,22 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                 <!-- Toolbar -->
                 <TextEditor v-model="content.text" :update="updateDescription" />
+
+                <div class="flex mt-4 items-center">
+                    <h3 class="text-xl">Blocks</h3>
+                    <div class="grow flex justify-end">
+                        <button class="btn btn-sm" title="New Block" @click="openBlockModal()">
+                            <i class="bi bi-plus-lg text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <div v-for="(block, i) in content.blocks" :key="i" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
+                        <GenericBlock v-model:block="block.data" class="grow" />
+                        <input v-model="block.order_index" type="number" class="input w-20" />
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -732,5 +763,7 @@ async function insertEntryAuthor(entry: number, author: number) {
         </GenericModal>
 
         <MediaBrowser ref="mediaModal" :update="addMedia" />
+
+        <BlockModal ref="blockModal" @add-block="addBlock" />
     </div>
 </template>

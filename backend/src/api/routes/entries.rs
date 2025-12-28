@@ -149,6 +149,15 @@ pub async fn entry_insert(
         obj.remove("body");
     }
 
+    let blocks: Vec<Value> = content
+        .get("blocks")
+        .and_then(|b| b.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if let Some(obj) = content.as_object_mut() {
+        obj.remove("blocks");
+    }
+
     let id = handles::insert_record(&pool, &Table::ContentEntries, &content).await?;
     let ast = to_mdast(
         content
@@ -160,6 +169,13 @@ pub async fn entry_insert(
     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
 
     persist_content_media(&pool, id, &tree).await?;
+
+    for block in blocks {
+        let mut block = block.clone();
+        block["entry_id"] = id.into();
+
+        let _: i32 = handles::insert_record(&pool, &Table::ContentBlocks, &block).await?;
+    }
 
     Ok(Json(id))
 }

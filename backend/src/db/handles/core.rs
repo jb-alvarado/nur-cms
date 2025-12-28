@@ -201,9 +201,8 @@ where
                     separated.push_bind(s);
                 }
             }
-            other => {
-                error!("Unknown Type {key}={other:?} in Insert!");
-                separated.push_bind("DEFAULT");
+            Value::Object(o) => {
+                separated.push_bind(serde_json::Value::Object(o.clone()));
             }
         }
     }

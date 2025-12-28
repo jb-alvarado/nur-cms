@@ -295,7 +295,7 @@ function quote() {
             <textarea
                 ref="textareaRef"
                 v-model="model"
-                class="textarea resize-none w-full h-full rounded-t-none focus:outline-0! focus:border-base-content/60"
+                class="textarea w-full h-full rounded-t-none focus:outline-0! focus:border-base-content/60"
                 @keydown="keyHandler"
                 @click="textPosition"
             ></textarea>

@@ -376,35 +376,30 @@ VALUES
     (14, '2026-02-10T10:15:00Z', '2026-02-12T12:15:00Z');
 
 INSERT INTO
-    content_blocks (entry_id, type, order_index, data)
+    content_blocks (entry_id, order_index, data)
 VALUES
     (
         16,
-        'paragraph',
         0,
         '{"children":[{"text":"This is the first block of content.","type":"text"}]}'
     ),
     (
         16,
-        'paragraph',
         1,
         '{"children":[{"text":"Here is another paragraph with some bold text.","type":"text","bold":true}]}'
     ),
     (
         16,
-        'image',
         2,
         '{"alt":"Cover Image","filename":"cover.jpg","path":"/uploads/2025/10/cover.jpg","type":"image"}'
     ),
     (
         16,
-        'paragraph',
         3,
         '{"children":[{"text":"Yet another text block with italic text.","type":"text","italic":true}]}'
     ),
     (
         16,
-        'list',
         4,
         '{"items":[{"text":"First list item"},{"text":"Second list item"}],"type":"unordered"}'
     );
