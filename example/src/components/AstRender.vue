@@ -44,6 +44,11 @@ defineProps({
                     <i v-else-if="child.italic">
                         {{ child.text }}
                     </i>
+                    <img
+                        v-else-if="child.type === 'image'"
+                        :src="`${child.path}/${child.filename}`"
+                        :alt="String(child.alt || '')"
+                    />
                     <template v-else-if="child.type === 'text'">
                         {{ child.text }}
                     </template>

@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
-    "@unhead/vue": "^2.1.0",
+    "@unhead/vue": "^2.1.1",
     "@vueuse/core": "^14.1.0",
     "bootstrap-icons": "^1.13.1",
     "dayjs": "^1.11.19",
@@ -29,7 +29,7 @@
     "pinia": "^3.0.4",
     "tailwindcss": "^4.1.18",
     "vue": "^3.5.26",
-    "vue-i18n": "^11.2.7",
+    "vue-i18n": "^11.2.8",
     "vue-multiselect": "^3.4.0",
     "vue-router": "^4.6.4"
   },
@@ -51,6 +51,6 @@
     "typescript": "~5.9.3",
     "vite": "npm:rolldown-vite@latest",
     "vite-plugin-vue-devtools": "^8.0.5",
-    "vue-tsc": "^3.2.1"
+    "vue-tsc": "^3.2.2"
   }
 }

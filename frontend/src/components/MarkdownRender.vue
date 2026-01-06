@@ -54,6 +54,6 @@ const html = computed(() => marked(props.text ?? ''))
 <template>
     <div
         v-html="html"
-        class="prose max-w-[800px] h-full overflow-auto bg-base-100 p-4 rounded border border-base-content/25"
+        class="prose max-w-200 h-full overflow-auto bg-base-100 p-4 rounded border border-base-content/25"
     />
 </template>
