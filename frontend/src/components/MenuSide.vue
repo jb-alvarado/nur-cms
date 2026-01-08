@@ -63,6 +63,8 @@ function setLanguage(code: string) {
     locale.value = next
     localStorage.setItem('language', next)
     document.documentElement.setAttribute('lang', next)
+
+    store.randomKey = (Math.random() + 1).toString(36).substring(7)
 }
 </script>
 
