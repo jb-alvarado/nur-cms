@@ -30,7 +30,7 @@ import HomeFooter from '@/components/HomeFooter.vue';
         </section>
 
         <!-- Content Section -->
-        <section id="entries" class="max-w-6xl mx-auto px-4 pb-16">
+        <section id="entries" class="flex justify-center px-4 pb-16">
             <HomeArticle />
         </section>
 
