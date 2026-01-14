@@ -19,7 +19,7 @@ use crate::{
         queries::{QueryObj, RespondObj},
     },
     mail::client::{Msg, message},
-    utils::errors::ServiceError,
+    utils::{errors::ServiceError, spam_detection::evaluate_text},
 };
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
@@ -119,6 +119,14 @@ pub async fn mailer(
     Path(target): Path<String>,
     Json(contact): Json<Contact>,
 ) -> Result<(), ServiceError> {
+    let result = evaluate_text(&contact.text, None);
+
+    if !result.passed {
+        return Err(ServiceError::Conflict(
+            "This message is not allowed!".to_string(),
+        ));
+    }
+
     let target = handles::select_mail_target(&pool, &target).await?;
     let text = format!(
         "Name: {}\nMail: {}\n------------------------------------\n\n{}",
