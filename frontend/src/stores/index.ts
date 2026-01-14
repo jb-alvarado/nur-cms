@@ -46,6 +46,7 @@ export const useIndex = defineStore('index', {
         typeID: 1,
         progress: 0,
         progressShow: false,
+        randomKey: 'aHcyWqp',
     }),
 
     getters: {},

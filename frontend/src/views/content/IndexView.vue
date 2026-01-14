@@ -18,6 +18,7 @@ const store = useIndex()
 const { t } = useI18n()
 
 store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? ''
+store.typeID = store.types.find(type => type.slug === store.routeType)?.id ?? 1
 
 const authorRows = computed(() => [
     { active: true, up: true, name: t('table.id'), field: 'id' },
@@ -42,15 +43,16 @@ const commentRows = computed(() => [
     { active: true, up: false, name: t('table.createdAt'), field: 'created_at' },
 ])
 
-const defaultEntryRows = [
+const defaultEntryRows = computed(() => [
     { active: true, up: true, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.title'), field: 'title' },
     { active: false, up: false, name: t('table.status'), field: 'status' },
     { active: false, up: false, name: t('table.createdAt'), field: 'created_at' },
     { active: false, up: false, name: t('table.language'), field: 'locale_id' },
     { active: false, up: false, name: t('table.groupId'), field: 'group_id' },
-]
-const entryRows = ref([...defaultEntryRows])
+])
+
+const entryRows = ref([...defaultEntryRows.value])
 
 onMounted(() => {
     if (store.routeType === 'author') {
@@ -67,11 +69,10 @@ onMounted(() => {
         if (visibleFields) {
             entryRows.value = JSON.parse(visibleFields)
         } else {
-            entryRows.value = [...defaultEntryRows]
+            entryRows.value = [...defaultEntryRows.value]
         }
 
         store.visibleRows = entryRows.value
-
         store.initContent('content/entries')
     }
 
@@ -84,7 +85,6 @@ const selectCount = computed(() => store.tableCols.reduce((acc, item: any) => ac
 const published = ref(t('button.publish'))
 const approved = ref(t('button.approve'))
 const deleteModal = ref()
-const tableRef = ref()
 
 const openDeleteModal = () => {
     deleteModal.value.showModal()
@@ -121,7 +121,6 @@ function statusLabel() {
 function onPageChange() {
     nextTick(() => {
         store.contentSelect()
-        console.log('change page')
     })
 }
 </script>
@@ -167,7 +166,7 @@ function onPageChange() {
         </div>
 
         <div class="overflow-x-auto mt-4 pb-4">
-            <GenericTable ref="tableRef" :type="store.routeType" :check-box-change="statusLabel" />
+            <GenericTable :type="store.routeType" :check-box-change="statusLabel" />
         </div>
         <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="store.contentDelete">
             <p>{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>

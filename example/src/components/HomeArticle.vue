@@ -65,55 +65,61 @@ onMounted(() => {
 })
 </script>
 <template>
-    <h2 class="text-3xl font-bold mb-12 text-center">Latest Articles</h2>
+    <div>
+        <h2 class="text-3xl font-bold mb-12 text-center">Latest Articles</h2>
 
-    <!-- Loading State -->
-    <div v-if="loading" class="flex justify-center items-center py-16">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-    </div>
+        <!-- Loading State -->
+        <div v-if="loading" class="flex justify-center items-center py-16">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
 
-    <!-- Error State -->
-    <div v-else-if="error" class="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
-        <p class="font-semibold">Error loading content:</p>
-        <p>{{ error }}</p>
-    </div>
+        <!-- Error State -->
+        <div v-else-if="error" class="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
+            <p class="font-semibold">Error loading content:</p>
+            <p>{{ error }}</p>
+        </div>
 
-    <!-- Empty State -->
-    <div v-else-if="entries.length === 0" class="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
-        <p class="text-gray-600 text-lg">No articles available yet.</p>
-    </div>
+        <!-- Empty State -->
+        <div v-else-if="entries.length === 0" class="bg-gray-50 border border-gray-200 rounded-lg p-12 text-center">
+            <p class="text-gray-600 text-lg">No articles available yet.</p>
+        </div>
 
-    <!-- Content Grid -->
-    <div v-else class="flex flex-wrap gap-8 mb-12">
-        <article v-for="entry in entries" :key="entry.id!" class="card bg-base-200 w-80 shadow-sm hover:scale-[101%] hover:shadow transition">
-            <figure>
-                <img :src="mediaPath(entry.media!)" :alt="entry.title!" class="max-h-54" />
-            </figure>
-            <div class="card-body">
-                <h2 class="card-title">{{ entry.title }}</h2>
-                <p>
-                    {{ truncateText(entry.description!, 120) }}
-                </p>
-                <div class="card-actions justify-end">
-                    <RouterLink :to="`/articles/${entry.slug}`" class="btn btn-primary">Read More</RouterLink>
+        <!-- Content Grid -->
+        <div v-else class="flex flex-wrap gap-8 mb-12">
+            <article
+                v-for="entry in entries"
+                :key="entry.id!"
+                class="card bg-base-200 w-80 shadow-sm hover:scale-[101%] hover:shadow transition"
+            >
+                <figure>
+                    <img :src="mediaPath(entry.media!)" :alt="entry.title!" class="max-h-54" />
+                </figure>
+                <div class="card-body">
+                    <h2 class="card-title">{{ entry.title }}</h2>
+                    <p>
+                        {{ truncateText(entry.description!, 120) }}
+                    </p>
+                    <div class="card-actions justify-end">
+                        <RouterLink :to="`/articles/${entry.slug}`" class="btn btn-primary">Read More</RouterLink>
+                    </div>
                 </div>
-            </div>
-        </article>
-    </div>
+            </article>
+        </div>
 
-    <!-- Pagination -->
-    <div v-if="totalPages > 1" class="flex justify-center items-center gap-2">
-        <button
-            v-for="page in totalPages"
-            :key="page"
-            @click="goToPage(page)"
-            :class="{
-                'px-4 py-2 rounded-lg font-medium transition': true,
-                'bg-blue-600 text-white': page === currentPage,
-                'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50': page !== currentPage,
-            }"
-        >
-            {{ page }}
-        </button>
+        <!-- Pagination -->
+        <div v-if="totalPages > 1" class="flex justify-center items-center gap-2">
+            <button
+                v-for="page in totalPages"
+                :key="page"
+                @click="goToPage(page)"
+                class="px-4 py-2 rounded-lg font-medium transition"
+                :class="{
+                    'bg-blue-600 text-white': page === currentPage,
+                    'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50': page !== currentPage,
+                }"
+            >
+                {{ page }}
+            </button>
+        </div>
     </div>
 </template>
