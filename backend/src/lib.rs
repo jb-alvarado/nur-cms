@@ -11,7 +11,6 @@ use axum::{
     response::Response,
     routing::{delete, get, post, put},
 };
-use protect_endpoints_core::tower::middleware::GrantsLayer;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tokio::sync::RwLock;
 use tracing::{error, warn};
@@ -20,6 +19,7 @@ pub mod api;
 pub mod db;
 pub mod file;
 pub mod mail;
+pub mod middleware;
 pub mod serve;
 pub mod sse;
 pub mod utils;
@@ -167,8 +167,7 @@ pub fn router_entries() -> (
         .nest("/locales", locale_routes)
         .nest("/comments", comment_routes)
         .nest("/content", content_routes)
-        .nest("/media", media_routes)
-        .layer(GrantsLayer::with_extractor(extract));
+        .nest("/media", media_routes);
 
     (auth_routes, api_routes)
 }

@@ -4,7 +4,6 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use axum_governor::{GovernorConfig, GovernorLayer};
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
@@ -24,7 +23,9 @@ use nur_cms::STORAGE;
 use nur_cms::{
     CONFIG,
     db::handles,
-    extract, init_db, router_entries,
+    extract, init_db,
+    middleware::governor::GovernorLayer,
+    router_entries,
     sse::{
         SseAuthState,
         routes::{generate_uuid, sse_handler},
@@ -76,7 +77,7 @@ async fn main() -> Result<(), ServiceError> {
     };
 
     init_rate_limiter!(
-        default: RuleConfig::new(Duration::seconds(1), 1), // 100 req/s globally
+        default: RuleConfig::new(Duration::seconds(1), 10), // 10 req/s globally
         max_memory: Some(64 * 1024 * 1024), // 64MB max memory
         routes: [
             ("/auth/login", RuleConfig::new(Duration::minutes(1), 3)), // 6 req/min
@@ -98,16 +99,15 @@ async fn main() -> Result<(), ServiceError> {
 
     let limiter = ServiceBuilder::new()
         .layer(RealIpLayer::default())
-        .layer(GovernorLayer::new(
-            GovernorConfig::new().override_mode(true),
-        ));
+        .layer(GovernorLayer::default());
 
     #[cfg(debug_assertions)]
     let mut app = Router::new()
         .nest("/auth", auth_routes.with_state(pool.clone()))
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
-        .layer(limiter);
+        .layer(limiter)
+        .layer(GrantsLayer::with_extractor(extract));
 
     #[cfg(not(debug_assertions))]
     let app = Router::new()
@@ -115,7 +115,8 @@ async fn main() -> Result<(), ServiceError> {
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_ui_routes())
         .nest("/sse", sse_router)
-        .layer(limiter);
+        .layer(limiter)
+        .layer(GrantsLayer::with_extractor(extract));
 
     #[cfg(debug_assertions)]
     {

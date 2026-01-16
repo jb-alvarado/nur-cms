@@ -322,22 +322,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-governor"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b7c834a1a4316dc52653640cdb7558cfa08ac17607cec6965cce640ba28af9f"
-dependencies = [
- "axum",
- "futures-util",
- "http",
- "lazy-limit",
- "real",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
 name = "axum-macros"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2155,7 +2139,6 @@ dependencies = [
  "argon2",
  "async-stream",
  "axum",
- "axum-governor",
  "axum-macros",
  "build-print",
  "chrono",
@@ -2163,6 +2146,7 @@ dependencies = [
  "colored",
  "derive_more",
  "dotenvy",
+ "futures-util",
  "html_parser",
  "image",
  "include_dir",
