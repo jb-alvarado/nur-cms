@@ -4,6 +4,7 @@ use axum::{
 };
 use chrono::Utc;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
+use real::RealIp;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
@@ -23,6 +24,7 @@ use crate::{
         queries::{QueryObj, RespondObj},
     },
     mail::client::{Msg, message},
+    utils::spam_detection::evaluate_text,
 };
 
 async fn notify(comment: Comment) -> Result<(), ServiceError> {
@@ -80,6 +82,7 @@ pub async fn comments_select(
 }
 
 pub async fn comment_insert(
+    real_ip: RealIp,
     State((pool, tx)): State<(PgPool, Sender<String>)>,
     Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
@@ -101,7 +104,20 @@ pub async fn comment_insert(
         content.status = Some("pending".to_string());
     }
 
-    match handles::insert_record::<Comment, i64>(&pool, &Table::Comments, &content).await {
+    let result = evaluate_text(content.text.as_deref().unwrap_or(""), None);
+
+    if !result.passed {
+        error!(
+            "Spam detected from: {:?}, score: {:?}",
+            real_ip.ip(),
+            result.score
+        );
+        return Err(ServiceError::Conflict(
+            "This message is not allowed!".to_string(),
+        ));
+    }
+
+    match handles::insert_comment(&pool, &content).await {
         Ok(id) => {
             let msg = SSEMessage::new(SSELevel::Success, &format!("New Comment received: {id}"));
             let _ = tx.send(msg.to_string());

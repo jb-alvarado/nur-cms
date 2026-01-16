@@ -1,5 +1,3 @@
-use axum::Router;
-
 #[cfg(not(debug_assertions))]
 use {
     axum::{
@@ -81,23 +79,16 @@ async fn serve_asset(path: Option<Path<String>>) -> impl IntoResponse {
     serve_index()
 }
 
-pub fn admin_routes() -> Router {
-    #[cfg(not(debug_assertions))]
-    {
-        Router::new()
-            .route("/admin", get(|| async { Redirect::permanent("/admin/") }))
-            .route(
-                "/admin/",
-                get(|| async { serve_asset(Some(Path(String::from(ROOT)))).await }),
-            )
-            .route(
-                "/admin/{*path}",
-                get(|path| async { serve_asset(Some(path)).await }),
-            )
-    }
-
-    #[cfg(debug_assertions)]
-    {
-        Router::new()
-    }
+#[cfg(not(debug_assertions))]
+pub fn admin_ui_routes() -> Router {
+    Router::new()
+        .route("/admin", get(|| async { Redirect::permanent("/admin/") }))
+        .route(
+            "/admin/",
+            get(|| async { serve_asset(Some(Path(String::from(ROOT)))).await }),
+        )
+        .route(
+            "/admin/{*path}",
+            get(|path| async { serve_asset(Some(path)).await }),
+        )
 }

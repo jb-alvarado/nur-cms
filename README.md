@@ -41,3 +41,7 @@ The application can be configured via:
 
 - Environment variables (`.env` file)
 - Command-line arguments (see `cargo run -- --help`)
+
+## Notes
+
+For two-factor authentication setup email credentials in the configuration.

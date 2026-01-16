@@ -645,6 +645,16 @@ pub struct MailTarget {
     pub total_count: Option<i64>,
 }
 
+impl MailTarget {
+    pub fn new(recipient: String, allow_html: bool) -> Self {
+        Self {
+            recipients: vec![recipient],
+            allow_html,
+            ..Default::default()
+        }
+    }
+}
+
 impl FromRow<'_, PgRow> for MailTarget {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
         Ok(Self {

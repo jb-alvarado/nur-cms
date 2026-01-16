@@ -27,6 +27,7 @@ store.selectTypes()
 
 function logout() {
     auth.removeToken()
+    auth.username = ''
     router.push('/')
 }
 

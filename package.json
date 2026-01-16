@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
-    "@unhead/vue": "^2.1.1",
+    "@unhead/vue": "^2.1.2",
     "@vueuse/core": "^14.1.0",
     "bootstrap-icons": "^1.13.1",
     "dayjs": "^1.11.19",
@@ -47,7 +47,7 @@
     "eslint-plugin-vue": "~10.6.2",
     "jiti": "^2.6.1",
     "npm-run-all2": "^8.0.4",
-    "prettier": "3.7.4",
+    "prettier": "3.8.0",
     "typescript": "~5.9.3",
     "vite": "npm:rolldown-vite@latest",
     "vite-plugin-vue-devtools": "^8.0.5",

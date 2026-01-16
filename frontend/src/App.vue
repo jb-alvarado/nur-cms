@@ -19,11 +19,11 @@ onBeforeMount(async () => {
 </script>
 
 <template>
-    <div class="h-screen bg-base-300">
-        <template v-if="auth.isLogin">
+    <div class="h-screen bg-base-100">
+        <template v-if="auth.isLogin || route.name === 'verification'">
             <div class="flex flex-row h-full">
-                <MenuSide class="pt-3" />
-                <main class="overflow-y-auto w-full bg-base-100 px-7 pt-3">
+                <MenuSide v-if="auth.isLogin" class="pt-3" />
+                <main class="overflow-y-auto w-full bg-base-100 px-7">
                     <RouterView :key="route.fullPath + store.randomKey" />
                 </main>
             </div>

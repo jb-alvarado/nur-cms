@@ -156,7 +156,29 @@ where
 
         match val {
             Value::Array(a) => {
-                separated.push_bind(a);
+                if a.iter().all(|v| matches!(v, Value::String(_))) {
+                    let values: Vec<&str> = a
+                        .iter()
+                        .map(|v| match v {
+                            Value::String(s) => s.as_str(),
+                            _ => unreachable!(),
+                        })
+                        .collect();
+
+                    separated.push_bind(values);
+                } else if a.iter().all(|v| matches!(v, Value::Number(_))) {
+                    let values: Vec<i64> = a
+                        .iter()
+                        .filter_map(|v| match v {
+                            Value::Number(n) => n.as_i64(),
+                            _ => unreachable!(),
+                        })
+                        .collect();
+
+                    separated.push_bind(values);
+                } else {
+                    return Err(ServiceError::InvalidInput);
+                }
             }
             Value::Bool(b) => {
                 separated.push_bind(b);

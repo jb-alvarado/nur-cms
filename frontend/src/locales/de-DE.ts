@@ -3,6 +3,7 @@ export default {
     cancel: 'Abbrechen',
     alert: {
         wrongLogin: 'Falsche Anmeldedaten!',
+        verificationSent: 'Ein Verifizierungscode wurde an deine E-Mail gesendet.',
     },
     button: {
         login: 'Anmelden',
@@ -195,5 +196,11 @@ export default {
     block: {
         create: 'Block erstellen',
         empty: 'Keine Key-Value-Paare hinzugefügt',
+    },
+    verification: {
+        title: 'Verifizierung',
+        codePlaceholder: 'Verifizierungscode',
+        verify: 'Verifizieren',
+        wrongCode: 'Falscher Verifizierungscode!',
     },
 }

@@ -10,6 +10,7 @@ export const useAuth = defineStore('auth', {
         authHeader: {},
         id: 0,
         role: 'guest' as Role,
+        username: '',
         user: {} as AuthUser,
         lastLogin: null as string | null | undefined,
         uuid: null as null | string,
@@ -44,14 +45,38 @@ export const useAuth = defineStore('auth', {
             this.user = {}
         },
 
-        async obtainToken(username: string, password: string) {
+        async obtainVerificationCode(password: string) {
             let code = 400
+
             const payload = {
-                username,
+                username: this.username,
                 password,
             }
 
             await fetch('/auth/login', {
+                method: 'POST',
+                headers: new Headers([['content-type', 'application/json;charset=UTF-8']]),
+                body: JSON.stringify(payload),
+            })
+                .then((resp) => {
+                    code = resp.status
+                })
+                .catch((e) => {
+                    code = typeof e.status === 'number' ? e.status : code
+                })
+
+            return code
+        },
+
+        async verifyCode(verificationCode: string) {
+            let code = 400
+
+            const payload = {
+                username: this.username,
+                code: verificationCode,
+            }
+
+            await fetch('/auth/verify', {
                 method: 'POST',
                 headers: new Headers([['content-type', 'application/json;charset=UTF-8']]),
                 body: JSON.stringify(payload),

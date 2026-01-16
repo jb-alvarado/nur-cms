@@ -3,6 +3,7 @@ export default {
     cancel: 'Cancel',
     alert: {
         wrongLogin: 'Incorrect login data!',
+        verificationSent: 'A verification code was sent to your email.',
     },
     button: {
         login: 'Login',
@@ -194,5 +195,11 @@ export default {
     block: {
         create: 'Create Block',
         empty: 'No key-value pairs added',
+    },
+    verification: {
+        title: 'Verification',
+        codePlaceholder: 'Verification Code',
+        verify: 'Verify',
+        wrongCode: 'Incorrect verification code!',
     },
 }

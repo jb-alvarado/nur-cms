@@ -29,6 +29,9 @@ pub enum ServiceError {
     #[display("NoContent")]
     NoContent,
 
+    #[display("InvalidInput")]
+    InvalidInput,
+
     #[display("ServiceUnavailable: {_0}")]
     ServiceUnavailable(String),
 
@@ -48,6 +51,10 @@ impl IntoResponse for ServiceError {
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             Self::NoContent => (StatusCode::NO_CONTENT, "No Content".to_string()),
+            Self::InvalidInput => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Invalid Input".to_string(),
+            ),
             Self::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
             Self::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg),
         };

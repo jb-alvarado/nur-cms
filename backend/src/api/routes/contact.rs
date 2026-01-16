@@ -4,6 +4,7 @@ use axum::{
     extract::{OriginalUri, Path, Query},
 };
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
+use real::RealIp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -24,7 +25,7 @@ use crate::{
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
 pub struct Contact {
-    pub mail: String,
+    pub email: String,
     pub name: String,
     pub text: String,
 }
@@ -115,6 +116,7 @@ pub async fn target_delete(
 }
 
 pub async fn mailer(
+    real_ip: RealIp,
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(target): Path<String>,
     Json(contact): Json<Contact>,
@@ -122,6 +124,11 @@ pub async fn mailer(
     let result = evaluate_text(&contact.text, None);
 
     if !result.passed {
+        error!(
+            "Spam detected from: {:?}, score: {:?}",
+            real_ip.ip(),
+            result.score
+        );
         return Err(ServiceError::Conflict(
             "This message is not allowed!".to_string(),
         ));
@@ -130,9 +137,9 @@ pub async fn mailer(
     let target = handles::select_mail_target(&pool, &target).await?;
     let text = format!(
         "Name: {}\nMail: {}\n------------------------------------\n\n{}",
-        contact.name, contact.mail, contact.text
+        contact.name, contact.email, contact.text
     );
-    let msg = Msg::new(contact.mail, contact.name, None, text, target);
+    let msg = Msg::new(contact.email, contact.name, None, text, target);
 
     message(msg).await?;
 

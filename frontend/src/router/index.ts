@@ -22,6 +22,11 @@ const router = createRouter({
         //     component: () => import('../views/article/ArticleEdit.vue'),
         // },
         {
+            path: '/verification',
+            name: 'verification',
+            component: () => import('../views/VerificationView.vue'),
+        },
+        {
             path: '/configuration',
             name: 'configuration',
             component: () => import('../views/ConfigurationView.vue'),
@@ -76,7 +81,10 @@ router.beforeEach(async (to, from, next) => {
         await auth.inspectToken()
     }
 
-    if (!auth.isLogin && !String(to.name).includes('home')) {
+    const publicRoutes = new Set(['home', 'verification'])
+    const targetName = to.name?.toString() ?? ''
+
+    if (!auth.isLogin && !publicRoutes.has(targetName)) {
         next('/')
     } else {
         next()

@@ -100,3 +100,29 @@ pub async fn select_comments(
 
     Ok(RespondObj::new(query_obj, data))
 }
+
+pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, ServiceError> {
+    let entry_id = c.entry_id.ok_or(ServiceError::InvalidInput)?;
+    let text = c.text.as_deref().ok_or(ServiceError::InvalidInput)?;
+    let status = c.status.as_deref().unwrap_or("pending");
+
+    const QUERY: &str = r#"
+        INSERT INTO comments (entry_id, author_name, author_email, status, text)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
+    "#;
+
+    #[cfg(debug_assertions)]
+    debug!("{}", format_sql(QUERY));
+
+    let id = sqlx::query_scalar(QUERY)
+        .bind(entry_id)
+        .bind(&c.author_name)
+        .bind(&c.author_email)
+        .bind(status)
+        .bind(text)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(id)
+}

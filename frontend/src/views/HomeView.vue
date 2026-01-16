@@ -9,9 +9,10 @@ useHead({
 </script>
 
 <template>
-    <div class="w-full h-full">
-        <div>
-            {{ $t('home.welcome') }}
+    <div class="w-full h-full flex items-center justify-center">
+        <div class="text-center opacity-30">
+            <img src="/logo.svg" class="w-96 min-w-40" alt="Logo" />
+            <h1 class="font-bold text-5xl mt-5">NUR CMS</h1>
         </div>
     </div>
 </template>
