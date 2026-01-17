@@ -29,7 +29,6 @@ clap = { version = "4", features = ["derive"] }
 colored = "3"
 derive_more = { version = "2", features = ["full"] }
 dotenvy = "0.15"
-futures-util = "0.3"
 html_parser = "0.7"
 image = { version = "0.25", features = ["avif", "rayon", "png"] }
 include_dir = "0.7"

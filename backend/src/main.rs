@@ -1,7 +1,7 @@
 use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 
 use axum::{
-    Router,
+    Router, middleware,
     routing::{get, post},
 };
 use clap::Parser;
@@ -24,7 +24,7 @@ use nur_cms::{
     CONFIG,
     db::handles,
     extract, init_db,
-    middleware::governor::GovernorLayer,
+    middleware::governor::rate_limit,
     router_entries,
     sse::{
         SseAuthState,
@@ -80,7 +80,7 @@ async fn main() -> Result<(), ServiceError> {
         default: RuleConfig::new(Duration::seconds(1), 10), // 10 req/s globally
         max_memory: Some(64 * 1024 * 1024), // 64MB max memory
         routes: [
-            ("/auth/login", RuleConfig::new(Duration::minutes(1), 3)), // 6 req/min
+            ("/auth/", RuleConfig::new(Duration::minutes(1), 3).match_prefix(true)), // 3 req/min
             ("/api/comments", RuleConfig::new(Duration::minutes(3), 1).for_methods(vec![HttpMethod::POST])), // 1 req/3 min
             ("/api/contact/target/", RuleConfig::new(Duration::minutes(3), 1).match_prefix(true)), // 1 req/3 min
         ]
@@ -94,20 +94,19 @@ async fn main() -> Result<(), ServiceError> {
             "/",
             get(sse_handler).with_state((tx.clone(), sse_state.clone())),
         )
-        .route("/generate-uuid", post(generate_uuid).with_state(sse_state))
-        .layer(GrantsLayer::with_extractor(extract));
+        .route("/generate-uuid", post(generate_uuid).with_state(sse_state));
 
-    let limiter = ServiceBuilder::new()
+    let middlewares = ServiceBuilder::new()
+        .layer(GrantsLayer::with_extractor(extract))
         .layer(RealIpLayer::default())
-        .layer(GovernorLayer::default());
+        .layer(middleware::from_fn(rate_limit));
 
     #[cfg(debug_assertions)]
     let mut app = Router::new()
         .nest("/auth", auth_routes.with_state(pool.clone()))
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
-        .layer(limiter)
-        .layer(GrantsLayer::with_extractor(extract));
+        .layer(middlewares);
 
     #[cfg(not(debug_assertions))]
     let app = Router::new()
@@ -115,8 +114,7 @@ async fn main() -> Result<(), ServiceError> {
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_ui_routes())
         .nest("/sse", sse_router)
-        .layer(limiter)
-        .layer(GrantsLayer::with_extractor(extract));
+        .layer(middlewares);
 
     #[cfg(debug_assertions)]
     {

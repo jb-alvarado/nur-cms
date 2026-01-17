@@ -2146,7 +2146,6 @@ dependencies = [
  "colored",
  "derive_more",
  "dotenvy",
- "futures-util",
  "html_parser",
  "image",
  "include_dir",

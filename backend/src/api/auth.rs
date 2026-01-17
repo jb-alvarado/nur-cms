@@ -150,7 +150,7 @@ pub async fn verify(
             };
             handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
 
-            info!("user {username} verified successfully, with role: {}", role);
+            info!("User {username} verified successfully, with role: {}", role);
 
             Ok((
                 StatusCode::OK,
@@ -271,7 +271,7 @@ pub async fn login(
                     return Ok((
                         StatusCode::OK,
                         AxumJson(serde_json::json!({
-                            "detail": "Verification sended to email!",
+                            "detail": "Verification code sended to email!",
                         })),
                     )
                         .into_response());

@@ -35,6 +35,9 @@ pub enum ServiceError {
     #[display("ServiceUnavailable: {_0}")]
     ServiceUnavailable(String),
 
+    #[display("InvalidInput")]
+    ToManyRequests,
+
     #[display("UnprocessableEntity: {_0}")]
     UnprocessableEntity(String),
 }
@@ -56,6 +59,10 @@ impl IntoResponse for ServiceError {
                 "Invalid Input".to_string(),
             ),
             Self::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg),
+            Self::ToManyRequests => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too Many Requests".to_string(),
+            ),
             Self::UnprocessableEntity(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg),
         };
 
