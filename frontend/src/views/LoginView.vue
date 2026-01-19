@@ -35,6 +35,7 @@ async function login() {
 
             setTimeout(() => {
                 showLoginError.value = false
+                formError.value = ''
             }, 3000)
         }
 
@@ -51,10 +52,9 @@ async function login() {
 
         setTimeout(() => {
             showLoginError.value = false
+            formError.value = ''
         }, 3000)
     }
-
-    formError.value = ''
 }
 </script>
 
