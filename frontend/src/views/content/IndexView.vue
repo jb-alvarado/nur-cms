@@ -126,7 +126,7 @@ function onPageChange() {
 </script>
 
 <template>
-    <div>
+    <div class="mt-3">
         <div class="flex">
             <h1 class="text-2xl grow">{{ store.routeType.toLocaleUpperCase() }}</h1>
             <RouterLink :to="`/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">New</RouterLink>
