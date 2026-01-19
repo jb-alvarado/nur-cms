@@ -115,7 +115,7 @@ pub async fn verify(
             // Check if code is correct
             if verification.code != provided_code {
                 return Ok((
-                    StatusCode::BAD_REQUEST,
+                    StatusCode::FORBIDDEN,
                     AxumJson(serde_json::json!({
                         "detail": "Invalid verification code!",
                     })),
@@ -164,7 +164,7 @@ pub async fn verify(
         None => {
             error!("No verification code found for {username}");
             Ok((
-                StatusCode::BAD_REQUEST,
+                StatusCode::FORBIDDEN,
                 AxumJson(serde_json::json!({
                     "detail": "No verification code found or code expired!",
                 })),
@@ -307,7 +307,7 @@ pub async fn login(
             error!("Wrong password for {username}!");
 
             Ok((
-                StatusCode::BAD_REQUEST,
+                StatusCode::FORBIDDEN,
                 AxumJson(serde_json::json!({
                     "detail": "Incorrect credentials!",
                 })),
