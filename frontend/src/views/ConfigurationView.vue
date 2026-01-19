@@ -1,13 +1,17 @@
 <script setup lang="ts">
+import { version } from '../../../package.json'
+
 import GlobalSettings from '@/components/config/GlobalSettings.vue'
 import ContentType from '@/components/config/ContentType.vue'
-import MailTargets from '@/components/config/MailTargets.vue';
+import MailTargets from '@/components/config/MailTargets.vue'
 </script>
 
 <template>
     <div>
         <div class="flex">
-            <h1 class="text-2xl">{{ $t('button.configure') }}</h1>
+            <h1 class="text-2xl grow">{{ $t('button.configure') }}</h1>
+
+            <div class="text-xs text-base-content/60">v{{ version }}</div>
         </div>
     </div>
 
