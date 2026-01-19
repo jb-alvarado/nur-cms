@@ -10,15 +10,20 @@ struct ChronoLocalTimer;
 
 impl FormatTime for ChronoLocalTimer {
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
-        write!(w, "{}", Local::now().format("%Y-%m-%d %H:%M:%S%.6f"))
+        write!(w, "{}", Local::now().format("[%Y-%m-%d %H:%M:%S%.6f]"))
     }
 }
 
 pub fn init_tracing(level: Option<String>, timestamp: bool) {
-    let filter = if let Some(ref level) = level {
-        EnvFilter::new(format!("sqlx=warn,{}={}", env!("CARGO_CRATE_NAME"), level))
-    } else {
-        EnvFilter::new(format!("sqlx=warn,{}=debug", env!("CARGO_CRATE_NAME")))
+    let filter = match level {
+        Some(l) => EnvFilter::new(format!(
+            "sqlx=warn,tower_http=info,{l}={}",
+            env!("CARGO_CRATE_NAME")
+        )),
+        None => EnvFilter::new(format!(
+            "sqlx=warn,tower_http=info,{}=debug",
+            env!("CARGO_CRATE_NAME")
+        )),
     };
 
     let fmt_layer = if timestamp {
@@ -32,6 +37,7 @@ pub fn init_tracing(level: Option<String>, timestamp: bool) {
             .boxed()
     } else {
         fmt::layer()
+            .compact()
             .without_time()
             .with_target(false)
             .with_level(true)

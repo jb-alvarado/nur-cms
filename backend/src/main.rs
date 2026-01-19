@@ -1,18 +1,21 @@
-use std::{collections::HashSet, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
 
 use axum::{
-    Router, middleware,
+    Router,
+    body::{Body, HttpBody},
+    http::{Request, Response},
+    middleware::{self, Next},
     routing::{get, post},
 };
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
-use lazy_limit::{Duration, HttpMethod, RuleConfig, init_rate_limiter};
+use lazy_limit::{Duration as LDuration, HttpMethod, RuleConfig, init_rate_limiter};
 use protect_axum::GrantsLayer;
 use real::RealIpLayer;
 use tokio::sync::{Mutex, broadcast};
 use tower::ServiceBuilder;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 #[cfg(debug_assertions)]
 use tower_http::services::ServeDir;
@@ -40,6 +43,47 @@ use nur_cms::{
 
 #[cfg(not(debug_assertions))]
 use nur_cms::serve::routes::admin_ui_routes;
+
+async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
+    let timer = Instant::now();
+    let ip = req
+        .extensions()
+        .get::<real::RealIp>()
+        .map(|ip| ip.0.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let version = req.version();
+    let request = format!("{} {} {:?}", req.method(), req.uri(), version);
+
+    let referrer = req
+        .headers()
+        .get("referer")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-")
+        .to_string();
+
+    let agent = req
+        .headers()
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-")
+        .to_string();
+
+    let res = next.run(req).await;
+    let status = res.status().as_u16();
+    let size = res.size_hint().exact().unwrap_or_default();
+
+    let latency = timer.elapsed().as_secs_f64();
+
+    if status >= 500 {
+        error!(r#"{ip} "{request}" {status} {size} "{referrer}" "{agent}" {latency:.6}"#);
+    } else if matches!(status, 401 | 403 | 429) {
+        info!(r#"{ip} "{request}" {status} {size} "{referrer}" "{agent}" {latency:.6}"#);
+    } else {
+        info!(r#"{ip} "{request}" {status} {size} "{referrer}" "{agent}" {latency:.6}"#);
+    }
+
+    res
+}
 
 #[tokio::main]
 async fn main() -> Result<(), ServiceError> {
@@ -77,12 +121,12 @@ async fn main() -> Result<(), ServiceError> {
     };
 
     init_rate_limiter!(
-        default: RuleConfig::new(Duration::seconds(1), 10), // 10 req/s globally
+        default: RuleConfig::new(LDuration::seconds(1), 10), // 10 req/s globally
         max_memory: Some(64 * 1024 * 1024), // 64MB max memory
         routes: [
-            ("/auth/", RuleConfig::new(Duration::minutes(1), 3).match_prefix(true)), // 3 req/min
-            ("/api/comments", RuleConfig::new(Duration::minutes(3), 1).for_methods(vec![HttpMethod::POST])), // 1 req/3 min
-            ("/api/contact/target/", RuleConfig::new(Duration::minutes(3), 1).match_prefix(true)), // 1 req/3 min
+            ("/auth/", RuleConfig::new(LDuration::minutes(1), 3).match_prefix(true)), // 3 req/min
+            ("/api/comments", RuleConfig::new(LDuration::minutes(3), 1).for_methods(vec![HttpMethod::POST])), // 1 req/3 min
+            ("/api/contact/target/", RuleConfig::new(LDuration::minutes(3), 1).match_prefix(true)), // 1 req/3 min
         ]
     )
     .await;
@@ -97,8 +141,9 @@ async fn main() -> Result<(), ServiceError> {
         .route("/generate-uuid", post(generate_uuid).with_state(sse_state));
 
     let middlewares = ServiceBuilder::new()
-        .layer(GrantsLayer::with_extractor(extract))
         .layer(RealIpLayer::default())
+        .layer(middleware::from_fn(log_middleware))
+        .layer(GrantsLayer::with_extractor(extract))
         .layer(middleware::from_fn(rate_limit));
 
     #[cfg(debug_assertions)]
