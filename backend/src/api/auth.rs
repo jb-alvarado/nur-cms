@@ -222,9 +222,9 @@ pub async fn login(
                 let config = CONFIG.read().await.clone();
 
                 if let Some(email) = user.email.clone()
-                    && config.mail_user.is_some()
-                    && config.mail_password.is_some()
-                    && config.mail_smtp.is_some()
+                    && config.mail_user.as_ref().is_some_and(|u| !u.is_empty())
+                    && config.mail_password.as_ref().is_some_and(|p| !p.is_empty())
+                    && config.mail_smtp.as_ref().is_some_and(|s| !s.is_empty())
                 {
                     // Generate 7-digit random code
                     let verification_code: String = (0..7)

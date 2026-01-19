@@ -92,6 +92,7 @@ section = "net"
 license-file = ["../LICENSE", "0"]
 depends = ""
 copyright = "Copyright (c) 2025, Jonathan Baecker. All rights reserved."
+conf-files = ["/home/nur-cms/.env"]
 assets = [
     [
         "target/release/nur-cms",
@@ -114,7 +115,7 @@ license = "GPL-3.0"
 assets = [
     { source = "../target/x86_64-unknown-linux-musl/release/nur-cms", dest = "/usr/bin/nur-cms", mode = "755" },
     { source = "../assets/nur-cms.service", dest = "/lib/systemd/system/nur-cms.service", mode = "644" },
-    { source = "../assets/.env.example", dest = "/home/nur-cms/.env", mode = "644" },
+    { source = "../assets/.env.example", dest = "/home/nur-cms/.env", mode = "644", config = true },
     { source = "../debian/postinst", dest = "/usr/share/nur-cms/postinst", mode = "755" },
 ]
 auto-req = "no"

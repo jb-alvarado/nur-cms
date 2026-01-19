@@ -60,6 +60,12 @@ export const useAuth = defineStore('auth', {
             })
                 .then((resp) => {
                     code = resp.status
+                    return resp.json()
+                })
+                .then((response: Token) => {
+                    if (response?.access) {
+                        this.updateToken(response.access, response.refresh)
+                    }
                 })
                 .catch((e) => {
                     code = typeof e.status === 'number' ? e.status : code
