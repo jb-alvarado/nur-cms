@@ -2,8 +2,11 @@ use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
 
 use axum::{
     Router,
-    body::{Body, HttpBody},
-    http::{Request, Response},
+    body::Body,
+    http::{
+        Request, Response,
+        header::{CONTENT_LENGTH, REFERER, USER_AGENT},
+    },
     middleware::{self, Next},
     routing::{get, post},
 };
@@ -15,7 +18,7 @@ use protect_axum::GrantsLayer;
 use real::RealIpLayer;
 use tokio::sync::{Mutex, broadcast};
 use tower::ServiceBuilder;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 #[cfg(debug_assertions)]
 use tower_http::services::ServeDir;
@@ -45,41 +48,53 @@ use nur_cms::{
 use nur_cms::serve::routes::admin_ui_routes;
 
 async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
-    let timer = Instant::now();
+    let start = Instant::now();
+
+    let m = req.method().clone();
+    let uri = req.uri().clone();
+    let v = req.version();
+
     let ip = req
         .extensions()
         .get::<real::RealIp>()
         .map(|ip| ip.0.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let version = req.version();
-    let request = format!("{} {} {:?}", req.method(), req.uri(), version);
+        .unwrap_or_else(|| "-".into());
 
-    let referrer = req
+    let r = req
         .headers()
-        .get("referer")
+        .get(REFERER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-")
         .to_string();
 
-    let agent = req
+    let a = req
         .headers()
-        .get("user-agent")
+        .get(USER_AGENT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-")
         .to_string();
 
     let res = next.run(req).await;
+
     let status = res.status().as_u16();
-    let size = res.size_hint().exact().unwrap_or_default();
+    let size = res
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-");
 
-    let latency = timer.elapsed().as_secs_f64();
+    let l = start.elapsed().as_secs_f64();
 
-    if status >= 500 {
-        error!(r#"{ip} "{request}" {status} {size} "{referrer}" "{agent}" {latency:.6}"#);
-    } else if matches!(status, 401 | 403 | 429) {
-        info!(r#"{ip} "{request}" {status} {size} "{referrer}" "{agent}" {latency:.6}"#);
-    } else {
-        info!(r#"{ip} "{request}" {status} {size} "{referrer}" "{agent}" {latency:.6}"#);
+    match status {
+        500..=599 => {
+            error!(r#"{ip} "{m} {uri} {v:?}" {status} {size} "{r}" "{a}" {l:.6}"#);
+        }
+        401 | 403 | 429 => {
+            warn!(r#"{ip} "{m} {uri} {v:?}" {status} {size} "{r}" "{a}" {l:.6}"#);
+        }
+        _ => {
+            info!(r#"{ip} "{m} {uri} {v:?}" {status} {size} "{r}" "{a}" {l:.6}"#);
+        }
     }
 
     res
