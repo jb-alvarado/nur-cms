@@ -74,12 +74,9 @@ const router = createRouter({
     ],
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
     const auth = useAuth()
-
-    if (from.name) {
-        await auth.inspectToken()
-    }
+    await auth.inspectToken()
 
     const publicRoutes = new Set(['home', 'verification'])
     const targetName = to.name?.toString() ?? ''

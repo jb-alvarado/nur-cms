@@ -206,7 +206,7 @@ function resetUpload() {
 }
 </script>
 <template>
-    <div class="mt-3">
+    <div>
         <div class="flex">
             <h1 class="text-2xl grow">{{ $t('button.media') }}</h1>
             <button class="btn btn-sm btn-primary text-base" @click="uploadModal.showModal()">

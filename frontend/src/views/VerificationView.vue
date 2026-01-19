@@ -50,7 +50,7 @@ async function verify() {
 }
 </script>
 <template>
-    <div v-if="!auth.isLogin" class="w-full h-full">
+    <div v-if="!auth.isLogin" class="w-full h-full -mt-3">
         <RouterLink to="/" class="btn btn-ghost absolute mt-5"> Login </RouterLink>
         <div class="w-full h-full flex justify-center items-center">
             <div class="w-96 min-w-full flex flex-col justify-center items-center px-4">
