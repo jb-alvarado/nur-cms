@@ -1,6 +1,7 @@
 #[cfg(not(debug_assertions))]
 use {
     axum::{
+        Router,
         body::Body,
         extract::Path,
         http::{StatusCode, header},
