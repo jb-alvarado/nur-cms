@@ -119,6 +119,13 @@ impl From<serde_json::Error> for ServiceError {
     }
 }
 
+impl From<emval::ValidationError> for ServiceError {
+    fn from(err: emval::ValidationError) -> Self {
+        error!("{err:?}");
+        Self::Conflict("Invalid email address!".to_string())
+    }
+}
+
 impl From<jsonwebtoken::errors::Error> for ServiceError {
     fn from(_: jsonwebtoken::errors::Error) -> Self {
         Self::Unauthorized

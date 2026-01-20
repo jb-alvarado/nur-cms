@@ -20,7 +20,10 @@ use crate::{
         queries::{QueryObj, RespondObj},
     },
     mail::client::{Msg, message},
-    utils::{errors::ServiceError, spam_detection::evaluate_text},
+    utils::{
+        errors::ServiceError,
+        spam_detection::{evaluate_text, validate_email_address},
+    },
 };
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
@@ -121,6 +124,7 @@ pub async fn mailer(
     Path(target): Path<String>,
     Json(contact): Json<Contact>,
 ) -> Result<(), ServiceError> {
+    let norm_email = validate_email_address(contact.email).await?;
     let result = evaluate_text(&contact.text, None);
 
     if !result.passed {
@@ -137,9 +141,9 @@ pub async fn mailer(
     let target = handles::select_mail_target(&pool, &target).await?;
     let text = format!(
         "Name: {}\nMail: {}\n------------------------------------\n\n{}",
-        contact.name, contact.email, contact.text
+        contact.name, norm_email, contact.text
     );
-    let msg = Msg::new(contact.email, contact.name, None, text, target);
+    let msg = Msg::new(norm_email, contact.name, None, text, target);
 
     message(msg).await?;
 

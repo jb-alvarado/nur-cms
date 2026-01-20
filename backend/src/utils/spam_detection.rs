@@ -1,3 +1,6 @@
+use emval::{ValidationError, validate_email};
+use tokio::task;
+
 const HUMAN_TEXT_SCORE: i32 = 10;
 
 /// Result of the text evaluation
@@ -5,6 +8,16 @@ const HUMAN_TEXT_SCORE: i32 = 10;
 pub struct TextScore {
     pub score: i32,
     pub passed: bool,
+}
+
+pub async fn validate_email_address(email: String) -> Result<String, ValidationError> {
+    let val_email = task::spawn_blocking(|| validate_email(email))
+        .await
+        .unwrap()?;
+
+    let normalized_email = val_email.normalized;
+
+    Ok(normalized_email)
 }
 
 /// Public API: evaluate whether a text looks like meaningful human input

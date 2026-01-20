@@ -40,7 +40,7 @@ async function login() {
         }
 
         // Only redirect once login succeeded
-        if (status === 200 && auth.jwtToken.length > 10) {
+        if (status === 200 && auth.jwtToken.length < 10) {
             store.msgAlert('success', t('alert.verificationSent'))
             await router.push({ name: 'verification' })
         }

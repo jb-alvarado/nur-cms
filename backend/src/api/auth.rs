@@ -3,6 +3,7 @@ use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoRes
 use chrono::{DateTime, Local, TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
 use rand::Rng;
+use real::RealIp;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
 use std::collections::HashMap;
@@ -88,9 +89,11 @@ pub async fn decode_jwt(token: &str) -> Result<Claims, ServiceError> {
 }
 
 pub async fn verify(
+    real_ip: RealIp,
     State(pool): State<PgPool>,
     AxumJson(request): AxumJson<VerifyRequest>,
 ) -> Result<impl IntoResponse, ServiceError> {
+    let ip = real_ip.ip();
     let username = request.username;
     let provided_code = request.code;
 
@@ -150,7 +153,10 @@ pub async fn verify(
             };
             handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
 
-            info!("User {username} verified successfully, with role: {}", role);
+            info!(
+                "{ip} User {username} verified successfully, with role: {}",
+                role
+            );
 
             Ok((
                 StatusCode::OK,
@@ -162,7 +168,7 @@ pub async fn verify(
                 .into_response())
         }
         None => {
-            error!("No verification code found for {username}");
+            error!("{ip} No verification code found for {username}");
             Ok((
                 StatusCode::FORBIDDEN,
                 AxumJson(serde_json::json!({
@@ -175,9 +181,11 @@ pub async fn verify(
 }
 
 pub async fn login(
+    real_ip: RealIp,
     State(pool): State<PgPool>,
     AxumJson(credentials): AxumJson<Credentials>,
 ) -> Result<impl IntoResponse, ServiceError> {
+    let ip = real_ip.ip();
     let username = credentials.username.clone();
     let password = credentials.password.clone();
     let query_obj: QueryObj<AuthUserFields> = QueryObj {
@@ -266,7 +274,7 @@ pub async fn login(
 
                     message(msg).await?;
 
-                    info!("Send verification code");
+                    info!("{ip} Send verification code");
 
                     return Ok((
                         StatusCode::OK,
@@ -292,7 +300,7 @@ pub async fn login(
 
                 handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
 
-                info!("user {username} login, with role: {}", role.name);
+                info!("{ip} User {username} login, with role: {}", role.name);
 
                 return Ok((
                     StatusCode::OK,
@@ -304,7 +312,7 @@ pub async fn login(
                     .into_response());
             }
 
-            error!("Wrong password for {username}!");
+            error!("{ip} Wrong password for {username}!");
 
             Ok((
                 StatusCode::FORBIDDEN,
@@ -315,7 +323,7 @@ pub async fn login(
                 .into_response())
         }
         Err(e) => {
-            error!("Login {username} failed! {e}");
+            error!("{ip} Login {username} failed! {e}");
 
             Ok((
                 StatusCode::BAD_REQUEST,
