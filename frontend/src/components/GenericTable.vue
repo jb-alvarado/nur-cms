@@ -37,6 +37,11 @@ const props = defineProps({
             return ''
         },
     },
+    prefix: {
+        type: String,
+        default: '',
+    },
+
 })
 
 watch(
@@ -202,7 +207,7 @@ function onChangeCheckbox() {
                         </div>
                     </label>
                 </th>
-                <th v-if="type !== 'author' && type !== 'comments'">{{ $t('common.languages') }}</th>
+                <th v-if="type !== 'author' && type !== 'comment'">{{ $t('common.languages') }}</th>
                 <th class="w-10"></th>
             </tr>
         </thead>
@@ -266,7 +271,7 @@ function onChangeCheckbox() {
                         </summary>
                         <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-28 p-0 shadow-sm">
                             <li v-for="lo in col.locale_ids" :key="lo.id">
-                                <RouterLink :to="`/${type}/${lo.id}`" class="rounded-box">
+                                <RouterLink :to="`${prefix}/${type}/${lo.id}`" class="rounded-box">
                                     {{ store.locales.find((l) => l.id === lo.locale_id)?.name }}
                                 </RouterLink>
                             </li>
@@ -277,7 +282,7 @@ function onChangeCheckbox() {
                     </div>
                 </td>
                 <td>
-                    <RouterLink :to="`/${type}/${col.id}`" class="btn btn-sm p-1">
+                    <RouterLink :to="`${prefix}/${type}/${col.id}`" class="btn btn-sm p-1">
                         <i class="bi bi-pencil-square text-lg"></i>
                     </RouterLink>
                 </td>

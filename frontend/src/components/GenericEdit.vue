@@ -284,7 +284,7 @@ function updateDescription() {
 function memberLink(id: number): string {
     const member = content.value.group_members?.find((member) => member.locale_id === id)
 
-    return `/${routeName}/${member?.id ?? content.value.id}`
+    return `/content/${routeName}/${member?.id ?? content.value.id}`
 }
 
 async function save() {
@@ -604,7 +604,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </details>
 
                             <RouterLink
-                                :to="`/${routeName}/0/${content.group_id}`"
+                                :to="`/content/${routeName}/0/${content.group_id}`"
                                 class="btn join-item px-2"
                                 :title="$t('common.addLanguage')"
                             >

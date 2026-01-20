@@ -143,7 +143,7 @@ function updateSlug() {
 function memberLink(id: number): string {
     const member = category.value.group_members?.find((member: GroupMember) => member.locale_id === id)
 
-    return `/category/${member?.id ?? category.value.id}`
+    return `/content/category/${member?.id ?? category.value.id}`
 }
 
 function contentDelete() {
@@ -279,7 +279,7 @@ function addMedia(m: Media) {
                         </details>
 
                         <RouterLink
-                            :to="`/category/0/${category.group_id}`"
+                            :to="`/content/category/0/${category.group_id}`"
                             class="btn join-item px-2"
                             :title="$t('common.addLanguage')"
                         >

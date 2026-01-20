@@ -76,7 +76,7 @@ function commentDelete() {
                 } else {
                     store.msgAlert('success', `Deleted: ${comment.value.author_name ?? comment.value.id}`)
 
-                    router.push(`/comments`)
+                    router.push(`/comment`)
                 }
             })
             .catch((e) => {
@@ -114,7 +114,7 @@ async function save() {
 
             if (commentId === 0) {
                 await store.selectAuthors()
-                router.push(`/comments/${await resp.text()}`)
+                router.push(`/comment/${await resp.text()}`)
             }
         })
         .catch((e) => {

@@ -33,6 +33,22 @@
     --default-font-family: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', 'Arial', 'sans-serif';
 }
 
+@layer base {
+    :root[data-theme='light'],
+    [data-theme='light'] {
+        --color-accent: oklch(0.4089 0.2269 360);
+        --color-accent-content: #fff;
+        --my-glow: #c0c0c0;
+    }
+
+    :root[data-theme='dark'],
+    [data-theme='dark'] {
+        --color-accent: oklch(0.4089 0.2269 360);
+        --color-accent-content: #fff;
+        --my-glow: #5d5d5d;
+    }
+}
+
 html {
     height: 100dvh;
 }

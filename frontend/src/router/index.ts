@@ -11,16 +11,36 @@ const router = createRouter({
             name: 'home',
             component: HomeView,
         },
-        // {
-        //     path: '/author',
-        //     name: 'author lists',
-        //     component: () => import('../views/author/IndexView.vue'),
-        // },
-        // {
-        //     path: '/article/:id',
-        //     name: 'article edit',
-        //     component: () => import('../views/article/ArticleEdit.vue'),
-        // },
+        {
+            path: '/author',
+            name: 'author',
+            component: () => import('../views/author/IndexView.vue'),
+        },
+        {
+            path: '/author/:id',
+            name: 'author edit',
+            component: () => import('../views/author/EditView.vue'),
+        },
+        {
+            path: '/author/:id/:group_id',
+            name: 'group author edit',
+            component: () => import('../views/author/EditView.vue'),
+        },
+        {
+            path: '/category',
+            name: 'category',
+            component: () => import('../views/category/IndexView.vue'),
+        },
+        {
+            path: '/category/:id',
+            name: 'category edit',
+            component: () => import('../views/category/EditView.vue'),
+        },
+        {
+            path: '/category/:id/:group_id',
+            name: 'group category edit',
+            component: () => import('../views/category/EditView.vue'),
+        },
         {
             path: '/verification',
             name: 'verification',
@@ -32,35 +52,35 @@ const router = createRouter({
             component: () => import('../views/ConfigurationView.vue'),
         },
         {
-            path: '/:type',
+            path: '/content/:type',
             name: 'content type',
             component: () => import('../views/content/IndexView.vue'),
         },
         {
-            path: '/:type/:id',
+            path: '/content/:type/:id',
             name: 'content edit',
             component: () => import('../views/content/EditView.vue'),
         },
         {
-            path: '/:type/:id/:group_id',
+            path: '/content/:type/:id/:group_id',
             name: 'group content edit',
             component: () => import('../views/content/EditView.vue'),
         },
-        // {
-        //     path: '/page',
-        //     name: 'page',
-        //     component: () => import('../views/page/PageView.vue'),
-        // },
-        // {
-        //     path: '/page/:id',
-        //     name: 'page edit',
-        //     component: () => import('../views/page/PageEdit.vue'),
-        // },
-        // {
-        //     path: '/event',
-        //     name: 'event',
-        //     component: () => import('../views/event/EventView.vue'),
-        // },
+        {
+            path: '/comment',
+            name: 'comment',
+            component: () => import('../views/comment/IndexView.vue'),
+        },
+        {
+            path: '/comment/:id',
+            name: 'comment edit',
+            component: () => import('../views/comment/EditView.vue'),
+        },
+        {
+            path: '/comment/:id/:group_id',
+            name: 'group comment edit',
+            component: () => import('../views/comment/EditView.vue'),
+        },
         {
             path: '/media',
             name: 'media',
@@ -71,6 +91,12 @@ const router = createRouter({
             name: 'user',
             component: () => import('../views/UserView.vue'),
         },
+        {
+            path: '/:pathMatch(.*)*',
+            name: '404',
+            component: () => import('../views/404.vue'),
+            alias: '/404',
+        },
     ],
 })
 
@@ -78,7 +104,7 @@ router.beforeEach(async (to, _from, next) => {
     const auth = useAuth()
     await auth.inspectToken()
 
-    const publicRoutes = new Set(['home', 'verification'])
+    const publicRoutes = new Set(['home', 'verification', '404'])
     const targetName = to.name?.toString() ?? ''
 
     if (!auth.isLogin && !publicRoutes.has(targetName)) {

@@ -20,7 +20,7 @@ onBeforeMount(async () => {
 
 <template>
     <div class="h-screen bg-base-100">
-        <template v-if="auth.isLogin || route.name === 'verification'">
+        <template v-if="(auth.isLogin || route.name === 'verification') && route.name !== '404'">
             <div class="flex flex-row h-full">
                 <MenuSide v-if="auth.isLogin" class="pt-3" />
                 <main class="overflow-y-auto w-full bg-base-100 px-7 pt-3">
@@ -29,6 +29,9 @@ onBeforeMount(async () => {
             </div>
 
             <AlertMsg />
+        </template>
+        <template v-else-if="route.name === '404'">
+             <RouterView :key="404" />
         </template>
         <LoginView v-else />
     </div>

@@ -47,6 +47,7 @@ export const useIndex = defineStore('index', {
         progress: 0,
         progressShow: false,
         randomKey: 'aHcyWqp',
+        loaded: false,
     }),
 
     getters: {},
@@ -130,6 +131,8 @@ export const useIndex = defineStore('index', {
                             }
                             return t
                         })
+
+                        this.loaded = true
                     }
                 })
                 .catch((e) => {

@@ -89,7 +89,7 @@ function setLanguage(code: string) {
                 <RouterLink
                     v-for="item in store.types"
                     :key="item.name"
-                    :to="`/${item.slug}`"
+                    :to="`/content/${item.slug}`"
                     class="btn join-item w-31 p-1 justify-normal items-center"
                     @click="store.typeID = item.id ?? 0"
                 >
@@ -102,7 +102,7 @@ function setLanguage(code: string) {
                 </RouterLink>
             </div>
             <div class="mt-2">
-                <RouterLink to="/comments" class="btn join-item w-31 p-1 justify-normal items-center">
+                <RouterLink to="/comment" class="btn join-item w-31 p-1 justify-normal items-center">
                     <i class="bi bi-chat-left-text ps-0.5 text-2xl leading-0"></i>
                     {{ $t('button.comment') }}
                 </RouterLink>
