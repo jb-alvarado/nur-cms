@@ -20,7 +20,8 @@ fn main() {
                 let stdout = child.stdout.take().expect("Failed to capture stdout");
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
-                    info!("{}", line?);
+                    let line = line?;
+                    info!("{}", line.trim());
                 }
                 child.wait_with_output()
             })
