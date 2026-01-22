@@ -2,6 +2,10 @@
 
 A simple and fast content management system built with Rust and Vue.js.
 
+**Note:** This project is in an early stage of development. Therefore, errors may occur.
+
+**This project is open source, but it is not currently a "community project", so there is no support, and feature requests are not welcome. However, minor pull requests may be accepted under certain circumstances.**
+
 ## Features
 
 - **Fast & Efficient** - Rust backend with Axum web framework
@@ -42,6 +46,14 @@ The application can be configured via:
 - Environment variables (`.env` file)
 - Command-line arguments (see `cargo run -- --help`)
 
-## Notes
+## Authentication
 
 For two-factor authentication setup email credentials in the configuration.
+
+## Impressions
+
+![Pages](/docs/screenshots/pages.png)
+
+![Media](/docs/screenshots/media.png)
+
+![Configuration](/docs/screenshots/configuration.png)

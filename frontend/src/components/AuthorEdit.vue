@@ -34,6 +34,10 @@ const imageFile = ref()
 const media = ref<Media>()
 const needsSave = computed(() => !isEqual(author.value, authorOriginal.value))
 
+store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? String(route.name)
+const matchedType = store.types.find((type) => type.slug === store.routeType)?.id
+store.typeID = matchedType ?? 1
+
 if (authorId > 0) {
     getAuthor()
 }

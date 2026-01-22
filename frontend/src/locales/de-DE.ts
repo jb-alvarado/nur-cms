@@ -53,6 +53,8 @@ export default {
         authorName: 'Autor Name',
         text: 'Text',
         title: 'Titel',
+        startTime: 'Startzeit',
+        endTime: 'Endzeit',
     },
     status: {
         published: 'Veröffentlicht',

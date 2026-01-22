@@ -24,9 +24,13 @@ const router = useRouter()
 const auth = useAuth()
 const store = useIndex()
 
+const rootPath = route.path.replace(/\/[0-9/]+$/g, '')
+
 const contentId = Number(route.params.id ?? 0)
-const routeName = Array.isArray(route.params.type) ? route.params.type[0] : route.params.type
 const groupID = Number(route.params.group_id ?? 0)
+store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? String(route.name)
+const matchedType = store.types.find((type) => type.slug === store.routeType)?.id
+store.typeID = matchedType ?? 1
 
 const deleteModal = ref()
 const mediaModal = ref()
@@ -284,7 +288,7 @@ function updateDescription() {
 function memberLink(id: number): string {
     const member = content.value.group_members?.find((member) => member.locale_id === id)
 
-    return `/content/${routeName}/${member?.id ?? content.value.id}`
+    return `${rootPath}/${member?.id ?? content.value.id}`
 }
 
 async function save() {
@@ -370,7 +374,7 @@ async function save() {
                     ...newAuthors.map((author) => insertEntryAuthor(newId, author.id!)),
                 ])
 
-                router.push(`/${routeName}/${newId}`)
+                router.push(`${rootPath}/${newId}`)
                 return
             }
         }
@@ -397,7 +401,7 @@ function deleteContent() {
                         t('common.deleteSuccess', { name: content.value.title ?? content.value.id })
                     )
 
-                    router.push(`/${routeName}`)
+                    router.push(rootPath)
                 }
             })
             .catch((e) => {
@@ -604,7 +608,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </details>
 
                             <RouterLink
-                                :to="`/content/${routeName}/0/${content.group_id}`"
+                                :to="`${rootPath}/0/${content.group_id}`"
                                 class="btn join-item px-2"
                                 :title="$t('common.addLanguage')"
                             >
@@ -759,11 +763,9 @@ async function insertEntryAuthor(entry: number, author: number) {
         </div>
 
         <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
-            <p>{{ $t('article.deleteConfirm', { type: routeName }) }}</p>
+            <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
         </GenericModal>
-
         <MediaBrowser ref="mediaModal" :update="addMedia" />
-
         <BlockModal ref="blockModal" @add-block="addBlock" />
     </div>
 </template>

@@ -46,6 +46,15 @@ const commentRows = computed(() => [
     { active: true, up: false, name: t('table.createdAt'), field: 'created_at' },
 ])
 
+const eventRows = computed(() => [
+    { active: false, up: false, name: t('table.id'), field: 'id' },
+    { active: false, up: false, name: t('table.title'), field: 'title' },
+    { active: false, up: false, name: t('table.status'), field: 'status' },
+    { active: false, up: false, name: t('table.startTime'), field: 'start_time' },
+    { active: false, up: false, name: t('table.endTime'), field: 'end_time' },
+    { active: false, up: false, name: t('table.language'), field: 'locale_id' },
+])
+
 const defaultEntryRows = computed(() => [
     { active: true, up: true, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.title'), field: 'title' },
@@ -68,6 +77,10 @@ onBeforeMount(() => {
     } else if (store.routeType === 'comment') {
         store.visibleRows = commentRows.value
         store.initContent('comments', false)
+    } else if (store.routeType === 'event') {
+        linkPrefix.value = '/content'
+        store.visibleRows = eventRows.value
+        store.initContent('content/entries')
     } else if (!matchedType) {
         router.push({ name: '404' })
     } else {
