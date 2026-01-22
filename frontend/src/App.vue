@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onBeforeMount } from 'vue'
+import { onBeforeMount, computed, ref } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
+import { useHead } from '@unhead/vue'
 
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
@@ -13,8 +14,21 @@ const route = useRoute()
 const auth = useAuth()
 const store = useIndex()
 
+const preferDark = window.matchMedia('(prefers-color-scheme: dark)')?.matches ?? false
+const local = localStorage.getItem('language') || 'en'
+const theme =  ref(localStorage.getItem('theme') || (preferDark ? 'dark' : 'light'))
+
+store.darkMode = theme.value === 'dark'
+
 onBeforeMount(async () => {
     await auth.inspectToken()
+})
+
+useHead({
+    htmlAttrs: {
+        lang: computed(() => local),
+        'data-theme': computed(() => (store.darkMode ? 'dark' : 'light')),
+    },
 })
 </script>
 
