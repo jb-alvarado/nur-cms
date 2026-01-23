@@ -12,6 +12,11 @@ const router = createRouter({
             component: HomeView,
         },
         {
+            path: '/verification',
+            name: 'verification',
+            component: () => import('../views/VerificationView.vue'),
+        },
+        {
             path: '/author',
             name: 'author',
             component: () => import('../views/author/IndexView.vue'),
@@ -40,11 +45,6 @@ const router = createRouter({
             path: '/category/:id/:group_id',
             name: 'group category edit',
             component: () => import('../views/category/EditView.vue'),
-        },
-        {
-            path: '/verification',
-            name: 'verification',
-            component: () => import('../views/VerificationView.vue'),
         },
         {
             path: '/configuration',

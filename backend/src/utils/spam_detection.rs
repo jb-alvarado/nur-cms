@@ -1,5 +1,4 @@
 use emval::{ValidationError, validate_email};
-use tokio::task;
 
 const HUMAN_TEXT_SCORE: i32 = 10;
 
@@ -11,10 +10,7 @@ pub struct TextScore {
 }
 
 pub async fn validate_email_address(email: String) -> Result<String, ValidationError> {
-    let val_email = task::spawn_blocking(|| validate_email(email))
-        .await
-        .unwrap()?;
-
+    let val_email = validate_email(email).await?;
     let normalized_email = val_email.normalized;
 
     Ok(normalized_email)

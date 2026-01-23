@@ -16,7 +16,7 @@ const store = useIndex()
 
 const preferDark = window.matchMedia('(prefers-color-scheme: dark)')?.matches ?? false
 const local = localStorage.getItem('language') || 'en'
-const theme =  ref(localStorage.getItem('theme') || (preferDark ? 'dark' : 'light'))
+const theme = ref(localStorage.getItem('theme') || (preferDark ? 'dark' : 'light'))
 
 store.darkMode = theme.value === 'dark'
 
@@ -45,7 +45,7 @@ useHead({
             <AlertMsg />
         </template>
         <template v-else-if="route.name === '404'">
-             <RouterView :key="404" />
+            <RouterView :key="404" />
         </template>
         <LoginView v-else />
     </div>

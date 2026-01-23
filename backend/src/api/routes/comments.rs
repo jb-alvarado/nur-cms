@@ -24,7 +24,7 @@ use crate::{
         queries::{QueryObj, RespondObj},
     },
     mail::client::{Msg, message},
-    utils::spam_detection::evaluate_text,
+    utils::spam_detection::{evaluate_text, validate_email_address},
 };
 
 async fn notify(comment: Comment) -> Result<(), ServiceError> {
@@ -93,14 +93,15 @@ pub async fn comment_insert(
         content.status = Some("approved".to_string());
     } else {
         // require both name and email and ensure they're not empty strings
-        if content.author_name.as_ref().is_some_and(String::is_empty)
-            || content.author_email.as_ref().is_some_and(String::is_empty)
+        if content.author_name.as_ref().is_none_or(String::is_empty)
+            || content.author_email.as_ref().is_none_or(String::is_empty)
         {
             return Err(ServiceError::Conflict(
                 "Name and email are required.".to_string(),
             ));
         }
 
+        content.author_email = Some(validate_email_address(content.author_email.unwrap()).await?);
         content.status = Some("pending".to_string());
     }
 

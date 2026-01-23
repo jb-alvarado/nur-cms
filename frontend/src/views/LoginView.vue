@@ -16,6 +16,7 @@ const selectedLang = ref()
 const formError = ref('')
 const showLoginError = ref(false)
 const formPassword = ref('')
+const disabled = ref(false)
 
 onMounted(() => {
     selectedLang.value = locales.find((loc: any) => loc.code === locale.value)
@@ -26,6 +27,8 @@ useHead({
 })
 
 async function login() {
+    disabled.value = true
+
     try {
         const status = await auth.obtainVerificationCode(formPassword.value)
 
@@ -47,6 +50,7 @@ async function login() {
 
         formPassword.value = ''
     } catch (e) {
+        disabled.value = false
         formError.value = e as string
         showLoginError.value = true
 
@@ -84,7 +88,7 @@ async function login() {
 
                 <div class="w-full mt-4 grid grid-flow-row-dense grid-cols-12 grid-rows-1 gap-2">
                     <div class="col-span-3">
-                        <button type="submit" class="btn btn-accent">
+                        <button type="submit" class="btn btn-accent" :disabled="disabled">
                             {{ $t('button.login') }}
                         </button>
                     </div>

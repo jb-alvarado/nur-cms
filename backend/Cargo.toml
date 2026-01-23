@@ -29,7 +29,7 @@ clap = { version = "4", features = ["derive"] }
 colored = "3"
 derive_more = { version = "2", features = ["full"] }
 dotenvy = "0.15"
-emval = "0.1"
+emval = { git = "https://github.com/jb-alvarado/emval.git", default-features = false }
 html_parser = "0.7"
 image = { version = "0.25", features = ["avif", "rayon", "png"] }
 include_dir = "0.7"
