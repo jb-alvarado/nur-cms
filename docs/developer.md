@@ -96,6 +96,7 @@ Run the production binary:
 The application (including the admin frontend) will be accessible at <http://0.0.0.0:8777/admin/>
 
 You can also run the build script `./scripts/build.sh` to create __*.deb__ and __*.rpm__ packages.
+When the package is installed, configure the database connection and uploads path in **/home/nur-cms/.env**.
 
 ### Deployment Considerations
 

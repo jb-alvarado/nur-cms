@@ -20,6 +20,7 @@ codegen-units = 1
 opt-level = 3
 
 [profile.release]
+opt-level = 3
 strip = true
 lto = true
 

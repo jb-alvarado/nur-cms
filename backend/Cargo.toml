@@ -92,6 +92,7 @@ priority = "optional"
 section = "net"
 license-file = ["../LICENSE", "0"]
 depends = ""
+suggests = "postgresql"
 copyright = "Copyright (c) 2025, Jonathan Baecker. All rights reserved."
 conf-files = ["/home/nur-cms/.env"]
 assets = [
