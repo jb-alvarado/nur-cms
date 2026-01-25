@@ -6,7 +6,7 @@ export type AuthUserSerializer = { id?: number | null, email?: string | null, us
 
 export type AuthorSerializer = { id?: number | null, first_name?: string | null, last_name?: string | null, slug?: string | null, bio?: string | null, media_id?: number | null, media?: MediaSerializer | null, total_count?: bigint | null, };
 
-export type ContentBlockSerializer = { id?: number | null, order_index?: number | null, data: JsonValue, };
+export type ContentBlockSerializer = { id?: number | null, media_id?: number | null, order_index?: number | null, data: JsonValue, media?: MediaSerializer | null, };
 
 export type ContentCategorySerializer = { id?: number | null, group_id?: number | null, locale_id?: number | null, name?: string | null, slug?: string | null, status?: string | null, media_id?: number | null, media?: MediaSerializer | null, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 

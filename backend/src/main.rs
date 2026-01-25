@@ -108,7 +108,7 @@ async fn main() -> Result<(), NurError> {
 
     let args = Args::parse();
 
-    init_tracing(args.log_level, args.log_timestamp);
+    init_tracing(args.log_level.clone(), args.log_timestamp);
 
     let pool = init_db().await?;
 
@@ -163,14 +163,20 @@ async fn main() -> Result<(), NurError> {
 
     #[cfg(debug_assertions)]
     let mut app = Router::new()
-        .nest("/auth", auth_routes.with_state(pool.clone()))
+        .nest(
+            "/auth",
+            auth_routes.with_state((pool.clone(), args.clone())),
+        )
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
         .layer(middlewares);
 
     #[cfg(not(debug_assertions))]
     let app = Router::new()
-        .nest("/auth", auth_routes.with_state(pool.clone()))
+        .nest(
+            "/auth",
+            auth_routes.with_state((pool.clone(), args.clone())),
+        )
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_ui_routes())
         .nest("/sse", sse_router)

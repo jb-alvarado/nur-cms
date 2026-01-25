@@ -21,7 +21,7 @@ use crate::{
         queries::QueryObj,
     },
     mail::client::{Msg, message},
-    utils::errors::NurError,
+    utils::{cmd_args::Args, errors::NurError},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -88,101 +88,9 @@ pub async fn decode_jwt(token: &str) -> Result<Claims, NurError> {
         .map_err(|_| NurError::Unauthorized)
 }
 
-pub async fn verify(
-    real_ip: RealIp,
-    State(pool): State<PgPool>,
-    AxumJson(request): AxumJson<VerifyRequest>,
-) -> Result<impl IntoResponse, NurError> {
-    let ip = real_ip.ip();
-    let username = request.username;
-    let provided_code = request.code;
-
-    // Check if code exists
-    let verification_data = {
-        let mut codes = VERIFICATION_CODES.lock().await;
-
-        if let Some(verification) = codes.get(&username) {
-            // Check if code is still valid (max 5 minutes)
-            let elapsed = Utc::now().signed_duration_since(verification.created_at);
-            if elapsed.num_minutes() > 5 {
-                codes.remove(&username);
-                return Ok((
-                    StatusCode::BAD_REQUEST,
-                    AxumJson(serde_json::json!({
-                        "detail": "Verification code expired!",
-                    })),
-                )
-                    .into_response());
-            }
-
-            // Check if code is correct
-            if verification.code != provided_code {
-                return Ok((
-                    StatusCode::FORBIDDEN,
-                    AxumJson(serde_json::json!({
-                        "detail": "Invalid verification code!",
-                    })),
-                )
-                    .into_response());
-            }
-
-            // Code is valid, remove it and return data
-            let data = verification.clone();
-            codes.remove(&username);
-            Some(data)
-        } else {
-            None
-        }
-    };
-
-    match verification_data {
-        Some(verification) => {
-            let user_id = verification.user_id;
-            let role = verification.role;
-
-            // Generate JWT tokens
-            let access_claims = Claims::new(user_id, role.clone(), *ACCESS_LIFETIME);
-            let access_token = encode_jwt(access_claims).await?;
-            let refresh_claims = Claims::new(user_id, role.clone(), *REFRESH_LIFETIME);
-            let refresh_token = encode_jwt(refresh_claims).await?;
-
-            // Update last_login
-            let auth_user = AuthUser {
-                last_login: Some(Local::now().into()),
-                ..Default::default()
-            };
-            handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
-
-            info!(
-                "{ip} User {username} verified successfully, with role: {}",
-                role
-            );
-
-            Ok((
-                StatusCode::OK,
-                AxumJson(serde_json::json!({
-                    "access": access_token,
-                    "refresh": refresh_token,
-                })),
-            )
-                .into_response())
-        }
-        None => {
-            error!("{ip} No verification code found for {username}");
-            Ok((
-                StatusCode::FORBIDDEN,
-                AxumJson(serde_json::json!({
-                    "detail": "No verification code found or code expired!",
-                })),
-            )
-                .into_response())
-        }
-    }
-}
-
 pub async fn login(
     real_ip: RealIp,
-    State(pool): State<PgPool>,
+    State((pool, args)): State<(PgPool, Args)>,
     AxumJson(credentials): AxumJson<Credentials>,
 ) -> Result<impl IntoResponse, NurError> {
     let ip = real_ip.ip();
@@ -233,6 +141,7 @@ pub async fn login(
                     && config.mail_user.as_ref().is_some_and(|u| !u.is_empty())
                     && config.mail_password.as_ref().is_some_and(|p| !p.is_empty())
                     && config.mail_smtp.as_ref().is_some_and(|s| !s.is_empty())
+                    && !args.disable_two_factor
                 {
                     // Generate 7-digit random code
                     let verification_code: String = (0..7)
@@ -336,8 +245,100 @@ pub async fn login(
     }
 }
 
+pub async fn verify(
+    real_ip: RealIp,
+    State((pool, _)): State<(PgPool, Args)>,
+    AxumJson(request): AxumJson<VerifyRequest>,
+) -> Result<impl IntoResponse, NurError> {
+    let ip = real_ip.ip();
+    let username = request.username;
+    let provided_code = request.code;
+
+    // Check if code exists
+    let verification_data = {
+        let mut codes = VERIFICATION_CODES.lock().await;
+
+        if let Some(verification) = codes.get(&username) {
+            // Check if code is still valid (max 5 minutes)
+            let elapsed = Utc::now().signed_duration_since(verification.created_at);
+            if elapsed.num_minutes() > 5 {
+                codes.remove(&username);
+                return Ok((
+                    StatusCode::BAD_REQUEST,
+                    AxumJson(serde_json::json!({
+                        "detail": "Verification code expired!",
+                    })),
+                )
+                    .into_response());
+            }
+
+            // Check if code is correct
+            if verification.code != provided_code {
+                return Ok((
+                    StatusCode::FORBIDDEN,
+                    AxumJson(serde_json::json!({
+                        "detail": "Invalid verification code!",
+                    })),
+                )
+                    .into_response());
+            }
+
+            // Code is valid, remove it and return data
+            let data = verification.clone();
+            codes.remove(&username);
+            Some(data)
+        } else {
+            None
+        }
+    };
+
+    match verification_data {
+        Some(verification) => {
+            let user_id = verification.user_id;
+            let role = verification.role;
+
+            // Generate JWT tokens
+            let access_claims = Claims::new(user_id, role.clone(), *ACCESS_LIFETIME);
+            let access_token = encode_jwt(access_claims).await?;
+            let refresh_claims = Claims::new(user_id, role.clone(), *REFRESH_LIFETIME);
+            let refresh_token = encode_jwt(refresh_claims).await?;
+
+            // Update last_login
+            let auth_user = AuthUser {
+                last_login: Some(Local::now().into()),
+                ..Default::default()
+            };
+            handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
+
+            info!(
+                "{ip} User {username} verified successfully, with role: {}",
+                role
+            );
+
+            Ok((
+                StatusCode::OK,
+                AxumJson(serde_json::json!({
+                    "access": access_token,
+                    "refresh": refresh_token,
+                })),
+            )
+                .into_response())
+        }
+        None => {
+            error!("{ip} No verification code found for {username}");
+            Ok((
+                StatusCode::FORBIDDEN,
+                AxumJson(serde_json::json!({
+                    "detail": "No verification code found or code expired!",
+                })),
+            )
+                .into_response())
+        }
+    }
+}
+
 pub async fn refresh(
-    State(pool): State<PgPool>,
+    State((pool, _)): State<(PgPool, Args)>,
     AxumJson(data): AxumJson<TokenRefreshRequest>,
 ) -> Result<impl IntoResponse, NurError> {
     let refresh_token = &data.refresh;

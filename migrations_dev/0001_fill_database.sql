@@ -376,32 +376,37 @@ VALUES
     (14, '2026-02-10T10:15:00Z', '2026-02-12T12:15:00Z');
 
 INSERT INTO
-    content_blocks (entry_id, order_index, data)
+    content_blocks (entry_id, media_id, order_index, data)
 VALUES
     (
         16,
-        0,
-        '{"children":[{"text":"This is the first block of content.","type":"text"}]}'
-    ),
-    (
-        16,
+        null,
         1,
-        '{"children":[{"text":"Here is another paragraph with some bold text.","type":"text","bold":true}]}'
+        '{"text":"This is the first block of content."}'
     ),
     (
         16,
+        null,
         2,
-        '{"alt":"Cover Image","filename":"cover.jpg","path":"/uploads/2025/10/cover.jpg","type":"image"}'
+        '{"text":"Here is another paragraph with some bold text."}'
     ),
     (
         16,
         3,
-        '{"children":[{"text":"Yet another text block with italic text.","type":"text","italic":true}]}'
+        3,
+        '{"author":"The Cat"}'
     ),
     (
         16,
+        null,
         4,
-        '{"items":[{"text":"First list item"},{"text":"Second list item"}],"type":"unordered"}'
+        '{"text":"Yet another text block with italic text."}'
+    ),
+    (
+        16,
+        null,
+        5,
+        '{"text":"First list item"}'
     );
 
 INSERT INTO

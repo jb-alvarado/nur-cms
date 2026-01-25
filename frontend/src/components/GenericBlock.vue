@@ -6,7 +6,7 @@ const block: ModelRef<Record<string, any> | undefined> = defineModel('block')
 <template>
     <div v-if="block" class="flex flex-col gap-2">
         <div v-for="(_, key) in block" :key="key" class="flex items-center gap-2">
-            <label class="min-w-20">{{ key }}: </label>
+            <label class="min-w-20 cursor-grab active:cursor-grabbing">{{ key }}: </label>
             <input v-model="block[key]" type="text" class="input grow" />
         </div>
     </div>

@@ -379,9 +379,13 @@ pub struct ContentBlockSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_index: Option<i32>,
     #[serde(default)]
     pub data: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<MediaSerializer>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]

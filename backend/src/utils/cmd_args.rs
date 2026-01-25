@@ -39,6 +39,9 @@ pub struct Args {
 
     #[clap(long, help = "Add timestamp to log line")]
     pub log_timestamp: bool,
+
+    #[clap(long, help = "Disabling two-factor authentication", hide = true)]
+    pub disable_two_factor: bool,
 }
 
 pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), NurError> {

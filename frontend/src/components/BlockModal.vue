@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { cloneDeep } from 'lodash-es'
+import { mediaPath } from '@/utils/helper'
 import GenericModal from './GenericModal.vue'
+import MediaBrowser from './MediaBrowser.vue'
 
 const modal = ref<InstanceType<typeof GenericModal>>()
 const keyInput = ref('')
 const valueInput = ref('')
 const newBlock = ref<Record<string, any>>({})
+const mediaModal = ref()
+const media = ref<null | Media>(null)
 
 const addKeyValue = () => {
     if (keyInput.value.trim() && valueInput.value.trim()) {
@@ -20,7 +25,7 @@ const removeKeyValue = (key: string) => {
 }
 
 const saveBlock = () => {
-    emit('add-block', { ...newBlock.value })
+    emit('add-block', { media: cloneDeep(media.value) ?? null, block: { ...newBlock.value } })
     resetModal()
     modal.value?.close?.()
 }
@@ -29,6 +34,7 @@ const resetModal = () => {
     newBlock.value = {}
     keyInput.value = ''
     valueInput.value = ''
+    media.value = null
 }
 
 const showModal = () => {
@@ -38,8 +44,18 @@ const showModal = () => {
 
 defineExpose({ showModal })
 const emit = defineEmits<{
-    'add-block': [block: Record<string, any>]
+    'add-block': [{ media: null | Media; block: Record<string, any> }]
 }>()
+
+const openMediaBrowser = () => {
+    mediaModal.value.showModal()
+}
+
+function addMedia(m: Media) {
+    media.value = m
+
+    mediaModal.value.close()
+}
 </script>
 
 <template>
@@ -65,11 +81,17 @@ const emit = defineEmits<{
                         @keyup.enter="addKeyValue()"
                     />
                 </fieldset>
-                <button class="btn mb-0" @click="addKeyValue()">
-                    <i class="bi bi-plus-lg"></i>
-                </button>
+                <div class="join mb-0">
+                    <button class="btn join-item" @click="addKeyValue()">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                    <button class="btn join-item" @click="openMediaBrowser()">
+                        <i class="bi bi-image"></i>
+                    </button>
+                </div>
             </div>
 
+            <img v-if="media" :src="mediaPath(media)" :alt="media.alt ?? 'Image'" class="object-cover w-18 h-18" />
             <div v-if="Object.keys(newBlock).length > 0" class="bg-base-200 p-3 rounded">
                 <div v-for="(value, key) in newBlock" :key="key" class="flex justify-between items-center py-1">
                     <span class="text-sm">
@@ -84,4 +106,5 @@ const emit = defineEmits<{
             <p v-else class="text-base-content/50 text-sm">{{ $t('block.empty') }}</p>
         </div>
     </GenericModal>
+    <MediaBrowser ref="mediaModal" :update="addMedia" />
 </template>

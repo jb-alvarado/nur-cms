@@ -1,5 +1,8 @@
+use serde::Serialize;
+use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
+use tracing::error;
 
 #[cfg(debug_assertions)]
 use sqlx::Execute;
@@ -7,7 +10,8 @@ use sqlx::Execute;
 use tracing::debug;
 
 use crate::db::{
-    fields::ContentEntryFields as CF,
+    fields::{ContentEntryFields as CF, Table},
+    handles::core::update_record,
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::ContentEntrySerializer,
 };
@@ -218,12 +222,38 @@ pub async fn select_content_entries(
                 SELECT jsonb_agg(
                     jsonb_build_object(
                         'id', bl.id,
+                        'media_id', bl.media_id,
                         'order_index', bl.order_index,
-                        'data', bl.data
+                        'data', bl.data,
+                        'media', CASE
+                            WHEN bl.media_id IS NOT NULL THEN json_build_object(
+                                'id', m.id,
+                                'alt', m.alt,
+                                'path', m.path,
+                                'filename', m.filename,
+                                'variants', COALESCE(
+                                    (
+                                        SELECT json_agg(
+                                            json_build_object(
+                                                'id', mv.id,
+                                                'width', mv.width,
+                                                'height', mv.height,
+                                                'filename', mv.filename
+                                            )
+                                        )
+                                        FROM media_variants mv
+                                        WHERE mv.media_id = m.id
+                                    ),
+                                    '[]'
+                                )
+                            )
+                            ELSE NULL
+                        END
                     )
                     ORDER BY bl.order_index
                 ) AS data
                 FROM content_blocks bl
+                LEFT JOIN media m ON m.id = bl.media_id
                 WHERE bl.entry_id = ce.id
             ) AS blocks ON TRUE "#,
         );
@@ -408,4 +438,132 @@ pub async fn select_content_entries(
     let data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(query_obj, data))
+}
+
+/// Synchronizes blocks array with the content_blocks table.
+///
+/// This function reconciles the blocks array from the update request with the database.
+/// It handles:
+/// - Inserting new blocks
+/// - Updating existing blocks
+/// - Deleting blocks that are no longer in the array
+pub async fn sync_entry_blocks(
+    pool: &PgPool,
+    entry_id: i32,
+    blocks: &[Value],
+) -> Result<(), NurError> {
+    // Get existing blocks from database
+    let existing_blocks: Vec<(i32, i32, Value)> = sqlx::query_as(
+        "SELECT id, order_index, data FROM content_blocks WHERE entry_id = $1 ORDER BY order_index",
+    )
+    .bind(entry_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut existing_ids = Vec::new();
+    let mut tx = pool.begin().await?;
+
+    // Process each block in the incoming array
+    for (index, block_value) in blocks.iter().enumerate() {
+        let block_obj = match block_value.as_object() {
+            Some(obj) => obj,
+            None => {
+                error!("Block at index {index} is not a valid object");
+                continue;
+            }
+        };
+
+        let block_id = block_obj
+            .get("id")
+            .and_then(Value::as_i64)
+            .map(|v| v as i32);
+        let media_id = block_obj
+            .get("media_id")
+            .and_then(Value::as_i64)
+            .map(|v| v as i32);
+        let data = block_obj.get("data").cloned().unwrap_or(Value::Null);
+        let order_index = block_obj
+            .get("order_index")
+            .and_then(Value::as_i64)
+            .map(|v| v as i32)
+            .unwrap_or(index as i32);
+
+        match block_id {
+            Some(id) => {
+                // Update existing block
+                existing_ids.push(id);
+                sqlx::query(
+                    "UPDATE content_blocks SET media_id = $1, order_index = $2, data = $3 WHERE id = $4 AND entry_id = $5"
+                )
+                .bind(media_id)
+                .bind(order_index)
+                .bind(&data)
+                .bind(id)
+                .bind(entry_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            None => {
+                // Insert new block
+                sqlx::query(
+                    "INSERT INTO content_blocks (entry_id, media_id, order_index, data) VALUES ($1, $2, $3, $4)",
+                )
+                .bind(entry_id)
+                .bind(media_id)
+                .bind(order_index)
+                .bind(&data)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
+    // Delete blocks that are no longer in the array
+    for (db_id, _, _) in &existing_blocks {
+        if !existing_ids.contains(db_id) {
+            sqlx::query("DELETE FROM content_blocks WHERE id = $1")
+                .bind(db_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Updates a content entry and synchronizes its blocks.
+///
+/// This function combines the standard update_record logic with special handling for blocks.
+pub async fn update_entry_with_blocks<T>(
+    pool: &PgPool,
+    entry_id: i32,
+    data: &T,
+) -> Result<(), NurError>
+where
+    T: Serialize,
+{
+    let value = serde_json::to_value(data)?;
+
+    let obj = match value.as_object() {
+        Some(map) => map.clone(),
+        None => return Ok(()),
+    };
+
+    // Extract blocks if present
+    let blocks = if let Some(Value::Array(arr)) = obj.get("blocks") {
+        Some(arr.clone())
+    } else {
+        None
+    };
+
+    // Update the entry record (blocks will be ignored by update_record)
+    update_record(pool, &Table::ContentEntries, entry_id, data).await?;
+
+    // Sync blocks if they were provided
+    if let Some(blocks_data) = blocks {
+        sync_entry_blocks(pool, entry_id, &blocks_data).await?;
+    }
+
+    Ok(())
 }

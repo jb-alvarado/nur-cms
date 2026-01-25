@@ -34,8 +34,11 @@ use crate::{
         models::{AuthUserMeta, Configuration, Role},
     },
     file::routes::upload_chunk,
-    utils::errors::NurError,
+    utils::{cmd_args::Args, errors::NurError},
 };
+
+type AuthRouter = Router<(PgPool, Args)>;
+type ApiRouter = Router<(PgPool, tokio::sync::broadcast::Sender<String>)>;
 
 // Small helper to parse env vars with a typed default.
 fn env_parse_or<T>(key: &str, default: T) -> T
@@ -105,10 +108,7 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
     }
 }
 
-pub fn router_entries() -> (
-    Router<PgPool>,
-    Router<(PgPool, tokio::sync::broadcast::Sender<String>)>,
-) {
+pub fn router_entries() -> (AuthRouter, ApiRouter) {
     let auth_routes = Router::new()
         .route("/login", post(login))
         .route("/refresh", post(refresh))

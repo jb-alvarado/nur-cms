@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, useTemplateRef, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSortable } from '@vueuse/integrations/useSortable'
 
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
@@ -35,6 +36,7 @@ store.typeID = matchedType ?? 1
 const deleteModal = ref()
 const mediaModal = ref()
 const blockModal = ref()
+const blockEL = useTemplateRef('blockEL')
 const content = ref({
     id: 0,
     group_id: groupID,
@@ -49,6 +51,23 @@ const content = ref({
     check: false,
 } as Content)
 const contentOriginal = ref(cloneDeep(content))
+
+useSortable(blockEL, content.value.blocks ?? [], {
+    onUpdate: (e: any) => {
+        const blocks = content.value.blocks ?? []
+        const [movedBlock] = blocks.splice(e.oldIndex, 1)
+        if (movedBlock) {
+            blocks.splice(e.newIndex, 0, movedBlock)
+        }
+
+        nextTick(() => {
+            content.value.blocks?.forEach((block, index) => {
+                block.order_index = index + 1
+            })
+        })
+    },
+})
+
 contentOriginal.value.group_id = 0
 const media = ref<Media | null>(null)
 const categories = ref<Category[]>([])
@@ -61,7 +80,7 @@ const authorsFormatted = computed(() =>
     store.authors.map((a) => ({
         ...a,
         displayName: `${a.first_name} ${a.last_name}`.trim(),
-    }))
+    })),
 )
 
 const selectedAuthorsFormatted = computed({
@@ -96,7 +115,7 @@ if (contentId > 0) {
         `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
         {
             headers: auth.authHeader,
-        }
+        },
     )
         .then(async (resp) => {
             if (resp.status >= 400) {
@@ -110,8 +129,8 @@ if (contentId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
-                )
+                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
+                ),
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
@@ -252,12 +271,20 @@ const openBlockModal = () => {
     blockModal.value.showModal()
 }
 
-function addBlock(block: Record<string, any>) {
+function addBlock(item: { media: null | Media; block: Record<string, any> }) {
     if (!content.value.blocks) {
         content.value.blocks = []
     }
 
-    content.value.blocks.push({ data: block, order_index: content.value.blocks.length + 1 } as any)
+    content.value.blocks.push({
+        media_id: item.media?.id ?? null,
+        data: item.block,
+        media: item.media,
+    } as any)
+
+    content.value.blocks?.forEach((block, index) => {
+        block.order_index = index + 1
+    })
 }
 
 function updateDescription() {
@@ -296,7 +323,7 @@ async function save() {
     const payload = Object.fromEntries(
         Object.entries(content.value).filter(([key, value]) => {
             return !isEqual(value, contentOriginal.value[key as keyof Content])
-        })
+        }),
     )
 
     // Calculate tag changes
@@ -398,7 +425,7 @@ function deleteContent() {
                 } else {
                     store.msgAlert(
                         'success',
-                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id })
+                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id }),
                     )
 
                     router.push(rootPath)
@@ -545,6 +572,12 @@ async function insertEntryAuthor(entry: number, author: number) {
             store.msgAlert('error', e)
         })
 }
+
+function deleteBlock(index: number) {
+    if (content.value.blocks) {
+        content.value.blocks.splice(index, 1)
+    }
+}
 </script>
 
 <template>
@@ -555,10 +588,7 @@ async function insertEntryAuthor(entry: number, author: number) {
             </div>
 
             <!-- Form + Editor Container -->
-            <div
-                v-if="content"
-                class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded"
-            >
+            <div v-if="content" class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded">
                 <!-- Form inputs -->
                 <div class="flex flex-wrap-reverse gap-4">
                     <div class="grow flex flex-col md:flex-row gap-2">
@@ -746,10 +776,25 @@ async function insertEntryAuthor(entry: number, author: number) {
                     </div>
                 </div>
 
-                <div>
-                    <div v-for="(block, i) in content.blocks" :key="i" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
+                <div ref="blockEL">
+                    <div
+                        v-for="(block, i) in content.blocks"
+                        :key="block.id ?? i"
+                        class="bg-base-200 rounded mt-2 p-2 flex gap-1 cursor-grab active:cursor-grabbing"
+                    >
+                        <div class="w-10">
+                            <img
+                                v-if="block.media_id"
+                                :src="mediaPath(block.media!)"
+                                :atl="block.media?.alt"
+                                class="object-cover w-10 h-10"
+                            />
+                            <div v-else class="bg-base-content/30 w-full h-full"></div>
+                        </div>
                         <GenericBlock v-model:block="block.data" class="grow" />
-                        <input v-model="block.order_index" type="number" class="input w-20" />
+                        <button class="btn leading-0 w-10" @click="deleteBlock(i)">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
                     </div>
                 </div>
             </div>

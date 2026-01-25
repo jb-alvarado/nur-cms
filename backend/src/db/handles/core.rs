@@ -258,7 +258,7 @@ where
         None => return Ok(()),
     };
 
-    let type_ignore = ["id", "created_at"];
+    let type_ignore = ["id", "created_at", "blocks"];
     let type_time = ["updated_at", "last_login"];
 
     let mut qb = QueryBuilder::<Postgres>::new(format!("UPDATE {table} SET "));

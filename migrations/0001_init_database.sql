@@ -1,4 +1,4 @@
-CREATE TABLE auth_roles (
+CREATE TABLE IF NOT EXISTS auth_roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) NOT NULL UNIQUE DEFAULT 'guest'
 );
@@ -9,9 +9,10 @@ VALUES
     ('admin'),
     ('author'),
     ('user'),
-    ('guest');
+    ('guest')
+ON CONFLICT (name) DO NOTHING;
 
-CREATE TABLE auth_users (
+CREATE TABLE IF NOT EXISTS auth_users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     username VARCHAR(150) NOT NULL UNIQUE,
@@ -25,9 +26,9 @@ CREATE TABLE auth_users (
     CONSTRAINT fk_role FOREIGN KEY (role_id) REFERENCES auth_roles (id) ON UPDATE CASCADE ON DELETE SET DEFAULT
 );
 
-CREATE TABLE locales (
+CREATE TABLE IF NOT EXISTS locales (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(7) NOT NULL,
+    code VARCHAR(7) NOT NULL UNIQUE,
     name VARCHAR(64) NOT NULL,
     tsv_dict VARCHAR(24) NOT NULL DEFAULT 'simple'
 );
@@ -38,9 +39,10 @@ VALUES
     ('de-DE', 'German', 'german'),
     ('en-US', 'English (US)', 'english'),
     ('fr-FR', 'French', 'french'),
-    ('es-ES', 'Spanish', 'spanish');
+    ('es-ES', 'Spanish', 'spanish')
+ON CONFLICT (code) DO NOTHING;
 
-CREATE TABLE media (
+CREATE TABLE IF NOT EXISTS media (
     id SERIAL PRIMARY KEY,
     alt TEXT,
     filename TEXT NOT NULL,
@@ -53,7 +55,7 @@ CREATE TABLE media (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE media_variants (
+CREATE TABLE IF NOT EXISTS media_variants (
     id BIGSERIAL PRIMARY KEY,
     media_id INT REFERENCES media (id) ON DELETE CASCADE,
     width INT NOT NULL,
@@ -61,7 +63,7 @@ CREATE TABLE media_variants (
     filename TEXT NOT NULL
 );
 
-CREATE TABLE content_types (
+CREATE TABLE IF NOT EXISTS content_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(12) UNIQUE NOT NULL, -- "Article", "Page", "Event"
     slug VARCHAR(32) UNIQUE NOT NULL
@@ -72,11 +74,12 @@ INSERT INTO
 VALUES
     ('Article', 'article'),
     ('Page', 'page'),
-    ('Event', 'event');
+    ('Event', 'event')
+ON CONFLICT (name) DO NOTHING;
 
-CREATE SEQUENCE category_group_seq START 1001;
+CREATE SEQUENCE IF NOT EXISTS category_group_seq START 1001;
 
-CREATE TABLE content_categories (
+CREATE TABLE IF NOT EXISTS content_categories (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL DEFAULT nextval('category_group_seq'),
     locale_id INT NOT NULL REFERENCES locales (id) ON DELETE CASCADE,
@@ -87,18 +90,18 @@ CREATE TABLE content_categories (
     UNIQUE (slug, locale_id)
 );
 
-CREATE INDEX idx_category_group_id ON content_categories (group_id);
+CREATE INDEX IF NOT EXISTS idx_category_group_id ON content_categories (group_id);
 
-CREATE TABLE content_tags (
+CREATE TABLE IF NOT EXISTS content_tags (
     id SERIAL PRIMARY KEY,
     name VARCHAR(160) NOT NULL,
     slug VARCHAR(160) NOT NULL,
     UNIQUE (slug)
 );
 
-CREATE SEQUENCE entry_group_seq START 1001;
+CREATE SEQUENCE IF NOT EXISTS entry_group_seq START 1001;
 
-CREATE TABLE content_entries (
+CREATE TABLE IF NOT EXISTS content_entries (
     id SERIAL PRIMARY KEY,
     group_id BIGINT NOT NULL DEFAULT nextval('entry_group_seq'),
     type_id INT NOT NULL REFERENCES content_types (id) ON DELETE CASCADE,
@@ -118,9 +121,9 @@ CREATE TABLE content_entries (
     UNIQUE (slug, locale_id, type_id)
 );
 
-CREATE INDEX idx_entries_group_id ON content_entries (group_id);
+CREATE INDEX IF NOT EXISTS idx_entries_group_id ON content_entries (group_id);
 
-CREATE TABLE content_authors (
+CREATE TABLE IF NOT EXISTS content_authors (
     id SERIAL PRIMARY KEY,
     first_name VARCHAR(160) NOT NULL,
     last_name VARCHAR(160) NOT NULL,
@@ -131,15 +134,15 @@ CREATE TABLE content_authors (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE content_entry_authors (
+CREATE TABLE IF NOT EXISTS content_entry_authors (
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     author_id INT NOT NULL REFERENCES content_authors (id) ON DELETE CASCADE,
     PRIMARY KEY (entry_id, author_id)
 );
 
-CREATE INDEX idx_entry_authors ON content_entry_authors(author_id);
+CREATE INDEX IF NOT EXISTS idx_entry_authors ON content_entry_authors (author_id);
 
-CREATE TABLE content_meta (
+CREATE TABLE IF NOT EXISTS content_meta (
     id SERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     data JSONB,
@@ -147,20 +150,21 @@ CREATE TABLE content_meta (
     end_time TIMESTAMPTZ
 );
 
-CREATE TABLE content_blocks (
+CREATE TABLE IF NOT EXISTS content_blocks (
     id SERIAL PRIMARY KEY,
     entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
+    media_id INT REFERENCES media (id) ON DELETE SET NULL,
     order_index INT NOT NULL DEFAULT 0,
     data JSONB NOT NULL
 );
 
-CREATE TABLE content_entry_tags (
+CREATE TABLE IF NOT EXISTS content_entry_tags (
     entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
     tag_id INT REFERENCES content_tags (id) ON DELETE CASCADE,
     PRIMARY KEY (entry_id, tag_id)
 );
 
-CREATE TABLE content_media (
+CREATE TABLE IF NOT EXISTS content_media (
     id BIGSERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
@@ -172,7 +176,7 @@ CREATE TABLE content_media (
     UNIQUE (entry_id, media_id, ast_line)
 );
 
-CREATE TABLE comments (
+CREATE TABLE IF NOT EXISTS comments (
     id BIGSERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     parent_id INT REFERENCES comments (id) ON DELETE CASCADE, -- for Threading
@@ -185,7 +189,7 @@ CREATE TABLE comments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE configuration (
+CREATE TABLE IF NOT EXISTS configuration (
     id SERIAL PRIMARY KEY,
     jwt_secret VARCHAR(255) NOT NULL,
     output_type VARCHAR(16) NOT NULL CHECK (output_type IN ('ast', 'html', 'markdown')) DEFAULT 'ast',
@@ -195,11 +199,11 @@ CREATE TABLE configuration (
     mail_password VARCHAR(255),
     mail_starttls BOOLEAN NOT NULL DEFAULT false,
     notification_emails TEXT[],
-    image_extensions VARCHAR(4)[],
+    image_extensions VARCHAR(4) [],
     image_resolutions INT[]
 );
 
-CREATE TABLE mail_targets (
+CREATE TABLE IF NOT EXISTS mail_targets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(160) NOT NULL UNIQUE,
     subject VARCHAR(255),
@@ -223,6 +227,7 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS content_text_vector_trigger ON content_entries;
 CREATE TRIGGER content_text_vector_trigger BEFORE INSERT
 OR
 UPDATE ON content_entries FOR EACH ROW

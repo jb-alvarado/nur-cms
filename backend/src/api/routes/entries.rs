@@ -206,7 +206,7 @@ pub async fn entry_update(
         obj.remove("body");
     }
 
-    handles::update_record(&pool, &Table::ContentEntries, id, &content).await?;
+    handles::update_entry_with_blocks(&pool, id, &content).await?;
 
     let text = if let Some(t) = content.get("text").and_then(|t| t.as_str()) {
         t.to_owned()

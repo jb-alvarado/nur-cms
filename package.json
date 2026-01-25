@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -21,12 +21,14 @@
     "@tailwindcss/vite": "^4.1.18",
     "@unhead/vue": "^2.1.2",
     "@vueuse/core": "^14.1.0",
+    "@vueuse/integrations": "^14.1.0",
     "bootstrap-icons": "^1.13.1",
     "dayjs": "^1.11.19",
     "jwt-decode": "^4.0.0",
     "lodash-es": "^4.17.22",
     "marked": "^17.0.1",
     "pinia": "^3.0.4",
+    "sortablejs": "^1.15.6",
     "tailwindcss": "^4.1.18",
     "vue": "^3.5.27",
     "vue-i18n": "^11.2.8",
