@@ -43,6 +43,12 @@ npm install
 npm run dev
 ```
 
+For running the example public frontend, run:
+
+```bash
+npm run dev:example
+```
+
 ## Accessing the Application
 
 - **Frontend**: <http://127.0.0.1:5757/admin/> (Vite development server)
