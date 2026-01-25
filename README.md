@@ -1,6 +1,6 @@
 # nur-cms
 
-A simple and fast content management system built with Rust and Vue.js.
+A simple and fast (headless) content management system built with Rust and Vue.js.
 
 **Note:** This project is in an early stage of development. Therefore, errors may occur.
 
