@@ -14,7 +14,7 @@ A simple and fast (headless) content management system built with Rust and Vue.j
 - **Internationalization** - Multi-language support
 - **Modern UI** - Vue 3 + TypeScript frontend with Tailwind CSS and DaisyUI
 - **RESTful API** - Clean API design with Server-Sent Events (SSE)
-- **Flexible Content Output** - API delivers content in three formats: Markdown, HTML, and AST (JSON structure)
+- **Flexible Content Output** - Delivers content in 3 formats: Markdown, HTML, and AST (JSON structure)
 - **PostgreSQL Database** - Robust data storage with SQLx
 
 For detailed setup instructions and development workflow, see the [Developer Documentation](docs/developer.md).
