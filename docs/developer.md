@@ -45,7 +45,7 @@ npm run dev
 
 ## Accessing the Application
 
-- **Frontend**: <http://localhost:5757> (Vite development server)
+- **Frontend**: <http://localhost:5757/admin/> (Vite development server)
 - **Backend API**: <http://127.0.0.1:8777>
 - **PostgreSQL**: localhost:5432 (default credentials in `docker-compose.yml`)
 
@@ -73,22 +73,6 @@ npm run dev
 
 ## Building for Production
 
-### Build Order
-
-**Important:** The frontend must be built first, as it gets automatically embedded into the backend binary.
-
-### Frontend Production Build
-
-Build the frontend for production:
-
-```bash
-npm run build
-```
-
-The production files will be generated in `frontend/dist/` and will be embedded into the backend during the next build step.
-
-### Backend Release Build
-
 Build an optimized release binary (includes the frontend):
 
 ```bash
@@ -103,7 +87,9 @@ Run the production binary:
 ./target/release/nur-cms -l 0.0.0.0:8777
 ```
 
-The application (including the admin frontend) will be accessible at <http://0.0.0.0:8777/admin>
+The application (including the admin frontend) will be accessible at <http://0.0.0.0:8777/admin/>
+
+You can also run the build script `./scripts/build.sh` to create __*.deb__ and __*.rpm__ packages.
 
 ### Deployment Considerations
 
