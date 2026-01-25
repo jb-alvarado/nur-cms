@@ -21,7 +21,7 @@ use crate::{
     },
     utils::{
         ast_serialize::{persist_content_media, to_structure_root},
-        errors::ServiceError,
+        errors::NurError,
     },
 };
 
@@ -30,7 +30,7 @@ pub async fn entries_select(
     Query(mut params): Query<QueryObj<ContentEntryFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<ContentEntrySerializer>>, ServiceError> {
+) -> Result<Json<RespondObj<ContentEntrySerializer>>, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
@@ -80,7 +80,7 @@ pub async fn entry_select(
     Query(mut params): Query<QueryObj<ContentEntryFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<ContentEntrySerializer>, ServiceError> {
+) -> Result<Json<ContentEntrySerializer>, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
     params.type_slug = Some(type_slug);
@@ -121,7 +121,7 @@ pub async fn entry_select(
         return Ok(Json(content));
     }
 
-    Err(ServiceError::NoContent)
+    Err(NurError::NoContent)
 }
 
 pub async fn entry_insert(
@@ -129,9 +129,9 @@ pub async fn entry_insert(
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
     Json(mut content): Json<Value>,
-) -> Result<Json<i32>, ServiceError> {
+) -> Result<Json<i32>, NurError> {
     if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return Err(ServiceError::Forbidden(
+        return Err(NurError::Forbidden(
             "You do not have permission to access this resource.".into(),
         ));
     }
@@ -186,9 +186,9 @@ pub async fn entry_update(
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
     Json(mut content): Json<Value>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return Err(ServiceError::Forbidden(
+        return Err(NurError::Forbidden(
             "You do not have permission to access this resource.".into(),
         ));
     }
@@ -231,18 +231,18 @@ pub async fn entry_delete(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return match handles::delete_record(&pool, &Table::ContentEntries, id).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }

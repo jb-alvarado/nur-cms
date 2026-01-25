@@ -12,7 +12,7 @@ use real::RealIpLayer;
 use std::net::SocketAddr;
 use tracing::{error, info};
 
-use nur_cms::utils::errors::ServiceError;
+use nur_cms::utils::errors::NurError;
 
 async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     let timer = Instant::now();
@@ -56,7 +56,7 @@ async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), ServiceError> {
+async fn main() -> Result<(), NurError> {
     // Init logging
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -79,7 +79,7 @@ async fn main() -> Result<(), ServiceError> {
         .await
         .map_err(|e| {
             error!("Failed to bind TCP listener: {e:?}");
-            ServiceError::InternalServerError
+            NurError::InternalServerError
         })?;
 
     axum::serve(

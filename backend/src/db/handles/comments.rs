@@ -11,7 +11,7 @@ use crate::db::{
     models::Comment,
     queries::{QueryObj, RespondObj, WhereBuilder},
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -19,7 +19,7 @@ use crate::db::format_sql;
 pub async fn select_comments(
     pool: &PgPool,
     query_obj: &QueryObj<CommentFields>,
-) -> Result<RespondObj<Comment>, ServiceError> {
+) -> Result<RespondObj<Comment>, NurError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut sep = query_builder.separated(", ");
 
@@ -101,9 +101,9 @@ pub async fn select_comments(
     Ok(RespondObj::new(query_obj, data))
 }
 
-pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, ServiceError> {
-    let entry_id = c.entry_id.ok_or(ServiceError::InvalidInput)?;
-    let text = c.text.as_deref().ok_or(ServiceError::InvalidInput)?;
+pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError> {
+    let entry_id = c.entry_id.ok_or(NurError::InvalidInput)?;
+    let text = c.text.as_deref().ok_or(NurError::InvalidInput)?;
     let status = c.status.as_deref().unwrap_or("pending");
 
     const QUERY: &str = r#"

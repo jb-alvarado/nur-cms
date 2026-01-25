@@ -7,7 +7,7 @@ use lazy_limit::HttpMethod;
 use real::RealIp;
 use tracing::error;
 
-use crate::{db::models::AuthUserMeta, utils::errors::ServiceError};
+use crate::{db::models::AuthUserMeta, utils::errors::NurError};
 
 fn map_method(m: Method) -> HttpMethod {
     match m {
@@ -24,12 +24,12 @@ fn map_method(m: Method) -> HttpMethod {
     }
 }
 
-pub async fn rate_limit(req: Request<Body>, next: Next) -> Result<Response<Body>, ServiceError> {
+pub async fn rate_limit(req: Request<Body>, next: Next) -> Result<Response<Body>, NurError> {
     let ip_ext = match req.extensions().get::<RealIp>() {
         Some(ip) => ip,
         None => {
             error!("RealIp extension not found");
-            return Err(ServiceError::InternalServerError);
+            return Err(NurError::InternalServerError);
         }
     };
     let auth = req.extensions().get::<AuthUserMeta>();
@@ -44,6 +44,6 @@ pub async fn rate_limit(req: Request<Body>, next: Next) -> Result<Response<Body>
         let response = next.run(req).await;
         Ok(response)
     } else {
-        Err(ServiceError::ToManyRequests)
+        Err(NurError::ToManyRequests)
     }
 }

@@ -11,7 +11,7 @@ use crate::{
         models::{AuthRole, AuthUser, Role},
         queries::QueryObj,
     },
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 #[derive(Parser, Debug, Clone)]
@@ -41,7 +41,7 @@ pub struct Args {
     pub log_timestamp: bool,
 }
 
-pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), ServiceError> {
+pub async fn add_user(pool: &Pool<Postgres>) -> Result<(), NurError> {
     let query: QueryObj<AuthRoleFields> = QueryObj::default();
 
     let resp =

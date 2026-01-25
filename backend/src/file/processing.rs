@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::{
     sse::{SSELevel as Level, SSEMessage},
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 type VarianceType = Vec<(i32, i32, String)>;
@@ -193,7 +193,7 @@ pub fn save_image(
     Ok(variants)
 }
 
-pub async fn delete_image(size: &(u32, u32), path: &Path, name: &str) -> Result<(), ServiceError> {
+pub async fn delete_image(size: &(u32, u32), path: &Path, name: &str) -> Result<(), NurError> {
     let (w, _) = size.to_owned();
     let thumb_jpeg = path.join(format!("{name}-{w}.jpg"));
     let thumb_avif = path.join(format!("{name}-{w}.avif"));

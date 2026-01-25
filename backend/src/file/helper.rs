@@ -22,7 +22,7 @@ use crate::{
     },
     file::processing::save_image,
     sse::{SSELevel as Level, SSEMessage},
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 /// Metadata for a single file upload
@@ -110,7 +110,7 @@ pub async fn file_ranges(
     output_file: &Path,
     batch_id: &str,
     meta: Arc<Mutex<Meta>>,
-) -> Result<Upload, ServiceError> {
+) -> Result<Upload, NurError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let mut uploads = UPLOADS.lock().await;
 
@@ -121,7 +121,7 @@ pub async fn file_ranges(
             .is_ok_and(|f| f.len() == total_size)
         && !uploads.contains_key(&upload_key)
     {
-        return Err(ServiceError::Conflict(format!(
+        return Err(NurError::Conflict(format!(
             "File {file_name:?} already exists!"
         )));
     }
@@ -168,7 +168,7 @@ pub async fn add_media_record(
     pool: &PgPool,
     user_id: i32,
     output_file: &PathBuf,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let mime_type = mime_guess::from_path(output_file)
         .first_or_octet_stream()
@@ -190,7 +190,7 @@ pub async fn add_media_record(
         .unwrap_or(output_file)
         .parent()
         .map(|p| Path::new(PUBLIC_UPLOADS).join(p))
-        .ok_or_else(|| ServiceError::Conflict("Invalid file path".into()))?
+        .ok_or_else(|| NurError::Conflict("Invalid file path".into()))?
         .to_string_lossy()
         .to_string();
 
@@ -235,7 +235,7 @@ pub fn process_variants(
     upload_map: UploadMap,
     batch_id: String,
     tx: Sender<String>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     let resolutions = config.image_resolutions.unwrap_or_default();
     let extensions = config.image_extensions.unwrap_or_default();
 
@@ -306,7 +306,7 @@ pub fn process_variants(
 pub async fn rename_media_file(
     media: &mut MediaSerializer,
     new_filename: &str,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     let filename = media.filename.clone().unwrap_or_default();
     let media_path = media.path.clone().unwrap_or_default();
     let path = Path::new(&media_path);
@@ -324,7 +324,7 @@ pub async fn rename_media_file(
         fs::rename(&old_path, &new_path).await?;
         info!("Renamed file: {:?} -> {:?}", old_path, new_path);
     } else {
-        return Err(ServiceError::Conflict(format!(
+        return Err(NurError::Conflict(format!(
             "File not found: {:?}",
             old_path
         )));
@@ -333,7 +333,7 @@ pub async fn rename_media_file(
     // Rename variants if they exist
     let variant_dir = old_path
         .parent()
-        .ok_or_else(|| ServiceError::Conflict("Invalid file path".into()))?;
+        .ok_or_else(|| NurError::Conflict("Invalid file path".into()))?;
 
     let old_stem = Path::new(&filename)
         .file_stem()
@@ -364,7 +364,7 @@ pub async fn rename_media_file(
     Ok(())
 }
 
-pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), ServiceError> {
+pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> {
     let fname = media.filename.clone().unwrap_or_default();
     let rel = media.path.clone().unwrap_or_default();
     let rel_path = Path::new(&rel);
@@ -377,10 +377,7 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), ServiceErr
     let target = base_dir.join(&fname);
 
     if !target.exists() {
-        return Err(ServiceError::Conflict(format!(
-            "File not found: {:?}",
-            target
-        )));
+        return Err(NurError::Conflict(format!("File not found: {:?}", target)));
     }
 
     // Delete variants first
@@ -392,7 +389,7 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), ServiceErr
 
     let parent = target
         .parent()
-        .ok_or_else(|| ServiceError::Conflict("Invalid file path".into()))?;
+        .ok_or_else(|| NurError::Conflict("Invalid file path".into()))?;
 
     if let Ok(mut rd) = fs::read_dir(parent).await {
         while let Ok(Some(entry)) = rd.next_entry().await {

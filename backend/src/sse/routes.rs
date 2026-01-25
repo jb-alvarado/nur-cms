@@ -14,7 +14,7 @@ use tokio_stream::Stream;
 use crate::{
     db::models::Role,
     sse::{SseAuthState, UuidData, check_uuid, prune_uuids},
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 #[derive(Deserialize, Serialize)]
@@ -31,7 +31,7 @@ impl User {
 pub async fn generate_uuid(
     details: AuthDetails<Role>,
     State(data): State<SseAuthState>,
-) -> Result<Json<User>, ServiceError> {
+) -> Result<Json<User>, NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         let mut uuids = data.uuids.lock().await;
         let new_uuid = UuidData::new();
@@ -44,7 +44,7 @@ pub async fn generate_uuid(
         return Ok(Json(user_auth));
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -52,7 +52,7 @@ pub async fn generate_uuid(
 pub async fn sse_handler(
     State((tx, data)): State<(Sender<String>, SseAuthState)>,
     Query(user): Query<User>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ServiceError> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, NurError> {
     let mut uuids = data.uuids.lock().await;
     check_uuid(&mut uuids, user.uuid.as_str())?;
 

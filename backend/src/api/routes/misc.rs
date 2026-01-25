@@ -9,23 +9,23 @@ use crate::db::{
     models::{Role, TSConfig},
     queries::RespondObj,
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 pub async fn ts_language_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<TSConfig>>, ServiceError> {
+) -> Result<Json<RespondObj<TSConfig>>, NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return match handles::select_ts_language(&pool).await {
             Ok(lang) => Ok(Json(lang)),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }

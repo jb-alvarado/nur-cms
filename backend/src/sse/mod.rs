@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 pub mod routes;
 
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
 pub struct UuidData {
@@ -106,14 +106,14 @@ pub fn prune_uuids(uuids: &mut HashSet<UuidData>) {
     uuids.retain(|entry| entry.expiration > SystemTime::now());
 }
 
-pub fn check_uuid(uuids: &mut HashSet<UuidData>, uuid: &str) -> Result<&'static str, ServiceError> {
+pub fn check_uuid(uuids: &mut HashSet<UuidData>, uuid: &str) -> Result<&'static str, NurError> {
     let client_uuid = Uuid::parse_str(uuid)
-        .map_err(|_| ServiceError::Forbidden("Invalid missing UUID".to_string()))?;
+        .map_err(|_| NurError::Forbidden("Invalid missing UUID".to_string()))?;
 
     prune_uuids(uuids);
 
     match uuids.iter().find(|entry| entry.uuid == client_uuid) {
         Some(_) => Ok("UUID is valid"),
-        None => Err(ServiceError::Forbidden("Invalid missing UUID".to_string())),
+        None => Err(NurError::Forbidden("Invalid missing UUID".to_string())),
     }
 }

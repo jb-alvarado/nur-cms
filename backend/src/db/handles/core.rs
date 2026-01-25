@@ -19,14 +19,14 @@ use crate::db::{
     fields::{ColumnCounter, StrCompare, Table},
     queries::{QueryObj, RespondObj, WhereBuilder},
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 #[cfg(debug_assertions)]
 use sqlx::Execute;
 
-pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), ServiceError> {
+pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), NurError> {
     let mut qb = QueryBuilder::<Postgres>::new(format!("DELETE FROM {table} WHERE id = "));
     qb.push_bind(id);
 
@@ -40,7 +40,7 @@ pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), 
     if rows_affected == 0 {
         let msg = format!("No record with id={id} found in {table}");
         warn!("{msg}");
-        return Err(ServiceError::UnprocessableEntity(msg));
+        return Err(NurError::UnprocessableEntity(msg));
     }
 
     debug!("Deleted record with id={id} from {table}");
@@ -52,7 +52,7 @@ pub async fn select_record<T, M>(
     pool: &PgPool,
     table: &Table,
     query_obj: QueryObj<T>,
-) -> Result<RespondObj<M>, ServiceError>
+) -> Result<RespondObj<M>, NurError>
 where
     T: Display + StrCompare + IntoEnumIterator + FromStr + Debug + ts_rs::TS,
     M: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin + ColumnCounter,
@@ -113,7 +113,7 @@ where
     Ok(RespondObj::new(&query_obj, data))
 }
 
-pub async fn insert_record<T, R>(pool: &PgPool, table: &Table, data: &T) -> Result<R, ServiceError>
+pub async fn insert_record<T, R>(pool: &PgPool, table: &Table, data: &T) -> Result<R, NurError>
 where
     T: Serialize,
     R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
@@ -127,7 +127,7 @@ where
 
     let obj = match value.as_object() {
         Some(map) => map.clone(),
-        None => return Err(ServiceError::NoContent),
+        None => return Err(NurError::NoContent),
     };
 
     let type_ignore = ["id", "last_login", "total_count"];
@@ -144,7 +144,7 @@ where
     }
 
     if keys.is_empty() {
-        return Err(ServiceError::NoContent);
+        return Err(NurError::NoContent);
     }
 
     qb.push(keys.join(", "));
@@ -177,7 +177,7 @@ where
 
                     separated.push_bind(values);
                 } else {
-                    return Err(ServiceError::InvalidInput);
+                    return Err(NurError::InvalidInput);
                 }
             }
             Value::Bool(b) => {
@@ -208,11 +208,11 @@ where
                     };
                     let pw = s.clone();
                     let password_hash =
-                        tokio::task::spawn_blocking(move || -> Result<String, ServiceError> {
+                        tokio::task::spawn_blocking(move || -> Result<String, NurError> {
                             let salt = SaltString::generate(&mut OsRng);
                             let hash = Argon2::default()
                                 .hash_password(pw.as_bytes(), &salt)
-                                .map_err(|_| ServiceError::InternalServerError)?;
+                                .map_err(|_| NurError::InternalServerError)?;
 
                             Ok(hash.to_string())
                         })
@@ -246,7 +246,7 @@ pub async fn update_record<T, I>(
     table: &Table,
     id: I,
     data: &T,
-) -> Result<(), ServiceError>
+) -> Result<(), NurError>
 where
     T: Serialize,
     I: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres> + Send,
@@ -301,11 +301,11 @@ where
                 } else if key.as_str() == "password" {
                     let pw = s.clone();
                     let password_hash =
-                        tokio::task::spawn_blocking(move || -> Result<String, ServiceError> {
+                        tokio::task::spawn_blocking(move || -> Result<String, NurError> {
                             let salt = SaltString::generate(&mut OsRng);
                             let hash = Argon2::default()
                                 .hash_password(pw.as_bytes(), &salt)
-                                .map_err(|_| ServiceError::InternalServerError)?;
+                                .map_err(|_| NurError::InternalServerError)?;
 
                             Ok(hash.to_string())
                         })

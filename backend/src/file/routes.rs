@@ -23,7 +23,7 @@ use crate::{
     db::models::Role,
     file::helper::*,
     sse::{SSELevel as Level, SSEMessage},
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 /// Handle chunked/resumable file uploads
@@ -32,9 +32,9 @@ pub async fn upload_chunk(
     Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
     mut multipart: Multipart,
-) -> Result<impl IntoResponse, ServiceError> {
+) -> Result<impl IntoResponse, NurError> {
     if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return Err(ServiceError::Forbidden(
+        return Err(NurError::Forbidden(
             "You do not have permission to access this resource.".into(),
         ));
     }
@@ -61,14 +61,14 @@ pub async fn upload_chunk(
         }
     }
 
-    let file_name = file_name.ok_or_else(|| ServiceError::BadRequest("Missing filename".into()))?;
-    let start = start.ok_or_else(|| ServiceError::BadRequest("Missing start offset".into()))?;
-    let end = end.ok_or_else(|| ServiceError::BadRequest("Missing end offset".into()))?;
-    let chunk_data = chunk_data.ok_or_else(|| ServiceError::BadRequest("Missing chunk".into()))?;
+    let file_name = file_name.ok_or_else(|| NurError::BadRequest("Missing filename".into()))?;
+    let start = start.ok_or_else(|| NurError::BadRequest("Missing start offset".into()))?;
+    let end = end.ok_or_else(|| NurError::BadRequest("Missing end offset".into()))?;
+    let chunk_data = chunk_data.ok_or_else(|| NurError::BadRequest("Missing chunk".into()))?;
 
     // Validate chunk
     if end <= start || chunk_data.len() as u64 != end - start || end > size {
-        return Err(ServiceError::BadRequest("Invalid chunk range".into()));
+        return Err(NurError::BadRequest("Invalid chunk range".into()));
     }
 
     // Storage path: YEAR/MONTH

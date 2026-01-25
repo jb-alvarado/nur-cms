@@ -34,7 +34,7 @@ use crate::{
         models::{AuthUserMeta, Configuration, Role},
     },
     file::routes::upload_chunk,
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 // Small helper to parse env vars with a typed default.
@@ -57,7 +57,7 @@ pub static PUBLIC_UPLOADS: &str = "/uploads";
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
 
-pub async fn init_db() -> Result<PgPool, ServiceError> {
+pub async fn init_db() -> Result<PgPool, NurError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let max_connections = env_parse_or("MAX_CONNECTIONS", 50u32);
 
@@ -83,12 +83,12 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
 
     let Some((scheme, token)) = auth.to_str().ok().and_then(|s| s.trim().split_once(' ')) else {
         warn!("Malformed or invalid authorization header");
-        return Err(ServiceError::Unauthorized.into_response());
+        return Err(NurError::Unauthorized.into_response());
     };
 
     if !scheme.eq_ignore_ascii_case("bearer") {
         warn!(scheme = %scheme, "Unsupported authorization scheme");
-        return Err(ServiceError::Unauthorized.into_response());
+        return Err(NurError::Unauthorized.into_response());
     }
 
     match decode_jwt(token).await {
@@ -100,7 +100,7 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
         }
         Err(e) => {
             error!("JWT decode error: {e:?}");
-            Err(ServiceError::Unauthorized.into_response())
+            Err(NurError::Unauthorized.into_response())
         }
     }
 }

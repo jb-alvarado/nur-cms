@@ -21,7 +21,7 @@ use crate::{
     },
     mail::client::{Msg, message},
     utils::{
-        errors::ServiceError,
+        errors::NurError,
         spam_detection::{evaluate_text, validate_email_address},
     },
 };
@@ -38,7 +38,7 @@ pub async fn targets_select(
     Query(mut params): Query<QueryObj<MailTargetFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<MailTarget>>, ServiceError> {
+) -> Result<Json<RespondObj<MailTarget>>, NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         params.path = original_uri.path().into();
         params.query = original_uri.query().unwrap_or("").into();
@@ -47,12 +47,12 @@ pub async fn targets_select(
             Ok(role) => Ok(Json(role)),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -61,18 +61,18 @@ pub async fn target_insert(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
-) -> Result<Json<i32>, ServiceError> {
+) -> Result<Json<i32>, NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
         return match handles::insert_record(&pool, &Table::MailTargets, &content).await {
             Ok(id) => Ok(Json(id)),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -82,18 +82,18 @@ pub async fn target_update(
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
         return match handles::update_record(&pool, &Table::MailTargets, id, &content).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -102,18 +102,18 @@ pub async fn target_delete(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
         return match handles::delete_record(&pool, &Table::MailTargets, id).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -123,7 +123,7 @@ pub async fn mailer(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(target): Path<String>,
     Json(contact): Json<Contact>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     let norm_email = validate_email_address(contact.email).await?;
     let result = evaluate_text(&contact.text, None);
 
@@ -133,7 +133,7 @@ pub async fn mailer(
             real_ip.ip(),
             result.score
         );
-        return Err(ServiceError::Conflict(
+        return Err(NurError::Conflict(
             "This message is not allowed!".to_string(),
         ));
     }

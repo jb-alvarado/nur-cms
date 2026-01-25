@@ -10,7 +10,7 @@ use crate::db::{
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::AuthorSerializer,
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -18,7 +18,7 @@ use crate::db::format_sql;
 pub async fn select_content_author(
     pool: &PgPool,
     query_obj: QueryObj<ContentAuthorFields>,
-) -> Result<RespondObj<AuthorSerializer>, ServiceError> {
+) -> Result<RespondObj<AuthorSerializer>, NurError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut separated = query_builder.separated(", ");
 

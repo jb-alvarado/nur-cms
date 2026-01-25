@@ -21,7 +21,7 @@ use crate::{
         queries::QueryObj,
     },
     mail::client::{Msg, message},
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -71,7 +71,7 @@ pub static VERIFICATION_CODES: LazyLock<Arc<Mutex<HashMap<String, VerificationCo
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Create a json web token (JWT)
-pub async fn encode_jwt(claims: Claims) -> Result<String, ServiceError> {
+pub async fn encode_jwt(claims: Claims) -> Result<String, NurError> {
     let encoding_key = EncodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
     Ok(jsonwebtoken::encode(
         &Header::default(),
@@ -81,18 +81,18 @@ pub async fn encode_jwt(claims: Claims) -> Result<String, ServiceError> {
 }
 
 /// Decode a json web token (JWT)
-pub async fn decode_jwt(token: &str) -> Result<Claims, ServiceError> {
+pub async fn decode_jwt(token: &str) -> Result<Claims, NurError> {
     let decoding_key = DecodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
     jsonwebtoken::decode::<Claims>(token, &decoding_key, &Validation::default())
         .map(|data| data.claims)
-        .map_err(|_| ServiceError::Unauthorized)
+        .map_err(|_| NurError::Unauthorized)
 }
 
 pub async fn verify(
     real_ip: RealIp,
     State(pool): State<PgPool>,
     AxumJson(request): AxumJson<VerifyRequest>,
-) -> Result<impl IntoResponse, ServiceError> {
+) -> Result<impl IntoResponse, NurError> {
     let ip = real_ip.ip();
     let username = request.username;
     let provided_code = request.code;
@@ -184,7 +184,7 @@ pub async fn login(
     real_ip: RealIp,
     State(pool): State<PgPool>,
     AxumJson(credentials): AxumJson<Credentials>,
-) -> Result<impl IntoResponse, ServiceError> {
+) -> Result<impl IntoResponse, NurError> {
     let ip = real_ip.ip();
     let username = credentials.username.clone();
     let password = credentials.password.clone();
@@ -339,7 +339,7 @@ pub async fn login(
 pub async fn refresh(
     State(pool): State<PgPool>,
     AxumJson(data): AxumJson<TokenRefreshRequest>,
-) -> Result<impl IntoResponse, ServiceError> {
+) -> Result<impl IntoResponse, NurError> {
     let refresh_token = &data.refresh;
 
     match decode_jwt(refresh_token).await {
@@ -364,7 +364,7 @@ pub async fn refresh(
                 let role_name = resp.results[0]
                     .role
                     .clone()
-                    .ok_or(ServiceError::Unauthorized)?
+                    .ok_or(NurError::Unauthorized)?
                     .name;
 
                 if role_name != claim_role {

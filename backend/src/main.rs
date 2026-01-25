@@ -38,7 +38,7 @@ use nur_cms::{
     },
     utils::{
         cmd_args::{Args, add_user},
-        errors::ServiceError,
+        errors::NurError,
         importer,
         logging::init_tracing,
     },
@@ -101,7 +101,7 @@ async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), ServiceError> {
+async fn main() -> Result<(), NurError> {
     if dotenv().is_err() {
         from_filename("./assets/.env.example").ok();
     }
@@ -188,7 +188,7 @@ async fn main() -> Result<(), ServiceError> {
             .await
             .map_err(|e| {
                 error!("Failed to bind TCP listener: {e:?}");
-                ServiceError::InternalServerError
+                NurError::InternalServerError
             })?;
 
     if let Ok(addr) = listener.local_addr() {

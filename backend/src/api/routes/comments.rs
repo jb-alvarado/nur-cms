@@ -13,7 +13,7 @@ use tracing::error;
 use crate::{
     AuthUserMeta,
     sse::{SSELevel, SSEMessage},
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 use crate::{
     CONFIG,
@@ -27,7 +27,7 @@ use crate::{
     utils::spam_detection::{evaluate_text, validate_email_address},
 };
 
-async fn notify(comment: Comment) -> Result<(), ServiceError> {
+async fn notify(comment: Comment) -> Result<(), NurError> {
     let author_name = comment.author_name.unwrap_or_default();
     let author_email = comment.author_email.unwrap_or_default();
     let comment_text = comment.text.unwrap_or_default();
@@ -64,7 +64,7 @@ pub async fn comments_select(
     Query(mut params): Query<QueryObj<CommentFields>>,
     details: AuthDetails<Role>,
     OriginalUri(original_uri): OriginalUri,
-) -> Result<Json<RespondObj<Comment>>, ServiceError> {
+) -> Result<Json<RespondObj<Comment>>, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
@@ -76,7 +76,7 @@ pub async fn comments_select(
         Ok(categories) => Ok(Json(categories)),
         Err(e) => {
             error!("{e}");
-            Err(ServiceError::InternalServerError)
+            Err(NurError::InternalServerError)
         }
     }
 }
@@ -87,7 +87,7 @@ pub async fn comment_insert(
     Extension(user): Extension<AuthUserMeta>,
     details: AuthDetails<Role>,
     Json(mut content): Json<Comment>,
-) -> Result<Json<i64>, ServiceError> {
+) -> Result<Json<i64>, NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
         content.user_id = Some(user.id);
         content.status = Some("approved".to_string());
@@ -96,7 +96,7 @@ pub async fn comment_insert(
         if content.author_name.as_ref().is_none_or(String::is_empty)
             || content.author_email.as_ref().is_none_or(String::is_empty)
         {
-            return Err(ServiceError::Conflict(
+            return Err(NurError::Conflict(
                 "Name and email are required.".to_string(),
             ));
         }
@@ -113,7 +113,7 @@ pub async fn comment_insert(
             real_ip.ip(),
             result.score
         );
-        return Err(ServiceError::Conflict(
+        return Err(NurError::Conflict(
             "This message is not allowed!".to_string(),
         ));
     }
@@ -130,7 +130,7 @@ pub async fn comment_insert(
         Err(e) => {
             error!("Insert {e}");
 
-            Err(ServiceError::InternalServerError)
+            Err(NurError::InternalServerError)
         }
     }
 }
@@ -140,7 +140,7 @@ pub async fn comment_update(
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(mut content): Json<Value>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         content["updated_at"] = Value::String(Utc::now().to_rfc3339());
 
@@ -148,12 +148,12 @@ pub async fn comment_update(
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -162,18 +162,18 @@ pub async fn comment_delete(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return match handles::delete_record(&pool, &Table::Comments, id).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }

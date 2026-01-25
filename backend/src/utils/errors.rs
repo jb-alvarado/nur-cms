@@ -10,7 +10,7 @@ use serde_json::json;
 use tracing::error;
 
 #[derive(Debug, Display)]
-pub enum ServiceError {
+pub enum NurError {
     #[display("Internal Server Error")]
     InternalServerError,
 
@@ -42,7 +42,7 @@ pub enum ServiceError {
     UnprocessableEntity(String),
 }
 
-impl IntoResponse for ServiceError {
+impl IntoResponse for NurError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             Self::InternalServerError => (
@@ -75,114 +75,114 @@ impl IntoResponse for ServiceError {
     }
 }
 
-impl From<ServiceError> for io::Error {
-    fn from(err: ServiceError) -> Self {
+impl From<NurError> for io::Error {
+    fn from(err: NurError) -> Self {
         io::Error::other(format!("{err:?}"))
     }
 }
 
-impl From<inquire::InquireError> for ServiceError {
-    fn from(err: inquire::InquireError) -> ServiceError {
+impl From<inquire::InquireError> for NurError {
+    fn from(err: inquire::InquireError) -> NurError {
         Self::Conflict(err.to_string())
     }
 }
 
-impl From<markdown::message::Message> for ServiceError {
-    fn from(err: markdown::message::Message) -> ServiceError {
+impl From<markdown::message::Message> for NurError {
+    fn from(err: markdown::message::Message) -> NurError {
         Self::Conflict(err.to_string())
     }
 }
-impl From<axum::extract::multipart::MultipartError> for ServiceError {
-    fn from(err: axum::extract::multipart::MultipartError) -> ServiceError {
+impl From<axum::extract::multipart::MultipartError> for NurError {
+    fn from(err: axum::extract::multipart::MultipartError) -> NurError {
         Self::Conflict(err.to_string())
     }
 }
 
-impl From<io::Error> for ServiceError {
-    fn from(err: io::Error) -> ServiceError {
+impl From<io::Error> for NurError {
+    fn from(err: io::Error) -> NurError {
         error!("{err:?}");
         Self::NoContent
     }
 }
 
-impl From<std::string::String> for ServiceError {
-    fn from(err: std::string::String) -> ServiceError {
+impl From<std::string::String> for NurError {
+    fn from(err: std::string::String) -> NurError {
         error!("{err:?}");
         Self::Conflict(err.to_string())
     }
 }
 
-impl From<serde_json::Error> for ServiceError {
+impl From<serde_json::Error> for NurError {
     fn from(err: serde_json::Error) -> Self {
         error!("{err:?}");
         Self::Conflict(err.to_string())
     }
 }
 
-impl From<emval::ValidationError> for ServiceError {
+impl From<emval::ValidationError> for NurError {
     fn from(err: emval::ValidationError) -> Self {
         error!("{err:?}");
         Self::Conflict("Invalid email address!".to_string())
     }
 }
 
-impl From<jsonwebtoken::errors::Error> for ServiceError {
+impl From<jsonwebtoken::errors::Error> for NurError {
     fn from(_: jsonwebtoken::errors::Error) -> Self {
         Self::Unauthorized
     }
 }
 
-impl From<image::ImageError> for ServiceError {
+impl From<image::ImageError> for NurError {
     fn from(err: image::ImageError) -> Self {
         error!("{err:?}");
         Self::InternalServerError
     }
 }
 
-impl From<tokio::task::JoinError> for ServiceError {
+impl From<tokio::task::JoinError> for NurError {
     fn from(err: tokio::task::JoinError) -> Self {
         error!("{err:?}");
         Self::InternalServerError
     }
 }
 
-impl From<sqlx::migrate::MigrateError> for ServiceError {
+impl From<sqlx::migrate::MigrateError> for NurError {
     fn from(err: sqlx::migrate::MigrateError) -> Self {
         error!("{err:?}");
         Self::InternalServerError
     }
 }
 
-impl From<lettre::transport::smtp::Error> for ServiceError {
+impl From<lettre::transport::smtp::Error> for NurError {
     fn from(err: lettre::transport::smtp::Error) -> Self {
         error!("{err:?}");
         Self::InternalServerError
     }
 }
 
-impl From<lettre::address::AddressError> for ServiceError {
+impl From<lettre::address::AddressError> for NurError {
     fn from(err: lettre::address::AddressError) -> Self {
         error!("{err:?}");
         Self::InternalServerError
     }
 }
 
-impl From<lettre::error::Error> for ServiceError {
+impl From<lettre::error::Error> for NurError {
     fn from(err: lettre::error::Error) -> Self {
         error!("{err:?}");
         Self::InternalServerError
     }
 }
 
-impl From<sqlx::Error> for ServiceError {
-    fn from(err: sqlx::Error) -> ServiceError {
+impl From<sqlx::Error> for NurError {
+    fn from(err: sqlx::Error) -> NurError {
         error!("{err:?}");
         Self::Conflict(err.to_string())
     }
 }
 
-impl From<uuid::Error> for ServiceError {
-    fn from(err: uuid::Error) -> ServiceError {
+impl From<uuid::Error> for NurError {
+    fn from(err: uuid::Error) -> NurError {
         error!("{err:?}");
         Self::InternalServerError
     }

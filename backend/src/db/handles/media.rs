@@ -11,7 +11,7 @@ use crate::db::{
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::MediaSerializer,
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -19,7 +19,7 @@ use crate::db::format_sql;
 pub async fn select_media(
     pool: &PgPool,
     query_obj: &QueryObj<MediaFields>,
-) -> Result<RespondObj<MediaSerializer>, ServiceError> {
+) -> Result<RespondObj<MediaSerializer>, NurError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut sep = query_builder.separated(", ");
 

@@ -17,14 +17,14 @@ use crate::db::{
 };
 use crate::file::helper::{delete_media_file, rename_media_file};
 use crate::sse::{SSELevel as Level, SSEMessage};
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 pub async fn media_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<MediaFields>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<MediaSerializer>>, ServiceError> {
+) -> Result<Json<RespondObj<MediaSerializer>>, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
@@ -33,12 +33,12 @@ pub async fn media_select(
             Ok(media) => Ok(Json(media)),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -47,7 +47,7 @@ pub async fn media_delete(
     State((pool, tx)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         let params: QueryObj<MediaFields> = QueryObj {
             fields: vec![
@@ -71,12 +71,12 @@ pub async fn media_delete(
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }
@@ -86,7 +86,7 @@ pub async fn media_update(
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
     Json(content): Json<serde_json::Value>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         let params: QueryObj<MediaFields> = QueryObj {
             fields: vec![
@@ -120,12 +120,12 @@ pub async fn media_update(
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }

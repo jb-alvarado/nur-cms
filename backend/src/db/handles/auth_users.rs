@@ -10,7 +10,7 @@ use crate::db::{
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::AuthUserSerializer,
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -18,7 +18,7 @@ use crate::db::format_sql;
 pub async fn select_auth_user(
     pool: &PgPool,
     query_obj: QueryObj<AuthUserFields>,
-) -> Result<RespondObj<AuthUserSerializer>, ServiceError> {
+) -> Result<RespondObj<AuthUserSerializer>, NurError> {
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut separated = query_builder.separated(", ");
 

@@ -21,9 +21,9 @@ use crate::db::{
     models::{Configuration, MailTarget, TSConfig},
     queries::{QueryObj, RespondObj},
 };
-use crate::utils::errors::ServiceError;
+use crate::utils::errors::NurError;
 
-pub async fn db_migrate(pool: &PgPool) -> Result<(), ServiceError> {
+pub async fn db_migrate(pool: &PgPool) -> Result<(), NurError> {
     sqlx::migrate!("../migrations").run(pool).await?;
 
     if select_configuration(pool).await.is_err() {
@@ -45,7 +45,7 @@ pub async fn db_migrate(pool: &PgPool) -> Result<(), ServiceError> {
 }
 
 #[cfg(debug_assertions)]
-pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
+pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
     let query: QueryObj<MediaFields> = QueryObj {
         limit: 1,
         fields: vec![MediaFields::ID],
@@ -100,7 +100,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), ServiceError> {
     Ok(())
 }
 
-pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, ServiceError> {
+pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, NurError> {
     const QUERY: &str = "select * from configuration;";
 
     #[cfg(debug_assertions)]
@@ -111,7 +111,7 @@ pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, Servic
     Ok(data)
 }
 
-pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget, ServiceError> {
+pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget, NurError> {
     const QUERY: &str =
         "select id, name, subject, recipients, allow_html FROM mail_targets WHERE name = $1;";
 
@@ -123,7 +123,7 @@ pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget,
     Ok(data)
 }
 
-pub async fn select_mail_targets(pool: &PgPool) -> Result<RespondObj<MailTarget>, ServiceError> {
+pub async fn select_mail_targets(pool: &PgPool) -> Result<RespondObj<MailTarget>, NurError> {
     const QUERY: &str = "select id, name, subject, recipients, allow_html FROM mail_targets;";
 
     #[cfg(debug_assertions)]
@@ -140,7 +140,7 @@ pub async fn select_mail_targets(pool: &PgPool) -> Result<RespondObj<MailTarget>
     Ok(resp)
 }
 
-pub async fn select_ts_language(pool: &PgPool) -> Result<RespondObj<TSConfig>, ServiceError> {
+pub async fn select_ts_language(pool: &PgPool) -> Result<RespondObj<TSConfig>, NurError> {
     const QUERY: &str =
         "select cfgname, count(*) OVER() AS total_count from pg_catalog.pg_ts_config;";
     let query_obj: QueryObj<TSLanguage> = QueryObj {

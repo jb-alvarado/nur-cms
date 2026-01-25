@@ -8,7 +8,7 @@ use sqlx::postgres::PgPool;
 use tracing::error;
 
 use crate::{
-    PUBLIC_UPLOADS, ServiceError,
+    NurError, PUBLIC_UPLOADS,
     db::{fields::Table, handles, models::ContentMedia, serialize::MediaSerializer},
 };
 
@@ -362,7 +362,7 @@ pub async fn persist_content_media(
     pool: &PgPool,
     entry_id: i32,
     ast: &Value,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     let mut images = Vec::new();
     collect_image_refs(ast, &mut images);
 

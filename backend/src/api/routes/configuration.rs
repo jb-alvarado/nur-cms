@@ -16,14 +16,14 @@ use crate::{
         models::{Configuration, Role},
         queries::QueryObj,
     },
-    utils::errors::ServiceError,
+    utils::errors::NurError,
 };
 
 pub async fn config_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ConfigurationFields>>,
     OriginalUri(original_uri): OriginalUri,
-) -> Result<Json<Configuration>, ServiceError> {
+) -> Result<Json<Configuration>, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
@@ -31,7 +31,7 @@ pub async fn config_select(
         Ok(types) => Ok(Json(types.results.first().cloned().unwrap_or_default())),
         Err(e) => {
             error!("{e}");
-            Err(ServiceError::InternalServerError)
+            Err(NurError::InternalServerError)
         }
     }
 }
@@ -40,7 +40,7 @@ pub async fn config_update(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         return match handles::update_record(&pool, &Table::Configuration, 1, &content).await {
             Ok(_) => {
@@ -54,12 +54,12 @@ pub async fn config_update(
             }
             Err(e) => {
                 error!("{e}");
-                Err(ServiceError::InternalServerError)
+                Err(NurError::InternalServerError)
             }
         };
     }
 
-    Err(ServiceError::Forbidden(
+    Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
 }

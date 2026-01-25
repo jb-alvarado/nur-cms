@@ -8,7 +8,7 @@ use tokio::time::Duration;
 use tracing::error;
 use voca_rs::Voca;
 
-use crate::{CONFIG, db::models::MailTarget, utils::errors::ServiceError};
+use crate::{CONFIG, db::models::MailTarget, utils::errors::NurError};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Msg {
@@ -52,7 +52,7 @@ impl Msg {
     }
 }
 
-pub async fn send(message: Message) -> Result<(), ServiceError> {
+pub async fn send(message: Message) -> Result<(), NurError> {
     let config = CONFIG.read().await.clone();
     let credentials = Credentials::new(
         config.mail_user.clone().unwrap_or_default(),
@@ -77,7 +77,7 @@ pub async fn send(message: Message) -> Result<(), ServiceError> {
 }
 
 /// Take Msg object and send it to the mail server
-pub async fn message(msg: Msg) -> Result<(), ServiceError> {
+pub async fn message(msg: Msg) -> Result<(), NurError> {
     let config = CONFIG.read().await.clone();
     let subject = msg
         .subject

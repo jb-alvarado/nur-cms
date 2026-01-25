@@ -39,7 +39,7 @@ use crate::{
         queries::QueryObj,
     },
     file::processing::save_image,
-    utils::{ast_serialize::persist_content_media, errors::ServiceError},
+    utils::{ast_serialize::persist_content_media, errors::NurError},
 };
 
 #[derive(Debug, Clone)]
@@ -87,7 +87,7 @@ pub async fn import_markdown(
     path: PathBuf,
     ignore: Vec<PathBuf>,
     media_path: Option<PathBuf>,
-) -> Result<(), ServiceError> {
+) -> Result<(), NurError> {
     // Prepare options, will prompt for missing values.
     let mut opts = ImportOptions {
         content_type_id: None,
@@ -98,7 +98,7 @@ pub async fn import_markdown(
     };
 
     if !path.exists() {
-        return Err(ServiceError::BadRequest(format!(
+        return Err(NurError::BadRequest(format!(
             "Path does not exist: {path:?}"
         )));
     }
@@ -131,10 +131,7 @@ pub async fn import_markdown(
     Ok(())
 }
 
-async fn prompt_missing_options(
-    pool: &PgPool,
-    opts: &mut ImportOptions,
-) -> Result<(), ServiceError> {
+async fn prompt_missing_options(pool: &PgPool, opts: &mut ImportOptions) -> Result<(), NurError> {
     if opts.content_type_id.is_none() {
         let query: QueryObj<ContentTypeFields> = QueryObj::default();
         let content_types = handles::select_record::<ContentTypeFields, ContentType>(
@@ -154,7 +151,7 @@ async fn prompt_missing_options(
             .results
             .iter()
             .find(|t| t.name == type_name)
-            .ok_or(ServiceError::NoContent)?;
+            .ok_or(NurError::NoContent)?;
         opts.content_type_id = Some(content_type.id);
     }
 
@@ -171,7 +168,7 @@ async fn prompt_missing_options(
             .results
             .iter()
             .find(|t| t.last_name.as_ref() == Some(&user_name))
-            .ok_or(ServiceError::NoContent)?;
+            .ok_or(NurError::NoContent)?;
         opts.created_by = auth_user.id;
     }
 
@@ -185,7 +182,7 @@ async fn prompt_missing_options(
             .results
             .iter()
             .find(|l| l.code == locale_code)
-            .ok_or(ServiceError::NoContent)?;
+            .ok_or(NurError::NoContent)?;
         opts.locale_id = Some(locale.id);
     }
 
@@ -220,10 +217,7 @@ fn should_ignore(path: &Path, ignores: &[PathBuf]) -> bool {
     false
 }
 
-async fn collect_markdown_files(
-    dir: &Path,
-    ignores: &[PathBuf],
-) -> Result<Vec<PathBuf>, ServiceError> {
+async fn collect_markdown_files(dir: &Path, ignores: &[PathBuf]) -> Result<Vec<PathBuf>, NurError> {
     let mut files = Vec::new();
     let mut entries = fs::read_dir(dir).await?;
 
@@ -244,7 +238,7 @@ async fn collect_markdown_files(
     Ok(files)
 }
 
-async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<(), ServiceError> {
+async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<(), NurError> {
     let start_time = fm
         .event_start
         .as_ref()
@@ -267,7 +261,7 @@ async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<()
     Ok(())
 }
 
-async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result<(), ServiceError> {
+async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result<(), NurError> {
     let content = fs::read_to_string(path).await?;
 
     // Extract body and fallback title early, ensuring media for inline images
@@ -277,7 +271,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
         opts.media_root.as_deref(),
         path.parent().unwrap_or(Path::new(".")),
         opts.created_by
-            .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
+            .ok_or(NurError::BadRequest("Missing created_by".into()))?,
     )
     .await?;
 
@@ -305,20 +299,20 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let mut entry = ContentEntry {
         type_id: opts
             .content_type_id
-            .ok_or(ServiceError::BadRequest("Missing content_type_id".into()))?,
+            .ok_or(NurError::BadRequest("Missing content_type_id".into()))?,
         locale_id: opts
             .locale_id
-            .ok_or(ServiceError::BadRequest("Missing locale_id".into()))?,
+            .ok_or(NurError::BadRequest("Missing locale_id".into()))?,
         slug,
         title,
         text: body,
         status,
         created_by: opts
             .created_by
-            .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
+            .ok_or(NurError::BadRequest("Missing created_by".into()))?,
         updated_by: opts
             .created_by
-            .ok_or(ServiceError::BadRequest("Missing created_by".into()))?,
+            .ok_or(NurError::BadRequest("Missing created_by".into()))?,
         created_at: Some(created_at),
         ..Default::default()
     };
@@ -439,7 +433,7 @@ async fn extract_body_and_title(
     media_root: Option<&Path>,
     file_dir: &Path,
     user_id: i32,
-) -> Result<(Option<Frontmatter>, DateTime<Utc>, String, String), ServiceError> {
+) -> Result<(Option<Frontmatter>, DateTime<Utc>, String, String), NurError> {
     let mut lines = content.lines();
     let mut title = String::new();
 
@@ -743,12 +737,12 @@ async fn ensure_media(
     file_dir: &Path,
     date: &DateTime<Utc>,
     user_id: i32,
-) -> Result<Option<i32>, ServiceError> {
+) -> Result<Option<i32>, NurError> {
     let source_path = resolve_source_path(thumbnail_path, media_root, file_dir);
     let filename = source_path
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| ServiceError::BadRequest("Invalid filename".into()))?;
+        .ok_or_else(|| NurError::BadRequest("Invalid filename".into()))?;
 
     let (target_dir, target_path) = ensure_target_paths(date);
 
