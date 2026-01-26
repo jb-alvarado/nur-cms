@@ -11,7 +11,7 @@ use axum::{
     response::Response,
     routing::{delete, get, post, put},
 };
-use sqlx::postgres::{PgPool, PgPoolOptions};
+pub use sqlx::postgres::{PgPool, PgPoolOptions};
 use tokio::sync::RwLock;
 use tracing::{error, warn};
 
@@ -20,7 +20,6 @@ pub mod db;
 pub mod file;
 pub mod mail;
 pub mod middleware;
-pub mod serve;
 pub mod sse;
 pub mod utils;
 

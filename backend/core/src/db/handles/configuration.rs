@@ -24,7 +24,7 @@ use crate::db::{
 use crate::utils::errors::NurError;
 
 pub async fn db_migrate(pool: &PgPool) -> Result<(), NurError> {
-    sqlx::migrate!("../migrations").run(pool).await?;
+    sqlx::migrate!("../../migrations").run(pool).await?;
 
     if select_configuration(pool).await.is_err() {
         let secret: String = rand::rng()

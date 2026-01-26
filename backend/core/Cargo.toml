@@ -1,5 +1,5 @@
 [package]
-name = "nur-cms"
+name = "core"
 description.workspace = true
 readme.workspace = true
 version.workspace = true
@@ -8,17 +8,12 @@ authors.workspace = true
 repository.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "nur-cms"
-path = "src/main.rs"
-
 [lints]
 workspace = true
 
 [dependencies]
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.8", features = ["multipart"] }
-axum-macros = "0.5"
 async-stream = "0.3"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
@@ -28,11 +23,9 @@ chrono = { version = "0.4", default-features = false, features = [
 clap = { version = "4", features = ["derive"] }
 colored = "3"
 derive_more = { version = "2", features = ["full"] }
-dotenvy = "0.15"
 emval = { git = "https://github.com/jb-alvarado/emval.git", default-features = false }
 html_parser = "0.7"
 image = { version = "0.25", features = ["avif", "rayon", "png"] }
-include_dir = "0.7"
 inquire = "0.9"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 lazy-limit = "1"
@@ -47,7 +40,6 @@ libwebp-sys = "0.14"
 markdown = { version = "1", features = ["serde"] }
 mime_guess = "2"
 protect-axum = "0.2"
-protect-endpoints-core = { version = "0.2", features = ["tower"] }
 rand = "0.9"
 real = { version = "0.1", features = ["axum"] }
 regex = "1"
@@ -63,17 +55,9 @@ sqlx = { version = "0.8", features = [
     "postgres",
     "chrono",
 ] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["fs", "trace"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
-tracing-subscriber = { version = "=0.3.19", features = [
-    "ansi",
-    "env-filter",
-    "time",
-    "chrono",
-] }
 ts-rs = { version = "11", features = [
     "chrono-impl",
     "no-serde-warnings",
@@ -81,44 +65,3 @@ ts-rs = { version = "11", features = [
 ] }
 uuid = { version = "1.18", features = ["v4"] }
 voca_rs = "1.15"
-
-[build-dependencies]
-build-print = "1"
-
-# DEBIAN DEB PACKAGE
-[package.metadata.deb]
-name = "nur-cms"
-priority = "optional"
-section = "net"
-license-file = ["../LICENSE", "0"]
-depends = ""
-suggests = "postgresql"
-copyright = "Copyright (c) 2025, Jonathan Baecker. All rights reserved."
-conf-files = ["/home/nur-cms/.env"]
-assets = [
-    [
-        "target/release/nur-cms",
-        "/usr/bin/",
-        "755",
-    ],
-    [
-        "../assets/.env.example",
-        "/home/nur-cms/.env",
-        "644",
-    ],
-]
-maintainer-scripts = "../debian/"
-systemd-units = { enable = true, unit-scripts = "../assets" }
-
-# RHEL RPM PACKAGE
-[package.metadata.generate-rpm]
-name = "nur-cms"
-license = "GPL-3.0"
-assets = [
-    { source = "../target/x86_64-unknown-linux-musl/release/nur-cms", dest = "/usr/bin/nur-cms", mode = "755" },
-    { source = "../assets/nur-cms.service", dest = "/lib/systemd/system/nur-cms.service", mode = "644" },
-    { source = "../assets/.env.example", dest = "/home/nur-cms/.env", mode = "644", config = true },
-    { source = "../debian/postinst", dest = "/usr/share/nur-cms/postinst", mode = "755" },
-]
-auto-req = "no"
-post_install_script = "/usr/share/nur-cms/postinst"

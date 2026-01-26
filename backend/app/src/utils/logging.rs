@@ -17,11 +17,11 @@ impl FormatTime for ChronoLocalTimer {
 pub fn init_tracing(level: Option<String>, timestamp: bool) {
     let filter = match level {
         Some(l) => EnvFilter::new(format!(
-            "sqlx=warn,tower_http=info,{l}={}",
+            "sqlx=warn,tower_http=info,core=debug,{l}={}",
             env!("CARGO_CRATE_NAME")
         )),
         None => EnvFilter::new(format!(
-            "sqlx=warn,tower_http=info,{}=debug",
+            "sqlx=warn,tower_http=info,core=debug,{}=debug",
             env!("CARGO_CRATE_NAME")
         )),
     };

@@ -1,7 +1,7 @@
 use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
 
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     http::{
         Request, Response,
@@ -23,10 +23,15 @@ use tracing::{debug, error, info, warn};
 #[cfg(debug_assertions)]
 use tower_http::services::ServeDir;
 
-#[cfg(debug_assertions)]
-use nur_cms::STORAGE;
+#[cfg(not(debug_assertions))]
+mod serve;
 
-use nur_cms::{
+mod utils;
+
+#[cfg(debug_assertions)]
+use core::STORAGE;
+
+use core::{
     CONFIG,
     db::handles,
     extract, init_db,
@@ -40,12 +45,13 @@ use nur_cms::{
         cmd_args::{Args, add_user},
         errors::NurError,
         importer,
-        logging::init_tracing,
     },
 };
 
+use utils::logging::init_tracing;
+
 #[cfg(not(debug_assertions))]
-use nur_cms::serve::routes::admin_ui_routes;
+use serve::routes::admin_ui_routes;
 
 async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     let start = Instant::now();
@@ -98,6 +104,15 @@ async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     }
 
     res
+}
+
+async fn test(
+    axum::extract::State(_state): axum::extract::State<(
+        core::PgPool,
+        tokio::sync::broadcast::Sender<String>,
+    )>,
+) -> Result<Json<String>, NurError> {
+    Ok(Json("Hallo Test".to_string()))
 }
 
 #[tokio::main]
@@ -167,7 +182,12 @@ async fn main() -> Result<(), NurError> {
             "/auth",
             auth_routes.with_state((pool.clone(), args.clone())),
         )
-        .nest("/api", api_routes.with_state((pool, tx.clone())))
+        .nest(
+            "/api",
+            api_routes
+                .route("/test/", get(test))
+                .with_state((pool, tx.clone())),
+        )
         .nest("/sse", sse_router)
         .layer(middlewares);
 

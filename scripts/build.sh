@@ -16,11 +16,11 @@ echo ""
 cargo build --release --target=$platform
 
 if [[ "$target" == "debian" ]]; then
-    cargo deb --no-build --target=$platform -p nur-cms --manifest-path=backend/Cargo.toml -o nur-cms_${version}-1_amd64.deb
+    cargo deb --no-build --target=$platform -p nur-cms --manifest-path=backend/app/Cargo.toml -o nur-cms_${version}-1_amd64.deb
 elif [[ "$target" == "rhel" ]]; then
-    cargo generate-rpm --target=$platform -p backend -o nur-cms-${version}-1.x86_64.rpm
+    cargo generate-rpm --target=$platform -p backend/app -o nur-cms-${version}-1.x86_64.rpm
 else
-    cargo deb --no-build --target=$platform -p nur-cms --manifest-path=backend/Cargo.toml -o nur-cms_${version}-1_amd64.deb
-    cargo generate-rpm --target=$platform -p backend -o nur-cms-${version}-1.x86_64.rpm
+    cargo deb --no-build --target=$platform -p nur-cms --manifest-path=backend/app/Cargo.toml -o nur-cms_${version}-1_amd64.deb
+    cargo generate-rpm --target=$platform -p backend/app -o nur-cms-${version}-1.x86_64.rpm
 fi
 
