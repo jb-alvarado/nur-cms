@@ -1,7 +1,7 @@
 use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
 
 use axum::{
-    Json, Router,
+    Router,
     body::Body,
     http::{
         Request, Response,
@@ -106,15 +106,6 @@ async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     res
 }
 
-async fn test(
-    axum::extract::State(_state): axum::extract::State<(
-        core::PgPool,
-        tokio::sync::broadcast::Sender<String>,
-    )>,
-) -> Result<Json<String>, NurError> {
-    Ok(Json("Hallo Test".to_string()))
-}
-
 #[tokio::main]
 async fn main() -> Result<(), NurError> {
     if dotenv().is_err() {
@@ -182,12 +173,7 @@ async fn main() -> Result<(), NurError> {
             "/auth",
             auth_routes.with_state((pool.clone(), args.clone())),
         )
-        .nest(
-            "/api",
-            api_routes
-                .route("/test/", get(test))
-                .with_state((pool, tx.clone())),
-        )
+        .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
         .layer(middlewares);
 
