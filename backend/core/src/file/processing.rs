@@ -74,21 +74,33 @@ pub fn save_image(
     if !image_resolutions.contains(&320) {
         image_resolutions.push(320);
     }
+
+    // add original resolution
+    if !image_resolutions.contains(&(orig_w as i32)) {
+        image_resolutions.push(orig_w as i32);
+    }
+
     image_resolutions.sort_unstable();
     image_resolutions.dedup();
 
     let mut variants = Vec::new();
 
     for in_w in image_resolutions {
-        if orig_w <= in_w as u32 {
+        if orig_w < in_w as u32 {
             continue;
         }
 
         let scale = in_w as f32 / orig_w as f32;
         let in_h = (orig_h as f32 * scale).round() as u32;
 
-        let resized = img.resize_exact(in_w as u32, in_h, Triangle);
-        let (w, h) = resized.dimensions();
+        let (resized, w, h) = if orig_w as i32 == in_w {
+            (img.clone(), orig_w, orig_h)
+        } else {
+            let r = img.resize_exact(in_w as u32, in_h, Triangle);
+            let (w, h) = r.dimensions();
+
+            (r, w, h)
+        };
 
         debug!(
             "Process {}x{}, types {image_types:?}: {}",

@@ -5,6 +5,9 @@
 !migrations/*.sql
 !migrations_dev/*.sql
 
+uploads/
+!uploads/2025
+
 # Logs
 logs
 *.log
