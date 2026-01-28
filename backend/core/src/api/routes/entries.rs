@@ -46,9 +46,31 @@ pub async fn entries_select(
         params.search_status = Some("published".to_string());
     }
 
+    if params.fields.contains(&ContentEntryFields::AST) {
+        params.fields.retain(|f| f != &ContentEntryFields::AST);
+
+        if !params.fields.contains(&ContentEntryFields::Text) {
+            params.fields.push(ContentEntryFields::Text);
+        }
+    }
+
+    if params.fields.contains(&ContentEntryFields::Html) {
+        params.fields.retain(|f| f != &ContentEntryFields::Html);
+
+        if !params.fields.contains(&ContentEntryFields::Text) {
+            params.fields.push(ContentEntryFields::Text);
+        }
+    }
+
+    if params.fields.contains(&ContentEntryFields::Text)
+        && !params.fields.contains(&ContentEntryFields::Embeds)
+    {
+        params.fields.push(ContentEntryFields::Embeds);
+    }
+
     let mut content = handles::select_content_entries(&pool, &params).await?;
 
-    if params.fields.contains(&ContentEntryFields::Body) && output != OutputType::Markdown {
+    if params.fields.contains(&ContentEntryFields::Text) && output != OutputType::Markdown {
         for b in &mut content.results {
             let text = b.text.take().unwrap_or_default();
             b.text = None;
@@ -94,13 +116,35 @@ pub async fn entry_select(
         output = typ.clone();
     }
 
+    if params.fields.contains(&ContentEntryFields::AST) {
+        params.fields.retain(|f| f != &ContentEntryFields::AST);
+
+        if !params.fields.contains(&ContentEntryFields::Text) {
+            params.fields.push(ContentEntryFields::Text);
+        }
+    }
+
+    if params.fields.contains(&ContentEntryFields::Html) {
+        params.fields.retain(|f| f != &ContentEntryFields::Html);
+
+        if !params.fields.contains(&ContentEntryFields::Text) {
+            params.fields.push(ContentEntryFields::Text);
+        }
+    }
+
+    if params.fields.contains(&ContentEntryFields::Text)
+        && !params.fields.contains(&ContentEntryFields::Embeds)
+    {
+        params.fields.push(ContentEntryFields::Embeds);
+    }
+
     if let Some(mut content) = handles::select_content_entries(&pool, &params)
         .await?
         .results
         .into_iter()
         .next()
     {
-        if params.fields.contains(&ContentEntryFields::Body) && output != OutputType::Markdown {
+        if params.fields.contains(&ContentEntryFields::Text) && output != OutputType::Markdown {
             let text = content.text.take().unwrap_or_default();
 
             match output {

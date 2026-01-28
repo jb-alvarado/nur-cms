@@ -10,6 +10,7 @@ use super::traits::StrCompare;
 #[serde(rename_all = "snake_case")]
 pub enum ContentEntryFields {
     ID,
+    AST,
     GroupID,
     CategoryID,
     LocaleID,
@@ -24,7 +25,8 @@ pub enum ContentEntryFields {
     Blocks,
     Title,
     Description,
-    Body,
+    Html,
+    Text,
     CreatedAt,
     UpdatedAt,
     GroupMembers,
@@ -36,6 +38,7 @@ impl StrCompare for ContentEntryFields {
     fn is_equal_to_str(&self, other: &str) -> bool {
         match self {
             Self::ID => other == "id",
+            Self::AST => other == "ast",
             Self::GroupID => other == "group_id",
             Self::CategoryID => other == "category_id",
             Self::LocaleID => other == "locale_id",
@@ -49,7 +52,8 @@ impl StrCompare for ContentEntryFields {
             Self::Blocks => other == "blocks",
             Self::Title => other == "title",
             Self::Description => other == "description",
-            Self::Body => other == "body",
+            Self::Html => other == "html",
+            Self::Text => other == "text",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
             Self::GroupMembers => other == "group_members",
@@ -65,6 +69,7 @@ impl FromStr for ContentEntryFields {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
             "id" => Ok(Self::ID),
+            "ast" => Ok(Self::AST),
             "group_id" => Ok(Self::GroupID),
             "category_id" => Ok(Self::CategoryID),
             "locale_id" => Ok(Self::LocaleID),
@@ -78,7 +83,8 @@ impl FromStr for ContentEntryFields {
             "blocks" => Ok(Self::Blocks),
             "title" => Ok(Self::Title),
             "description" => Ok(Self::Description),
-            "body" => Ok(Self::Body),
+            "html" => Ok(Self::Html),
+            "text" => Ok(Self::Text),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
             "group_members" => Ok(Self::GroupMembers),
@@ -93,6 +99,7 @@ impl fmt::Display for ContentEntryFields {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Self::ID => write!(f, "id"),
+            Self::AST => write!(f, "text"),
             Self::GroupID => write!(f, "group_id"),
             Self::CategoryID => write!(f, "category_id"),
             Self::LocaleID => write!(f, "locale_id"),
@@ -106,7 +113,8 @@ impl fmt::Display for ContentEntryFields {
             Self::Blocks => write!(f, "blocks"),
             Self::Title => write!(f, "title"),
             Self::Description => write!(f, "description"),
-            Self::Body => write!(f, "body"),
+            Self::Html => write!(f, "html"),
+            Self::Text => write!(f, "text"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
             Self::GroupMembers => write!(f, "group_members"),

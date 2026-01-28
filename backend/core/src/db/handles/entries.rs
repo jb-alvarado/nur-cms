@@ -108,7 +108,6 @@ pub async fn select_content_entries(
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(cm.data, cm.start_time, cm.end_time) AS {f}")),
             CF::Blocks => sep.push(format!("COALESCE(blocks.data, '[]') AS {f}")),
-            CF::Body => sep.push("ce.text".to_string()),
             CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
             CF::Embeds => sep.push(format!("COALESCE(embed_data.media, '[]') AS {f}")),
             CF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),

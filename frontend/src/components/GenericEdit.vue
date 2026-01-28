@@ -593,13 +593,13 @@ function deleteBlock(index: number) {
                 <div class="flex flex-wrap-reverse gap-4">
                     <div class="grow flex flex-col md:flex-row gap-2">
                         <fieldset class="fieldset w-64">
-                            <legend class="fieldset-legend">{{ $t('article.title') }}</legend>
+                            <legend class="fieldset-legend">{{ $t('table.title') }}</legend>
                             <input
                                 v-model="content.title"
                                 type="text"
                                 class="input"
-                                name="article_title"
-                                :placeholder="$t('article.title')"
+                                name="title"
+                                :placeholder="$t('table.title')"
                                 @input="updateSlug()"
                             />
                         </fieldset>
