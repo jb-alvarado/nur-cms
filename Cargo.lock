@@ -552,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "argon2",
  "async-stream",
@@ -2328,7 +2328,7 @@ dependencies = [
 
 [[package]]
 name = "nur-cms"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "axum",
  "build-print",
