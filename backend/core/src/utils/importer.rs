@@ -635,7 +635,7 @@ async fn lookup_or_create_author(
     created_at: DateTime<Utc>,
 ) -> Result<Option<i32>, sqlx::Error> {
     let parts: Vec<&str> = name.rsplitn(2, ' ').collect();
-    let (first_name, last_name) = match parts.as_slice() {
+    let (last_name, first_name) = match parts.as_slice() {
         [first, last] => (*first, *last),
         [single] => (*single, ""),
         _ => (name, ""),
