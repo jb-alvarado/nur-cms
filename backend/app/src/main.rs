@@ -18,21 +18,16 @@ use protect_axum::GrantsLayer;
 use real::RealIpLayer;
 use tokio::sync::{Mutex, broadcast};
 use tower::ServiceBuilder;
-use tracing::{debug, error, info, warn};
-
-#[cfg(debug_assertions)]
 use tower_http::services::ServeDir;
+use tracing::{debug, error, info, warn};
 
 #[cfg(not(debug_assertions))]
 mod serve;
 
 mod utils;
 
-#[cfg(debug_assertions)]
-use core::STORAGE;
-
 use core::{
-    CONFIG,
+    CONFIG, STORAGE,
     db::handles,
     extract, init_db,
     middleware::governor::rate_limit,
@@ -41,14 +36,10 @@ use core::{
         SseAuthState,
         routes::{generate_uuid, sse_handler},
     },
-    utils::{
-        cmd_args::{Args, add_user},
-        errors::NurError,
-        importer,
-    },
+    utils::{cmd_args::add_user, errors::NurError, importer},
 };
 
-use utils::logging::init_tracing;
+use utils::{extend_args::AppArgs, logging::init_tracing};
 
 #[cfg(not(debug_assertions))]
 use serve::routes::admin_ui_routes;
@@ -112,7 +103,7 @@ async fn main() -> Result<(), NurError> {
         from_filename("./assets/.env.example").ok();
     }
 
-    let args = Args::parse();
+    let args = AppArgs::parse();
 
     init_tracing(args.log_level.clone(), args.log_timestamp);
 
@@ -124,14 +115,14 @@ async fn main() -> Result<(), NurError> {
         *cfg = config;
     }
 
-    if args.add_user {
+    if args.core.add_user {
         add_user(&pool).await?;
         return Ok(());
     }
 
-    if let Some(path) = args.import_markdown {
-        let ignore = args.ignore_files.unwrap_or_default();
-        importer::import_markdown(&pool, path, ignore, args.import_media.clone()).await?;
+    if let Some(path) = args.core.import_markdown {
+        let ignore = args.core.ignore_files.unwrap_or_default();
+        importer::import_markdown(&pool, path, ignore, args.core.import_media.clone()).await?;
         return Ok(());
     }
 
@@ -171,32 +162,31 @@ async fn main() -> Result<(), NurError> {
     let mut app = Router::new()
         .nest(
             "/auth",
-            auth_routes.with_state((pool.clone(), args.clone())),
+            auth_routes.with_state((pool.clone(), args.core.clone())),
         )
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
         .layer(middlewares);
 
     #[cfg(not(debug_assertions))]
-    let app = Router::new()
+    let mut app = Router::new()
         .nest(
             "/auth",
-            auth_routes.with_state((pool.clone(), args.clone())),
+            auth_routes.with_state((pool.clone(), args.core.clone())),
         )
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_ui_routes())
         .nest("/sse", sse_router)
         .layer(middlewares);
 
-    #[cfg(debug_assertions)]
-    {
-        debug!("Dev mode: serving static files from {:?}", STORAGE.as_str());
+    if cfg!(debug_assertions) || args.serve_static {
+        debug!("Serving static files from {:?}", STORAGE.as_str());
         let uploads_service = ServeDir::new(&*STORAGE);
         app = app.nest_service("/uploads", uploads_service);
     }
 
     let listener =
-        tokio::net::TcpListener::bind(args.listen.as_deref().unwrap_or("127.0.0.1:8777"))
+        tokio::net::TcpListener::bind(args.core.listen.as_deref().unwrap_or("127.0.0.1:8777"))
             .await
             .map_err(|e| {
                 error!("Failed to bind TCP listener: {e:?}");

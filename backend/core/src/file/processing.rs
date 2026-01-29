@@ -166,7 +166,7 @@ pub fn save_image(
 
                 // AVIF
                 "avif" => {
-                    let encoder = AvifEncoder::new_with_speed_quality(&mut buffer, 5, 78);
+                    let encoder = AvifEncoder::new_with_speed_quality(&mut buffer, 5, 60);
                     encoder.write_image(&bytes_normal, w, h, color_type_normal)?;
                 }
 

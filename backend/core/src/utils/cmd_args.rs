@@ -34,12 +34,6 @@ pub struct Args {
     #[clap(short, long, help = "Listen on IP:PORT, like: 127.0.0.1:7777")]
     pub listen: Option<String>,
 
-    #[clap(long, help = "Override logging level: trace, debug, info, warn, error")]
-    pub log_level: Option<String>,
-
-    #[clap(long, help = "Add timestamp to log line")]
-    pub log_timestamp: bool,
-
     #[clap(long, help = "Disabling two-factor authentication", hide = true)]
     pub disable_two_factor: bool,
 }
