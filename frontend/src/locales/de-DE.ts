@@ -40,6 +40,8 @@ export default {
         languages: 'Sprachen',
         key: 'Schlüssel',
         value: 'Wert',
+        start: 'Start',
+        end: 'Ende',
     },
     table: {
         id: 'ID',

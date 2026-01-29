@@ -39,6 +39,8 @@ export default {
         languages: 'Languages',
         key: 'Key',
         value: 'Value',
+        start: 'Start',
+        end: 'End',
     },
     table: {
         id: 'ID',

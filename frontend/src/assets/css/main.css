@@ -37,7 +37,7 @@ body {
 .textarea {
     &:focus,
     &:focus-within {
-        --input-color: var(--my-glow);
+        --input-color: color-mix(in srgb, var(--color-base-content) 30%, transparent);
         box-shadow: 0 1px color-mix(in oklab, var(--input-color) calc(var(--depth) * 10%), #0000);
         outline: 2px solid var(--input-color);
         outline-offset: 2px;
@@ -113,7 +113,7 @@ vue-multiselect
 }
 
 .multiselect--active .multiselect__tags {
-    --input-color: var(--my-glow);
+    --input-color: color-mix(in srgb, var(--color-base-content) 30%, transparent);
     box-shadow: 0 1px color-mix(in oklab, var(--input-color) calc(var(--depth) * 10%), #0000);
     outline: 2px solid var(--input-color);
     outline-offset: 2px;

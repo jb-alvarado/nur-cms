@@ -202,7 +202,19 @@ pub async fn entry_insert(
         obj.remove("blocks");
     }
 
-    let id = handles::insert_record(&pool, &Table::ContentEntries, &content).await?;
+    let meta = content.get("meta").cloned();
+    if let Some(obj) = content.as_object_mut() {
+        obj.remove("meta");
+    }
+
+    let id: i32 = handles::insert_record(&pool, &Table::ContentEntries, &content).await?;
+
+    if let Some(mut m) = meta {
+        m["entry_id"] = Value::Number(id.into());
+
+        let _: i32 = handles::insert_record(&pool, &Table::ContentMeta, &m).await?;
+    }
+
     let ast = to_mdast(
         content
             .get("text")

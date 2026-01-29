@@ -61,6 +61,43 @@ pub async fn delete_tag_from_entry(
     Ok(())
 }
 
+pub async fn upsert_entry_meta(
+    pool: &PgPool,
+    entry_id: i32,
+    data: &Value,
+) -> Result<(), sqlx::Error> {
+    if let Some(meta_obj) = data.as_object() {
+        let json_data = meta_obj.get("data").cloned();
+        let start_time = meta_obj
+            .get("start_time")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+        let end_time = meta_obj
+            .get("end_time")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+
+        sqlx::query(
+            r#"INSERT INTO content_meta (entry_id, data, start_time, end_time)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (entry_id) DO UPDATE SET
+                   data = EXCLUDED.data,
+                   start_time = EXCLUDED.start_time,
+                   end_time = EXCLUDED.end_time"#,
+        )
+        .bind(entry_id)
+        .bind(json_data)
+        .bind(start_time)
+        .bind(end_time)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
 pub async fn select_media_id_by_path(
     pool: &PgPool,
     path: &str,
@@ -542,7 +579,7 @@ pub async fn update_entry_with_blocks<T>(
 where
     T: Serialize,
 {
-    let value = serde_json::to_value(data)?;
+    let mut value = serde_json::to_value(data)?;
 
     let obj = match value.as_object() {
         Some(map) => map.clone(),
@@ -556,8 +593,16 @@ where
         None
     };
 
+    if let Some(meta) = value.get("meta") {
+        upsert_entry_meta(pool, entry_id, meta).await?;
+
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("meta");
+        }
+    }
+
     // Update the entry record (blocks will be ignored by update_record)
-    update_record(pool, &Table::ContentEntries, entry_id, data).await?;
+    update_record(pool, &Table::ContentEntries, entry_id, &value).await?;
 
     // Sync blocks if they were provided
     if let Some(blocks_data) = blocks {

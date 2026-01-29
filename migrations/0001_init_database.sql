@@ -147,7 +147,8 @@ CREATE TABLE IF NOT EXISTS content_meta (
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     data JSONB,
     start_time TIMESTAMPTZ,
-    end_time TIMESTAMPTZ
+    end_time TIMESTAMPTZ,
+    UNIQUE (entry_id)
 );
 
 CREATE TABLE IF NOT EXISTS content_blocks (

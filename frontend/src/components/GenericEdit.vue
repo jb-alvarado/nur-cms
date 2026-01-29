@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, useTemplateRef, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import dayjs from 'dayjs'
 import { useSortable } from '@vueuse/integrations/useSortable'
 
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -49,6 +50,7 @@ const content = ref({
     locale_id: 0,
     group_members: [],
     check: false,
+    meta: {},
 } as Content)
 const contentOriginal = ref(cloneDeep(content))
 
@@ -161,6 +163,18 @@ function selectContent() {
         .then((response: RespondObj) => {
             if (response.results.length > 0) {
                 content.value = response.results[0]
+
+                if (content.value.meta) {
+                    if (content.value.meta.start_time) {
+                        content.value.meta.start_time = dayjs(content.value.meta.start_time).format('YYYY-MM-DD HH:mm')
+                    }
+                    if (content.value.meta.end_time) {
+                        content.value.meta.end_time = dayjs(content.value.meta.end_time).format('YYYY-MM-DD HH:mm')
+                    }
+                } else {
+                    content.value.meta = {}
+                }
+
                 contentOriginal.value = cloneDeep(content.value)
 
                 locales.value = store.locales.filter((locale) => {
@@ -359,6 +373,19 @@ async function save() {
     if (contentId === 0 && !payload.locale_id) {
         store.msgAlert('warning', t('common.selectLanguage'))
         return
+    }
+
+    // Convert meta datetime-local format to RFC3339 (after validation)
+    if (payload.meta) {
+        if (payload.meta.start_time) {
+            // Convert from datetime-local (YYYY-MM-DDTHH:mm) to RFC3339
+            const date = new Date(payload.meta.start_time)
+            payload.meta.start_time = date.toISOString()
+        }
+        if (payload.meta.end_time) {
+            const date = new Date(payload.meta.end_time)
+            payload.meta.end_time = date.toISOString()
+        }
     }
 
     try {
@@ -750,6 +777,20 @@ function deleteBlock(index: number) {
                             >
                             </Multiselect>
                         </fieldset>
+
+                        <div
+                            v-if="content.meta?.start_time || store.routeType === 'event'"
+                            class="flex flex-wrap gap-2"
+                        >
+                            <fieldset class="flex-1 fieldset py-0 min-w-50">
+                                <legend class="fieldset-legend pt-0">{{ $t('common.start') }}</legend>
+                                <input v-model="content.meta!.start_time" type="datetime-local" class="input w-full" />
+                            </fieldset>
+                            <fieldset class="flex-1 fieldset py-0 min-w-50">
+                                <legend class="fieldset-legend pt-0">{{ $t('common.end') }}</legend>
+                                <input v-model="content.meta!.end_time" type="datetime-local" class="input w-full" />
+                            </fieldset>
+                        </div>
                     </div>
                 </div>
 
