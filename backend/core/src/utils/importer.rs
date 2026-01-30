@@ -161,13 +161,13 @@ async fn prompt_missing_options(pool: &PgPool, opts: &mut ImportOptions) -> Resu
         let user_list: Vec<String> = auth_users
             .results
             .iter()
-            .filter_map(|t| t.last_name.clone())
+            .filter_map(|t| t.username.clone())
             .collect();
-        let user_name = Select::new("User:", user_list).prompt()?;
+        let username = Select::new("User:", user_list).prompt()?;
         let auth_user = auth_users
             .results
             .iter()
-            .find(|t| t.last_name.as_ref() == Some(&user_name))
+            .find(|t| t.username.as_ref() == Some(&username))
             .ok_or(NurError::NoContent)?;
         opts.created_by = auth_user.id;
     }
