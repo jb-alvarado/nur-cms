@@ -317,12 +317,11 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
         ..Default::default()
     };
 
-    // Lookup category if present
-    if let Some(ref fm) = frontmatter
-        && let Some(ref category_name) = fm.category
-    {
-        if let Ok(Some(cat_id)) =
-            lookup_or_create_category(pool, category_name, entry.locale_id).await
+    if let Some(ref fm) = frontmatter {
+        // Lookup category if present
+        if let Some(ref category_name) = fm.category
+            && let Ok(Some(cat_id)) =
+                lookup_or_create_category(pool, category_name, entry.locale_id).await
         {
             entry.category_id = Some(cat_id);
         }
