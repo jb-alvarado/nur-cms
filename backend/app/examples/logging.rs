@@ -12,7 +12,7 @@ use real::RealIpLayer;
 use std::net::SocketAddr;
 use tracing::{error, info};
 
-use nur_cms::utils::errors::NurError;
+use backend_core::utils::errors::NurError;
 
 async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     let timer = Instant::now();

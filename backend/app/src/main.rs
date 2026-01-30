@@ -26,7 +26,7 @@ mod serve;
 
 mod utils;
 
-use core::{
+use backend_core::{
     CONFIG, STORAGE,
     db::handles,
     extract, init_db,

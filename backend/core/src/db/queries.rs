@@ -58,6 +58,9 @@ pub struct QueryObj<T> {
     pub entry_id: Option<i32>,
 
     #[serde(default)]
+    pub character_limit: Option<i32>,
+
+    #[serde(default)]
     pub search: Option<String>,
 
     #[serde(default, rename = "id")]
@@ -112,6 +115,7 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             type_id: None,
             media_type: Vec::new(),
             entry_id: None,
+            character_limit: None,
             search: None,
             search_id: None,
             search_locale: None,

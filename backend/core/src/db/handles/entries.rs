@@ -148,9 +148,17 @@ pub async fn select_content_entries(
             CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
             CF::Embeds => sep.push(format!("COALESCE(embed_data.media, '[]') AS {f}")),
             CF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
+            CF::Text => match query_obj.character_limit {
+                Some(limit) => sep.push(format!(
+                    r#"regexp_replace(left(ce.{f}, {limit}), '\s+\S*$', ' …') as {f}"#
+                )),
+                None => sep.push(format!("ce.{f}")),
+            },
             _ => sep.push(format!("ce.{f}")),
         };
     }
+
+    // r#"regexp_replace(ce.{f}, '^((\S+\s+){{{limit}}}\S+).*', '\1') as {f}"#
 
     sep.push("count(*) OVER() AS total_count");
     sep.push_unseparated(" ");

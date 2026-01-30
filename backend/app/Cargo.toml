@@ -12,7 +12,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-core = { path = "../core" }
+backend_core = { path = "../core" }
 axum = { version = "0.8", features = ["multipart"] }
 chrono = { version = "0.4", default-features = false, features = [
     "clock",

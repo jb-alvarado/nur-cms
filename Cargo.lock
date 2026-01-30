@@ -322,6 +322,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "backend_core"
+version = "0.4.2"
+dependencies = [
+ "argon2",
+ "async-stream",
+ "axum",
+ "chrono",
+ "clap",
+ "colored",
+ "derive_more",
+ "emval",
+ "html_parser",
+ "image",
+ "inquire",
+ "jsonwebtoken",
+ "lazy-limit",
+ "lettre",
+ "libwebp-sys",
+ "markdown",
+ "mime_guess",
+ "protect-axum",
+ "rand 0.9.2",
+ "real",
+ "regex",
+ "sanitize-filename",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlformat",
+ "sqlx",
+ "strum",
+ "strum_macros",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "ts-rs",
+ "uuid",
+ "voca_rs",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -548,47 +589,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
 dependencies = [
  "unicode-segmentation",
-]
-
-[[package]]
-name = "core"
-version = "0.4.2"
-dependencies = [
- "argon2",
- "async-stream",
- "axum",
- "chrono",
- "clap",
- "colored",
- "derive_more",
- "emval",
- "html_parser",
- "image",
- "inquire",
- "jsonwebtoken",
- "lazy-limit",
- "lettre",
- "libwebp-sys",
- "markdown",
- "mime_guess",
- "protect-axum",
- "rand 0.9.2",
- "real",
- "regex",
- "sanitize-filename",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlformat",
- "sqlx",
- "strum",
- "strum_macros",
- "tokio",
- "tokio-stream",
- "tracing",
- "ts-rs",
- "uuid",
- "voca_rs",
 ]
 
 [[package]]
@@ -2331,11 +2331,11 @@ name = "nur-cms"
 version = "0.4.2"
 dependencies = [
  "axum",
+ "backend_core",
  "build-print",
  "chrono",
  "clap",
  "colored",
- "core",
  "dotenvy",
  "include_dir",
  "lazy-limit",
