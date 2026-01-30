@@ -49,6 +49,7 @@ defineProps({
                         :src="`${child.path}/${child.filename}`"
                         :alt="String(child.alt || '')"
                     />
+                    <a v-else-if="child.url" :href="String(child.url)">{{ child.text }}</a>
                     <template v-else-if="child.type === 'text'">
                         {{ child.text }}
                     </template>
