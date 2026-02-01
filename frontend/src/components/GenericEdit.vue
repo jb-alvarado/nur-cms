@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, useTemplateRef, nextTick } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { useSortable } from '@vueuse/integrations/useSortable'
@@ -38,6 +39,7 @@ const deleteModal = ref()
 const mediaModal = ref()
 const blockModal = ref()
 const blockEL = useTemplateRef('blockEL')
+const dropField = useTemplateRef('dropField')
 const content = ref({
     id: 0,
     group_id: groupID,
@@ -68,6 +70,30 @@ useSortable(blockEL, content.value.blocks ?? [], {
             })
         })
     },
+})
+
+useEventListener(dropField, 'paste', (e) => {
+    const text = e.clipboardData?.getData('text')
+
+    if (text) {
+        try {
+            const json = JSON.parse(text)
+
+            if (Array.isArray(json)) {
+                for (const obj of json) {
+                    addBlock({ media: null, block: obj })
+                }
+            } else {
+                addBlock({ media: null, block: json })
+            }
+        } catch {
+            store.msgAlert('error', 'No valid json data!')
+        }
+    }
+
+    if (dropField.value) {
+        dropField.value.value = ''
+    }
 })
 
 contentOriginal.value.group_id = 0
@@ -386,6 +412,14 @@ async function save() {
             const date = new Date(payload.meta.end_time)
             payload.meta.end_time = date.toISOString()
         }
+    }
+
+    // Remove media from blocks
+    if (payload.blocks) {
+        payload.blocks = payload.blocks.map((item: any) => {
+            delete item.media
+            return item
+        })
     }
 
     try {
@@ -818,6 +852,9 @@ function deleteBlock(index: number) {
                 </div>
 
                 <div ref="blockEL">
+                    <div v-if="!content.blocks || content.blocks?.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
+                        <input ref="dropField" class="w-full h-full focus:outline-0 text-base-content/0" />
+                    </div>
                     <div
                         v-for="(block, i) in content.blocks"
                         :key="block.id ?? i"
@@ -830,7 +867,7 @@ function deleteBlock(index: number) {
                                 :atl="block.media?.alt"
                                 class="object-cover w-10 h-10"
                             />
-                            <div v-else class="bg-base-content/30 w-full h-full"></div>
+                            <div v-else class="bg-base-content/30 w-full h-10"></div>
                         </div>
                         <GenericBlock v-model:block="block.data" class="grow" />
                         <button class="btn leading-0 w-10" @click="deleteBlock(i)">

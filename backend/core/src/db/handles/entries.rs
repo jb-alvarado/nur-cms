@@ -158,8 +158,6 @@ pub async fn select_content_entries(
         };
     }
 
-    // r#"regexp_replace(ce.{f}, '^((\S+\s+){{{limit}}}\S+).*', '\1') as {f}"#
-
     sep.push("count(*) OVER() AS total_count");
     sep.push_unseparated(" ");
     query_builder.push("FROM content_entries ce ");
