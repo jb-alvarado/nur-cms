@@ -853,7 +853,7 @@ function deleteBlock(index: number) {
 
                 <div ref="blockEL">
                     <div v-if="!content.blocks || content.blocks?.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
-                        <input ref="dropField" class="w-full h-full focus:outline-0 text-base-content/0" />
+                        <input ref="dropField" class="w-full h-full focus:outline-0 text-base-content/0 cursor-default" />
                     </div>
                     <div
                         v-for="(block, i) in content.blocks"
