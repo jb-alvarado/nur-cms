@@ -101,6 +101,11 @@ pub struct QueryObj<T> {
         bound(deserialize = "T: FromStr + strum::IntoEnumIterator + StrCompare")
     )]
     pub fields: Vec<T>,
+
+    #[serde(default)]
+    pub blocks_limit: Option<i32>,
+    #[serde(default)]
+    pub blocks_random: bool,
 }
 
 impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> {
@@ -129,6 +134,8 @@ impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> 
             created_after: None,
             created_before: None,
             fields: default_fields(),
+            blocks_limit: None,
+            blocks_random: false,
         }
     }
 }

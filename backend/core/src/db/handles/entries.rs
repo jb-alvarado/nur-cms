@@ -259,46 +259,47 @@ pub async fn select_content_entries(
     }
 
     if query_obj.fields.contains(&CF::Blocks) {
-        query_builder.push(
+        let block_limit = match query_obj.blocks_limit {
+            Some(limit) => format!("LIMIT {limit}"),
+            None => String::new(),
+        };
+
+        let block_order = match query_obj.blocks_random {
+            true => "RANDOM()",
+            false => "bl.order_index",
+        };
+
+        query_builder.push(format!(
             r#"LEFT JOIN LATERAL (
-                SELECT jsonb_agg(
-                    jsonb_build_object(
-                        'id', bl.id,
-                        'media_id', bl.media_id,
-                        'order_index', bl.order_index,
-                        'data', bl.data,
-                        'media', CASE
+                SELECT jsonb_agg(bl_data) AS data
+                FROM (
+                    SELECT bl.id, bl.media_id, bl.order_index, bl.data,
+                        CASE
                             WHEN bl.media_id IS NOT NULL THEN json_build_object(
                                 'id', m.id,
                                 'alt', m.alt,
                                 'path', m.path,
                                 'filename', m.filename,
                                 'variants', COALESCE(
-                                    (
-                                        SELECT json_agg(
-                                            json_build_object(
-                                                'id', mv.id,
-                                                'width', mv.width,
-                                                'height', mv.height,
-                                                'filename', mv.filename
-                                            )
-                                        )
-                                        FROM media_variants mv
-                                        WHERE mv.media_id = m.id
-                                    ),
+                                    (SELECT json_agg(json_build_object(
+                                            'id', mv.id,
+                                            'width', mv.width,
+                                            'height', mv.height,
+                                            'filename', mv.filename
+                                    )) FROM media_variants mv WHERE mv.media_id = m.id),
                                     '[]'
                                 )
                             )
                             ELSE NULL
-                        END
-                    )
-                    ORDER BY bl.order_index
-                ) AS data
-                FROM content_blocks bl
-                LEFT JOIN media m ON m.id = bl.media_id
-                WHERE bl.entry_id = ce.id
+                        END AS media
+                    FROM content_blocks bl
+                    LEFT JOIN media m ON m.id = bl.media_id
+                    WHERE bl.entry_id = ce.id
+                    ORDER BY {block_order}
+                    {block_limit}
+                ) AS bl_data
             ) AS blocks ON TRUE "#,
-        );
+        ));
     }
 
     if query_obj.fields.contains(&CF::GroupMembers) {
