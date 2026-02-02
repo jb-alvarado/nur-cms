@@ -497,7 +497,7 @@ VALUES
         NULL,
         17
     ),
-    (16, 6, NULL, '{"text":"First list item"}', NULL, NULL);
+    (16, 6, NULL, '{"text":"Last item"}', NULL, NULL);
 
 INSERT INTO
     content_entry_tags (entry_id, tag_id)

@@ -123,8 +123,9 @@ impl ColumnCounter for AuthorSerializer {
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeSerializer {
-    Single(Box<ContentNodeSerializer>),
     Blocks(Vec<ContentNodeSerializer>),
+    #[serde(untagged)]
+    Single(Box<ContentNodeSerializer>),
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
