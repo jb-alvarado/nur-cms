@@ -354,7 +354,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
 
     // Build AST from body content and persist content_media links (with positions)
     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-    persist_content_media(pool, entry_id, &tree).await?;
+    persist_content_media(pool, entry_id.into(), &tree).await?;
 
     // Insert authors/meta/tags if present
     if let Some(ref fm) = frontmatter {

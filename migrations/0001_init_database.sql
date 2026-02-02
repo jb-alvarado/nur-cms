@@ -110,9 +110,6 @@ CREATE TABLE IF NOT EXISTS content_entries (
     media_id INT REFERENCES media (id) ON DELETE SET NULL,
     slug TEXT NOT NULL,
     title TEXT NOT NULL,
-    description TEXT,
-    text TEXT,
-    text_vector TSVECTOR, -- for full text search, fill on insert
     status VARCHAR(16) CHECK (status IN ('draft', 'published', 'archived')) DEFAULT 'draft',
     created_by INT REFERENCES auth_users (id),
     updated_by INT REFERENCES auth_users (id),
@@ -122,6 +119,17 @@ CREATE TABLE IF NOT EXISTS content_entries (
 );
 
 CREATE INDEX IF NOT EXISTS idx_entries_group_id ON content_entries (group_id);
+
+CREATE TABLE IF NOT EXISTS content_nodes (
+    id BIGSERIAL PRIMARY KEY,
+    entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+    order_index INT NOT NULL,
+    text TEXT,
+    text_vector TSVECTOR,
+    data JSONB,
+    media_id INT REFERENCES media (id) ON DELETE SET NULL,
+    parent_id INT REFERENCES content_nodes (id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS content_authors (
     id SERIAL PRIMARY KEY,
@@ -145,19 +153,14 @@ CREATE INDEX IF NOT EXISTS idx_entry_authors ON content_entry_authors (author_id
 CREATE TABLE IF NOT EXISTS content_meta (
     id SERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
-    data JSONB,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
     UNIQUE (entry_id)
 );
 
-CREATE TABLE IF NOT EXISTS content_blocks (
-    id SERIAL PRIMARY KEY,
-    entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
-    media_id INT REFERENCES media (id) ON DELETE SET NULL,
-    order_index INT NOT NULL DEFAULT 0,
-    data JSONB NOT NULL
-);
+CREATE INDEX idx_meta_start ON content_meta (start_time);
+
+CREATE INDEX idx_meta_end ON content_meta (end_time);
 
 CREATE TABLE IF NOT EXISTS content_entry_tags (
     entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
@@ -165,16 +168,16 @@ CREATE TABLE IF NOT EXISTS content_entry_tags (
     PRIMARY KEY (entry_id, tag_id)
 );
 
-CREATE TABLE IF NOT EXISTS content_media (
+CREATE TABLE IF NOT EXISTS content_node_media (
     id BIGSERIAL PRIMARY KEY,
-    entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
+    node_id BIGINT NOT NULL REFERENCES content_nodes (id) ON DELETE CASCADE,
     media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
     ast_line INT NOT NULL DEFAULT 0,
     start_offset INT,
     end_offset INT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (entry_id, media_id, ast_line)
+    UNIQUE (node_id, media_id, ast_line)
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -212,24 +215,27 @@ CREATE TABLE IF NOT EXISTS mail_targets (
     allow_html BOOLEAN NOT NULL DEFAULT false
 );
 
-CREATE OR REPLACE FUNCTION content_text_vector_update () RETURNS trigger AS $$
+CREATE FUNCTION content_node_tsv_update () RETURNS trigger AS $$
 DECLARE
     dict TEXT;
 BEGIN
-    SELECT l.tsv_dict INTO dict FROM locales l WHERE l.id = NEW.locale_id;
+    SELECT l.tsv_dict INTO dict
+    FROM locales l
+    JOIN content_entries e ON e.locale_id = l.id
+    WHERE e.id = NEW.entry_id;
+
     IF dict IS NULL THEN
         dict := 'simple';
     END IF;
 
-    NEW.text_vector := to_tsvector(dict::regconfig,
-        COALESCE(NEW.title, '') || ' ' || COALESCE(NEW.text, ''));
-
+    NEW.text_vector := to_tsvector(dict::regconfig, COALESCE(NEW.text, ''));
     RETURN NEW;
-END
+END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS content_text_vector_trigger ON content_entries;
-CREATE TRIGGER content_text_vector_trigger BEFORE INSERT
+DROP TRIGGER IF EXISTS content_text_vector_trigger ON content_nodes;
+
+CREATE TRIGGER trg_content_node_tsv BEFORE INSERT
 OR
-UPDATE ON content_entries FOR EACH ROW
-EXECUTE FUNCTION content_text_vector_update ();
+UPDATE ON content_nodes FOR EACH ROW WHEN (NEW.text IS NOT NULL)
+EXECUTE FUNCTION content_node_tsv_update ();

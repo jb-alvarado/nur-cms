@@ -564,8 +564,9 @@ impl ColumnCounter for MediaVariant {
 
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
-pub struct ContentMedia {
-    pub entry_id: i32,
+pub struct ContentNodeMedia {
+    #[ts(as = "i32")]
+    pub node_id: i64,
     pub media_id: i32,
     pub ast_line: i32,
     #[serde(skip_serializing_if = "Option::is_none")]

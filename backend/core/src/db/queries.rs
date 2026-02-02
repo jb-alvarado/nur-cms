@@ -4,9 +4,10 @@ use chrono::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, QueryBuilder};
+use strum::IntoEnumIterator;
 use ts_rs::TS;
 
-use crate::db::fields::{ColumnCounter, OutputType, StrCompare};
+use crate::db::fields::*;
 
 // Default response items limit
 const DEFAULT_LIMIT: i64 = 50;
@@ -98,7 +99,7 @@ pub struct QueryObj<T> {
     #[serde(
         default = "default_fields",
         deserialize_with = "split_string_to_fields",
-        bound(deserialize = "T: FromStr + strum::IntoEnumIterator + StrCompare")
+        bound(deserialize = "T: FromStr + DefaultFieldsProvider")
     )]
     pub fields: Vec<T>,
 
@@ -108,7 +109,7 @@ pub struct QueryObj<T> {
     pub blocks_random: bool,
 }
 
-impl<T: FromStr + strum::IntoEnumIterator + StrCompare> Default for QueryObj<T> {
+impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
     fn default() -> Self {
         Self {
             path: String::new(),
@@ -177,21 +178,71 @@ fn default_ordering() -> String {
     "created_at ASC".to_string()
 }
 
+/// Trait for providing default fields
+pub trait DefaultFieldsProvider: Sized + strum::IntoEnumIterator + StrCompare {
+    fn get_default_fields() -> Vec<Self>;
+}
+
+/// Specialized impl for ContentEntryFields to include nested Node fields
+impl DefaultFieldsProvider for ContentEntryFields {
+    fn get_default_fields() -> Vec<Self> {
+        let mut fields = Self::iter()
+            .filter(|f| !f.is_equal_to_str("count"))
+            .collect::<Vec<_>>();
+
+        // Add nested node fields
+        for node_field in ContentNodeFields::iter()
+            .filter(|f| !f.is_equal_to_str("count") && *f != ContentNodeFields::ID)
+        {
+            fields.push(ContentEntryFields::Node(node_field));
+        }
+
+        fields
+    }
+}
+
+/// Macro to implement DefaultFieldsProvider for types without nested fields
+macro_rules! impl_default_fields_provider {
+    ($($t:ty),*) => {
+        $(
+            impl DefaultFieldsProvider for $t {
+                fn get_default_fields() -> Vec<Self> {
+                    Self::iter()
+                        .filter(|f| !f.is_equal_to_str("count"))
+                        .collect::<Vec<_>>()
+                }
+            }
+        )*
+    };
+}
+
+// Apply the macro to all field types except ContentEntryFields (which has special handling)
+impl_default_fields_provider!(
+    AuthRoleFields,
+    AuthUserFields,
+    CommentFields,
+    ConfigurationFields,
+    ContentAuthorFields,
+    ContentCategoryFields,
+    ContentNodeFields,
+    ContentTagFields,
+    ContentTypeFields,
+    LocaleFields,
+    MailTargetFields,
+    MediaFields,
+    TSLanguage
+);
+
 /// When no fields are set, collect all fields from given object
-fn default_fields<T>() -> Vec<T>
-where
-    T: strum::IntoEnumIterator + StrCompare,
-{
-    T::iter()
-        .filter(|f| !f.is_equal_to_str("count"))
-        .collect::<Vec<_>>()
+fn default_fields<T: DefaultFieldsProvider>() -> Vec<T> {
+    T::get_default_fields()
 }
 
 /// Helper function, to transform string to array
 pub fn split_string_to_fields<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
-    T: FromStr + strum::IntoEnumIterator + StrCompare,
+    T: FromStr + DefaultFieldsProvider,
 {
     let s: String = Deserialize::deserialize(deserializer)?;
     let mut l = s
@@ -200,9 +251,7 @@ where
         .collect::<Vec<T>>();
 
     if l.is_empty() {
-        l = T::iter()
-            .filter(|f| !f.is_equal_to_str("count"))
-            .collect::<Vec<_>>();
+        l = T::get_default_fields();
     }
 
     Ok(l)
