@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -245,10 +247,8 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
                     serde_json::from_value::<Vec<ContentNodeSerializer>>(v).unwrap_or_default();
 
                 // Build a map of node_id -> children
-                let mut children_map: std::collections::HashMap<i64, Vec<ContentNodeSerializer>> =
-                    std::collections::HashMap::new();
-                let mut parent_nodes: std::collections::HashMap<i64, ContentNodeSerializer> =
-                    std::collections::HashMap::new();
+                let mut children_map: HashMap<i64, Vec<ContentNodeSerializer>> = HashMap::new();
+                let mut parent_nodes: HashMap<i64, ContentNodeSerializer> = HashMap::new();
                 let mut single_nodes: Vec<ContentNodeSerializer> = Vec::new();
 
                 for node in nodes_vec {
