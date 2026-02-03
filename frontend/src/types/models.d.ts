@@ -17,9 +17,9 @@ export type ContentCategory = { id?: number, group_id?: number, locale_id?: numb
 
 export type ContentEntry = { id?: number, group_id?: number | null, type_id?: number, category_id?: number | null, locale_id?: number, media_id?: number | null, slug?: string, title?: string, description?: string, text?: string, status?: string, created_by?: number, updated_by?: number, created_at?: string | null, updated_at?: string | null, };
 
-export type ContentMedia = { entry_id: number, media_id: number, ast_line: number, start_offset: number | null, end_offset: number | null, };
-
 export type ContentMeta = { id?: number, entry_id?: number, data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
+
+export type ContentNodeMedia = { node_id: number, media_id: number, ast_line: number, start_offset: number | null, end_offset: number | null, };
 
 export type ContentTag = { id?: number, name?: string, slug?: string, };
 

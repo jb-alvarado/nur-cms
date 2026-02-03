@@ -182,17 +182,13 @@ pub async fn entry_insert(
     content["created_by"] = user.id.into();
     content["updated_by"] = user.id.into();
 
-    if let Some(body) = content.get("body")
-        && content.get("text").is_none()
-    {
-        content["text"] = body.clone();
-    }
+    let nodes = content.get("nodes").cloned();
+    let meta = content.get("meta").cloned();
 
     if let Some(obj) = content.as_object_mut() {
-        obj.remove("body");
+        obj.remove("nodes");
     }
 
-    let meta = content.get("meta").cloned();
     if let Some(obj) = content.as_object_mut() {
         obj.remove("meta");
     }
@@ -205,23 +201,59 @@ pub async fn entry_insert(
         let _: i32 = handles::insert_record(&pool, &Table::ContentMeta, &m).await?;
     }
 
-    let ast = to_mdast(
-        content
-            .get("text")
-            .and_then(|t| t.as_str())
-            .unwrap_or_default(),
-        &ParseOptions::default(),
-    )?;
-    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+    let mut order_index = 1;
 
-    persist_content_media(&pool, id.into(), &tree).await?;
+    if let Some(nodes_arr) = nodes.as_ref().and_then(|b| b.as_array()) {
+        for node in nodes_arr {
+            if let Some(blocks) = node.get("blocks").and_then(|b| b.as_array()) {
+                let mut parent_id: Option<Value> = None;
 
-    // for block in blocks {
-    //     let mut block = block.clone();
-    //     block["entry_id"] = id.into();
+                for block in blocks {
+                    let mut block = block.clone();
+                    block["entry_id"] = id.into();
+                    block["order_index"] = order_index.into();
 
-    //     let _: i32 = handles::insert_record(&pool, &Table::ContentBlocks, &block).await?;
-    // }
+                    if let Some(obj) = block.as_object_mut() {
+                        obj.remove("media");
+                    }
+
+                    if let Some(ref p_id) = parent_id {
+                        block["parent_id"] = p_id.clone();
+                    }
+
+                    let block_id: i64 =
+                        handles::insert_record(&pool, &Table::ContentNodes, &block).await?;
+
+                    if parent_id.is_none() {
+                        parent_id = Some(block_id.into());
+                    }
+
+                    order_index += 1;
+                }
+            } else {
+                let mut node = node.clone();
+                node["entry_id"] = id.into();
+                node["order_index"] = order_index.into();
+
+                if let Some(obj) = node.as_object_mut() {
+                    obj.remove("media");
+                }
+
+                let node_id: i64 =
+                    handles::insert_record(&pool, &Table::ContentNodes, &node).await?;
+
+                if let Some(text) = node.get("text") {
+                    let ast =
+                        to_mdast(text.as_str().unwrap_or_default(), &ParseOptions::default())?;
+                    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+
+                    persist_content_media(&pool, node_id, &tree).await?;
+                }
+
+                order_index += 1;
+            }
+        }
+    }
 
     Ok(Json(id))
 }

@@ -12,6 +12,10 @@ const newBlock = ref<Record<string, any>>({})
 const mediaModal = ref()
 const media = ref<null | Media>(null)
 
+const emit = defineEmits<{
+    'add-block': [{ media: null | Media; data: Record<string, any> }]
+}>()
+
 const addKeyValue = () => {
     if (keyInput.value.trim() && valueInput.value.trim()) {
         newBlock.value[keyInput.value] = valueInput.value
@@ -25,7 +29,10 @@ const removeKeyValue = (key: string) => {
 }
 
 const saveBlock = () => {
-    emit('add-block', { media: cloneDeep(media.value) ?? null, block: { ...newBlock.value } })
+    if (keyInput.value && valueInput.value && !newBlock.value[keyInput.value]) {
+        addKeyValue()
+    }
+    emit('add-block', { media: cloneDeep(media.value) ?? null, data: { ...newBlock.value } })
     resetModal()
     modal.value?.close?.()
 }
@@ -43,9 +50,6 @@ const showModal = () => {
 }
 
 defineExpose({ showModal })
-const emit = defineEmits<{
-    'add-block': [{ media: null | Media; block: Record<string, any> }]
-}>()
 
 const openMediaBrowser = () => {
     mediaModal.value.showModal()

@@ -41,6 +41,10 @@ export default {
         value: 'Value',
         start: 'Start',
         end: 'End',
+        text: 'Text',
+        blocks: 'Blocks',
+        data: 'Data',
+        newBlock: 'New Block',
     },
     table: {
         id: 'ID',

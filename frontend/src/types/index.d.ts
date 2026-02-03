@@ -19,6 +19,8 @@ declare global {
     type Tag = import('./serialized.d').ContentTagSerializer
     type SSEMessage = import('./sse.d').SSEMessage
     type RespondObj = import('./query.d').RespondObj
+    type ContentNodeSerializer = import('./serialized.d').ContentNodeSerializer
+    type NodeSerializer = import('./serialized.d').NodeSerializer
 
     interface alertMessage {
         text: string
