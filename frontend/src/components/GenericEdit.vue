@@ -441,9 +441,6 @@ async function save() {
         })
     }
 
-    console.log(payload)
-    return
-
     try {
         // Handle tag and author changes for existing entries
         if (contentId > 0) {

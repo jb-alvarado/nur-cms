@@ -495,21 +495,18 @@ pub async fn select_media_id_by_path(
 
 pub async fn delete_content_media_for_entry(
     pool: &mut PgConnection,
-    entry_id: i32,
+    node_id: i32,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM content_media WHERE entry_id = $1")
-        .bind(entry_id)
+    sqlx::query("DELETE FROM content_node_media WHERE node_id = $1")
+        .bind(node_id)
         .execute(pool)
         .await
         .map(|_| ())
 }
 
-pub async fn select_entry_text(
-    pool: &PgPool,
-    entry_id: i32,
-) -> Result<Option<String>, sqlx::Error> {
+pub async fn select_entry_text(pool: &PgPool, node_id: i32) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar::<_, String>("SELECT text FROM content_entries WHERE id = $1")
-        .bind(entry_id)
+        .bind(node_id)
         .fetch_optional(pool)
         .await
 }
