@@ -1,6 +1,6 @@
-use serde::Serialize;
+use markdown::{ParseOptions, to_mdast};
 use serde_json::Value;
-use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
+use sqlx::{PgConnection, Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 use tracing::error;
 
@@ -15,7 +15,7 @@ use crate::db::{
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::ContentEntrySerializer,
 };
-use crate::utils::errors::NurError;
+use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -494,7 +494,7 @@ pub async fn select_media_id_by_path(
 }
 
 pub async fn delete_content_media_for_entry(
-    pool: &PgPool,
+    pool: &mut PgConnection,
     entry_id: i32,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM content_media WHERE entry_id = $1")
@@ -514,21 +514,24 @@ pub async fn select_entry_text(
         .await
 }
 
-/// Synchronizes blocks array with the content_blocks table.
+/// Synchronizes nodes array with the content_nodes table.
 ///
-/// This function reconciles the blocks array from the update request with the database.
+/// This function reconciles the nodes array from the update request with the database.
 /// It handles:
-/// - Inserting new blocks
-/// - Updating existing blocks
-/// - Deleting blocks that are no longer in the array
-pub async fn sync_entry_blocks(
+/// - Simple nodes (text or data)
+/// - Nodes with blocks (parent + children)
+/// - Inserting new nodes
+/// - Updating existing nodes
+/// - Deleting nodes that are no longer in the array
+pub async fn sync_entry_nodes(
     pool: &PgPool,
     entry_id: i32,
-    blocks: &[Value],
+    nodes: &[Value],
 ) -> Result<(), NurError> {
-    // Get existing blocks from database
-    let existing_blocks: Vec<(i32, i32, Value)> = sqlx::query_as(
-        "SELECT id, order_index, data FROM content_blocks WHERE entry_id = $1 ORDER BY order_index",
+    // Get existing nodes from database
+    // TODO: i32, Option<String>, Option<Value> are not needed
+    let existing_nodes: Vec<(i64, i32, Option<String>, Option<Value>)> = sqlx::query_as(
+        "SELECT id, order_index, text, data FROM content_nodes WHERE entry_id = $1 ORDER BY order_index",
     )
     .bind(entry_id)
     .fetch_all(pool)
@@ -536,66 +539,148 @@ pub async fn sync_entry_blocks(
 
     let mut existing_ids = Vec::new();
     let mut tx = pool.begin().await?;
+    let mut order_index = 1;
 
-    // Process each block in the incoming array
-    for (index, block_value) in blocks.iter().enumerate() {
-        let block_obj = match block_value.as_object() {
+    // Process each node in the incoming array
+    for node in nodes {
+        let node_obj = match node.as_object() {
             Some(obj) => obj,
             None => {
-                error!("Block at index {index} is not a valid object");
+                error!("Node is not a valid object");
                 continue;
             }
         };
 
-        let block_id = block_obj
-            .get("id")
-            .and_then(Value::as_i64)
-            .map(|v| v as i32);
-        let media_id = block_obj
-            .get("media_id")
-            .and_then(Value::as_i64)
-            .map(|v| v as i32);
-        let data = block_obj.get("data").cloned().unwrap_or(Value::Null);
-        let order_index = block_obj
-            .get("order_index")
-            .and_then(Value::as_i64)
-            .map(|v| v as i32)
-            .unwrap_or(index as i32);
+        // Check if this node has blocks (nested structure)
+        if let Some(blocks_arr) = node_obj.get("blocks").and_then(|b| b.as_array()) {
+            let mut parent_id: Option<i64> = None;
 
-        match block_id {
-            Some(id) => {
-                // Update existing block
-                existing_ids.push(id);
-                sqlx::query(
-                    "UPDATE content_blocks SET media_id = $1, order_index = $2, data = $3 WHERE id = $4 AND entry_id = $5"
-                )
-                .bind(media_id)
-                .bind(order_index)
-                .bind(&data)
-                .bind(id)
-                .bind(entry_id)
-                .execute(&mut *tx)
-                .await?;
+            // Process each block in the blocks array
+            for block_value in blocks_arr {
+                let block_obj = match block_value.as_object() {
+                    Some(obj) => obj,
+                    None => {
+                        error!("Block in node is not a valid object");
+                        continue;
+                    }
+                };
+
+                let node_id = block_obj.get("id").and_then(Value::as_i64);
+                let media_id = block_obj
+                    .get("media_id")
+                    .and_then(Value::as_i64)
+                    .map(|v| v as i32);
+                let data = block_obj.get("data").cloned().unwrap_or(Value::Null);
+
+                match node_id {
+                    Some(id) => {
+                        // Update existing node
+                        existing_ids.push(id);
+                        sqlx::query(
+                            "UPDATE content_nodes SET media_id = $1, order_index = $2, data = $3, parent_id = $4 WHERE id = $5 AND entry_id = $6"
+                        )
+                        .bind(media_id)
+                        .bind(order_index)
+                        .bind(&data)
+                        .bind(parent_id)
+                        .bind(id)
+                        .bind(entry_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                    None => {
+                        // Insert new node
+                        let new_node_id: i64 = sqlx::query_scalar(
+                            "INSERT INTO content_nodes (entry_id, media_id, order_index, data, parent_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                        )
+                        .bind(entry_id)
+                        .bind(media_id)
+                        .bind(order_index)
+                        .bind(&data)
+                        .bind(parent_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+
+                        if parent_id.is_none() {
+                            parent_id = Some(new_node_id);
+                        }
+
+                        existing_ids.push(new_node_id);
+                    }
+                }
+
+                order_index += 1;
             }
-            None => {
-                // Insert new block
-                sqlx::query(
-                    "INSERT INTO content_blocks (entry_id, media_id, order_index, data) VALUES ($1, $2, $3, $4)",
-                )
-                .bind(entry_id)
-                .bind(media_id)
-                .bind(order_index)
-                .bind(&data)
-                .execute(&mut *tx)
-                .await?;
+        } else {
+            // Simple node (not a block container)
+            let node_id = node_obj.get("id").and_then(Value::as_i64);
+            let media_id = node_obj
+                .get("media_id")
+                .and_then(Value::as_i64)
+                .map(|v| v as i32);
+            let text = node_obj.get("text").and_then(|t| t.as_str());
+            let data = node_obj.get("data").cloned().unwrap_or(Value::Null);
+
+            match node_id {
+                Some(id) => {
+                    // Update existing node
+                    existing_ids.push(id);
+                    sqlx::query(
+                        "UPDATE content_nodes SET media_id = $1, order_index = $2, text = $3, data = $4 WHERE id = $5 AND entry_id = $6"
+                    )
+                    .bind(media_id)
+                    .bind(order_index)
+                    .bind(text)
+                    .bind(&data)
+                    .bind(id)
+                    .bind(entry_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    // Process text and media
+                    if let Some(text_str) = text
+                        && !text_str.is_empty()
+                    {
+                        let ast = to_mdast(text_str, &ParseOptions::default())?;
+                        let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+                        delete_content_media_for_entry(&mut tx, entry_id).await?;
+                        persist_content_media(pool, id, &tree).await?;
+                    }
+                }
+                None => {
+                    // Insert new node
+                    let new_node_id: i64 = sqlx::query_scalar(
+                        "INSERT INTO content_nodes (entry_id, media_id, order_index, text, data) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                    )
+                    .bind(entry_id)
+                    .bind(media_id)
+                    .bind(order_index)
+                    .bind(text)
+                    .bind(&data)
+                    .fetch_one(&mut *tx)
+                    .await?;
+
+                    // Process text and media
+                    if let Some(text_str) = text
+                        && !text_str.is_empty()
+                    {
+                        let ast = to_mdast(text_str, &ParseOptions::default())?;
+                        let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+                        persist_content_media(pool, new_node_id, &tree).await?;
+                    }
+
+                    existing_ids.push(new_node_id);
+                }
             }
+
+            order_index += 1;
         }
     }
 
-    // Delete blocks that are no longer in the array
-    for (db_id, _, _) in &existing_blocks {
+    // Delete nodes that are no longer in the array
+    for (db_id, _, _, _) in &existing_nodes {
         if !existing_ids.contains(db_id) {
-            sqlx::query("DELETE FROM content_blocks WHERE id = $1")
+            sqlx::query("DELETE FROM content_nodes WHERE id = $1")
                 .bind(db_id)
                 .execute(&mut *tx)
                 .await?;
@@ -606,45 +691,23 @@ pub async fn sync_entry_blocks(
     Ok(())
 }
 
-/// Updates a content entry and synchronizes its blocks.
+/// Updates a content entry and synchronizes its nodes.
 ///
-/// This function combines the standard update_record logic with special handling for blocks.
-pub async fn update_entry_with_blocks<T>(
+/// This function combines the standard update_record logic with special handling for nodes.
+pub async fn update_entry_with_nodes(
     pool: &PgPool,
     entry_id: i32,
-    data: &T,
-) -> Result<(), NurError>
-where
-    T: Serialize,
-{
-    let mut value = serde_json::to_value(data)?;
-
-    let obj = match value.as_object() {
-        Some(map) => map.clone(),
-        None => return Ok(()),
-    };
-
-    // Extract blocks if present
-    let blocks = if let Some(Value::Array(arr)) = obj.get("blocks") {
-        Some(arr.clone())
-    } else {
-        None
-    };
-
-    if let Some(meta) = value.get("meta") {
+    content: &Value,
+) -> Result<(), NurError> {
+    if let Some(meta) = content.get("meta") {
         upsert_entry_meta(pool, entry_id, meta).await?;
-
-        if let Some(obj) = value.as_object_mut() {
-            obj.remove("meta");
-        }
     }
 
-    // Update the entry record (blocks will be ignored by update_record)
-    update_record(pool, &Table::ContentEntries, entry_id, &value).await?;
+    // Update the entry record (nodes will be ignored by update_record)
+    update_record(pool, &Table::ContentEntries, entry_id, &content).await?;
 
-    // Sync blocks if they were provided
-    if let Some(blocks_data) = blocks {
-        sync_entry_blocks(pool, entry_id, &blocks_data).await?;
+    if let Some(nodes) = content.get("nodes").as_ref().and_then(|b| b.as_array()) {
+        sync_entry_nodes(pool, entry_id, nodes).await?;
     }
 
     Ok(())

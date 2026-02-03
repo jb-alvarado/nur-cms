@@ -242,9 +242,8 @@ pub async fn entry_insert(
                 let node_id: i64 =
                     handles::insert_record(&pool, &Table::ContentNodes, &node).await?;
 
-                if let Some(text) = node.get("text") {
-                    let ast =
-                        to_mdast(text.as_str().unwrap_or_default(), &ParseOptions::default())?;
+                if let Some(text) = node.get("text").and_then(|t| t.as_str()) {
+                    let ast = to_mdast(text, &ParseOptions::default())?;
                     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
 
                     persist_content_media(&pool, node_id, &tree).await?;
@@ -274,33 +273,7 @@ pub async fn entry_update(
     content["updated_at"] = Value::String(Utc::now().to_rfc3339());
     content["updated_by"] = user.id.into();
 
-    if let Some(body) = content.get("body")
-        && content.get("text").is_none()
-    {
-        content["text"] = body.clone();
-    }
-
-    if let Some(obj) = content.as_object_mut() {
-        obj.remove("body");
-    }
-
-    handles::update_entry_with_blocks(&pool, id, &content).await?;
-
-    let text = if let Some(t) = content.get("text").and_then(|t| t.as_str()) {
-        t.to_owned()
-    } else {
-        handles::select_entry_text(&pool, id)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    };
-
-    let ast = to_mdast(&text, &ParseOptions::default())?;
-    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-
-    handles::delete_content_media_for_entry(&pool, id).await?;
-    persist_content_media(&pool, id.into(), &tree).await?;
+    handles::update_entry_with_nodes(&pool, id, &content).await?;
 
     Ok(())
 }
