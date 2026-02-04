@@ -45,6 +45,7 @@ export default {
         blocks: 'Blocks',
         data: 'Data',
         newBlock: 'New Block',
+        removeBlock: 'Remove Block',
     },
     table: {
         id: 'ID',

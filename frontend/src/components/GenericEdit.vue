@@ -93,7 +93,7 @@ const authorsFormatted = computed(() =>
     store.authors.map((a) => ({
         ...a,
         displayName: `${a.first_name} ${a.last_name}`.trim(),
-    })),
+    }))
 )
 
 const selectedAuthorsFormatted = computed({
@@ -128,7 +128,7 @@ if (contentId > 0) {
         `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
         {
             headers: auth.authHeader,
-        },
+        }
     )
         .then(async (resp) => {
             if (resp.status >= 400) {
@@ -142,8 +142,8 @@ if (contentId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
-                ),
+                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
+                )
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
@@ -382,7 +382,7 @@ async function save() {
     const payload: Record<string, any> = Object.fromEntries(
         Object.entries(content.value as Record<string, any>).filter(([key, value]) => {
             return !isEqual(value, (contentOriginal.value as Record<string, any>)[key])
-        }),
+        })
     )
 
     // Calculate tag changes
@@ -505,7 +505,7 @@ function deleteContent() {
                 } else {
                     store.msgAlert(
                         'success',
-                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id }),
+                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id })
                     )
 
                     router.push(rootPath)
@@ -839,7 +839,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                     </div>
                 </div>
 
-                <!-- Toolbar -->
+                <!-- Nodes -->
 
                 <template v-for="(node, i) in content.nodes" :key="i">
                     <TextEditor
@@ -866,9 +866,22 @@ async function insertEntryAuthor(entry: number, author: number) {
                         <div class="flex mt-4 items-center">
                             <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
                             <div class="grow flex justify-end">
-                                <button class="btn btn-sm" :title="$t('common.newBlock')" @click="openBlockModal(i)">
-                                    <i class="bi bi-plus-lg text-xl"></i>
-                                </button>
+                                <div class="join">
+                                    <button
+                                        class="btn btn-sm"
+                                        :title="$t('common.newBlock')"
+                                        @click="openBlockModal(i)"
+                                    >
+                                        <i class="bi bi-plus-lg text-xl"></i>
+                                    </button>
+                                    <button
+                                        class="btn btn-sm"
+                                        :title="$t('common.removeBlock')"
+                                        @click="deleteNode(i)"
+                                    >
+                                        <i class="bi bi-x text-xl"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div v-if="node.blocks.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
@@ -878,10 +891,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 @focus="currentNodeIndex = i"
                             />
                         </div>
-                        <div
-                            v-else
-                            class="rounded flex flex-col gap-2 mt-2 border border-base-content/30"
-                        >
+                        <div v-else class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
                             <div
                                 v-for="(block, bi) in node.blocks"
                                 :key="block.id ?? bi"
@@ -889,7 +899,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             >
                                 <div class="w-10">
                                     <img
-                                        v-if="block.media_id"
+                                        v-if="block.media"
                                         :src="mediaPath(block.media!)"
                                         :atl="block.media?.alt"
                                         class="object-cover w-10 h-10"
@@ -918,7 +928,10 @@ async function insertEntryAuthor(entry: number, author: number) {
                         >
                             {{ $t('common.text') }}
                         </button>
-                        <button class="btn btn-sm btn-outline border-base-content/30 join-item" @click="addBlocksNode()">
+                        <button
+                            class="btn btn-sm btn-outline border-base-content/30 join-item"
+                            @click="addBlocksNode()"
+                        >
                             {{ $t('common.blocks') }}
                         </button>
                         <button

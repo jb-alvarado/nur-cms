@@ -58,7 +58,7 @@ sqlx = { version = "0.8", features = [
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
-ts-rs = { version = "11", features = [
+ts-rs = { version = "12", features = [
     "chrono-impl",
     "no-serde-warnings",
     "serde-json-impl",
