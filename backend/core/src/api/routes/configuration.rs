@@ -22,8 +22,15 @@ use crate::{
 pub async fn config_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ConfigurationFields>>,
+    details: AuthDetails<Role>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<Configuration>, NurError> {
+    if !details.has_any_authority(&[&Role::Admin]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
