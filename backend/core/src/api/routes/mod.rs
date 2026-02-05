@@ -9,6 +9,7 @@ pub mod entries;
 pub mod locales;
 pub mod media;
 pub mod misc;
+pub mod node_templates;
 pub mod tags;
 
 pub use auth_user::*;
@@ -22,4 +23,5 @@ pub use entries::*;
 pub use locales::*;
 pub use media::*;
 pub use misc::*;
+pub use node_templates::*;
 pub use tags::*;

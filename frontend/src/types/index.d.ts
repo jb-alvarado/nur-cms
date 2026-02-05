@@ -1,5 +1,5 @@
 import type { JwtPayload } from 'jwt-decode'
-import type { ContentType, MailTarget } from './models.d'
+import type { ContentType, MailTarget, ContentNodeTemplate } from './models.d'
 import type { ContentEntrySerializer, MediaSerializer } from './serialized.d'
 
 export {}
@@ -40,6 +40,10 @@ declare global {
     }
 
     interface MailTargetExt extends MailTarget {
+        check?: boolean
+    }
+
+    interface NodeTemplateExt extends ContentNodeTemplate {
         check?: boolean
     }
 

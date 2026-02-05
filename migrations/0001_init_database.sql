@@ -207,6 +207,12 @@ CREATE TABLE IF NOT EXISTS configuration (
     image_resolutions INT[]
 );
 
+CREATE TABLE IF NOT EXISTS content_node_templates (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    data JSONB
+);
+
 CREATE TABLE IF NOT EXISTS mail_targets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(160) NOT NULL UNIQUE,

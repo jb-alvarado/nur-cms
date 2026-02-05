@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 argon2 = { version = "0.5", features = ["std"] }
-axum = { version = "0.8", features = ["multipart"] }
+axum = { version = "0.8", features = ["multipart", "macros"] }
 async-stream = "0.3"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",

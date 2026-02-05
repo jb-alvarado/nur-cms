@@ -22,4 +22,4 @@ export type MediaSerializer = { id?: number | null, alt?: string | null, filenam
 
 export type MediaVariantSerializer = { id: number, width: number, height: number, filename: string, };
 
-export type NodeSerializer = { blocks: Array<ContentNodeSerializer> } | ContentNodeSerializer;
+export type NodeSerializer = { "blocks": Array<ContentNodeSerializer> } | ContentNodeSerializer;

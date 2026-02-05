@@ -2,6 +2,7 @@ use std::{fmt, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use ts_rs::TS;
 
@@ -61,6 +62,7 @@ pub struct Configuration {
     pub mail_smtp: Option<String>,
     pub mail_port: Option<i32>,
     pub mail_user: Option<String>,
+    #[serde(default, skip_serializing)]
     pub mail_password: Option<String>,
     pub mail_starttls: bool,
     pub notification_emails: Option<Vec<String>>,
@@ -573,6 +575,24 @@ pub struct ContentNodeMedia {
     pub start_offset: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_offset: Option<i32>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]
+#[ts(export, export_to = "models.d.ts")]
+#[serde(rename_all = "snake_case")]
+pub struct ContentNodeTemplate {
+    pub id: i32,
+    pub name: String,
+    pub data: Value,
+    #[ts(skip)]
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl ColumnCounter for ContentNodeTemplate {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]

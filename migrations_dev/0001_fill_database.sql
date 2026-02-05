@@ -342,14 +342,7 @@ VALUES
     (14, '2026-02-10T10:15:00Z', '2026-02-12T12:15:00Z');
 
 INSERT INTO
-    content_nodes (
-        entry_id,
-        order_index,
-        text,
-        data,
-        media_id,
-        parent_id
-    )
+    content_nodes (entry_id, order_index, text, data, media_id, parent_id)
 VALUES
     (
         1,
@@ -464,14 +457,7 @@ VALUES
         NULL,
         NULL
     ),
-    (
-        16,
-        1,
-        'Just a random text',
-        NULL,
-        NULL,
-        NULL
-    ),
+    (16, 1, 'Just a random text', NULL, NULL, NULL),
     (
         16,
         2,
@@ -488,7 +474,14 @@ VALUES
         NULL,
         17
     ),
-    (16, 4, NULL, '{"author":"The Cat"}', 3, 17),
+    (
+        16,
+        4,
+        NULL,
+        '{"author":"The Cat", "url": "https://example.org"}',
+        3,
+        17
+    ),
     (
         16,
         5,
@@ -498,6 +491,16 @@ VALUES
         17
     ),
     (16, 6, NULL, '{"text":"Last item"}', NULL, NULL);
+
+INSERT INTO
+    content_node_templates (name, data)
+VALUES
+    (
+        'employee',
+        '{"first_name": "", "last_name": "", "position": ""}'
+    ),
+    ('text', '{"text": ""}'),
+    ('author', '{"author": "", "url": ""}');
 
 INSERT INTO
     content_entry_tags (entry_id, tag_id)

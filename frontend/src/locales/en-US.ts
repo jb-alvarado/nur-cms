@@ -46,6 +46,8 @@ export default {
         data: 'Data',
         newBlock: 'New Block',
         removeBlock: 'Remove Block',
+        name: 'Name',
+        fields: 'Fields',
     },
     table: {
         id: 'ID',
@@ -95,6 +97,8 @@ export default {
         editTypeTitle: 'Edit Content Type',
         createMailTargetTitle: 'Create Mail Target',
         editMailTargetTitle: 'Edit Mail Target',
+        createTemplate: 'Create Template',
+        editTemplate: 'Edit Template',
         linkTitle: 'Create Link',
         linkName: 'Link Name',
         linkURL: 'URL',

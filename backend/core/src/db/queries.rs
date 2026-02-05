@@ -225,6 +225,7 @@ impl_default_fields_provider!(
     ContentAuthorFields,
     ContentCategoryFields,
     ContentNodeFields,
+    ContentNodeTemplateFields,
     ContentTagFields,
     ContentTypeFields,
     LocaleFields,

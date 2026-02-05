@@ -21,6 +21,8 @@ export type ContentMeta = { id?: number, entry_id?: number, data?: JsonValue | n
 
 export type ContentNodeMedia = { node_id: number, media_id: number, ast_line: number, start_offset: number | null, end_offset: number | null, };
 
+export type ContentNodeTemplate = { id: number, name: string, data: JsonValue, };
+
 export type ContentTag = { id?: number, name?: string, slug?: string, };
 
 export type ContentType = { id?: number, name?: string, slug?: string, };
