@@ -290,10 +290,10 @@ function quote() {
             <div class="grow flex justify-end">
                 <div class="join">
                     <button class="join-item btn rounded p-3 hidden 2xl:flex" @click="store.preview = !store.preview">
-                        <i class="bi bi-markdown text-xl"></i>
+                        <i class="bi bi-markdown scale-130"></i>
                     </button>
                     <button v-if="removeNode" class="join-item btn rounded p-3" @click="removeNode()">
-                        <i class="bi bi-x text-xl"></i>
+                        <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
             </div>

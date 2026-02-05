@@ -859,7 +859,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </div>
                         <GenericBlock v-model:block="node.data" class="grow" />
                         <button class="btn leading-0 w-10" @click="deleteNode(i)">
-                            <i class="bi bi-x"></i>
+                            <i class="bi bi-x-lg"></i>
                         </button>
                     </div>
                     <div v-else-if="'blocks' in node">
@@ -872,14 +872,14 @@ async function insertEntryAuthor(entry: number, author: number) {
                                         :title="$t('common.newBlock')"
                                         @click="openBlockModal(i)"
                                     >
-                                        <i class="bi bi-plus-lg text-xl"></i>
+                                        <i class="bi bi-plus-lg scale-130"></i>
                                     </button>
                                     <button
                                         class="btn btn-sm"
                                         :title="$t('common.removeBlock')"
                                         @click="deleteNode(i)"
                                     >
-                                        <i class="bi bi-x text-xl"></i>
+                                        <i class="bi bi-x-lg"></i>
                                     </button>
                                 </div>
                             </div>

@@ -21,6 +21,8 @@ pub fn evaluate_text(text: &str, valid_score: Option<i32>) -> TextScore {
     let mut score = 0;
 
     score += score_length_and_words(text);
+    score += score_single_word_penalty(text);
+    score += score_sentence_structure(text);
     score += score_letter_ratio(text);
     score += score_vowel_ratio(text);
     score += score_repetition(text);
@@ -51,6 +53,30 @@ fn score_length_and_words(text: &str) -> i32 {
         (c, w) if c >= 20 && w >= 4 => 1,
         (c, _) if c >= 15 => 0,
         _ => -5,
+    }
+}
+
+fn score_single_word_penalty(text: &str) -> i32 {
+    let char_count = text.chars().count();
+    let word_count = text.split_whitespace().count();
+
+    if word_count == 1 && char_count >= 20 {
+        -5
+    } else {
+        0
+    }
+}
+
+fn score_sentence_structure(text: &str) -> i32 {
+    let word_count = text.split_whitespace().count();
+    let has_sentence_end = text.chars().any(|c| matches!(c, '.' | '!' | '?'));
+
+    if word_count < 4 {
+        -3
+    } else if has_sentence_end {
+        2
+    } else {
+        -2
     }
 }
 
@@ -293,5 +319,46 @@ mod tests {
         let result = evaluate_text(text, None);
 
         assert!(!result.passed, "Whitespace-only input should fail");
+    }
+
+    #[test]
+    fn real_example_1() {
+        let text = "STpDyaaSIBaCidiNQAloEljb";
+        let result = evaluate_text(text, None);
+
+        assert!(!result.passed, "Single word input should fail");
+    }
+
+    /* ------------------------------------------------------------ */
+    /* validate_email_address                                       */
+    /* ------------------------------------------------------------ */
+
+    #[tokio::test]
+    async fn validate_email_address_accepts_valid_email() {
+        let email = "user@google.com".to_string();
+        let normalized = validate_email_address(email)
+            .await
+            .expect("valid email should pass");
+
+        assert_eq!(normalized, "user@google.com");
+    }
+
+    #[tokio::test]
+    async fn domain_does_not_accept_email() {
+        let email = "user@example.org".to_string();
+        let result = validate_email_address(email).await;
+
+        assert!(
+            result.is_err(),
+            "The domain does not accept email due to a null MX record"
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_email_address_rejects_invalid_email() {
+        let email = "not-an-email".to_string();
+        let result = validate_email_address(email).await;
+
+        assert!(result.is_err(), "invalid email should be rejected");
     }
 }
