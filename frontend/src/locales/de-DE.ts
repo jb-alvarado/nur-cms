@@ -42,6 +42,13 @@ export default {
         value: 'Wert',
         start: 'Start',
         end: 'Ende',
+        text: 'Text',
+        blocks: 'Blocksammlung',
+        data: 'Block',
+        newBlock: 'Neuer Block',
+        removeBlock: 'Block entfernen',
+        name: 'Name',
+        fields: 'Felder',
     },
     table: {
         id: 'ID',
@@ -91,6 +98,8 @@ export default {
         editTypeTitle: 'Inhaltstyp bearbeiten',
         createMailTargetTitle: 'Mail Ziel erstellen',
         editMailTargetTitle: 'Mail Ziel bearbeiten',
+        createTemplate: 'Vorlage erstellen',
+        editTemplate: 'Vorlage bearbeiten',
         linkTitle: 'Link erstellen',
         linkName: 'Link Name',
         linkURL: 'URL',
@@ -196,6 +205,9 @@ export default {
         recipients: 'Empfänger',
         recipientPlaceholder: 'E-Mail-Adresse eingeben',
         allowHtml: 'HTML erlauben',
+    },
+    nodeTemplates: {
+        title: 'Node-Vorlagen',
     },
     block: {
         create: 'Block erstellen',

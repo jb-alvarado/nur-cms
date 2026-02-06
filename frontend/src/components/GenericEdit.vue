@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, useTemplateRef, nextTick } from 'vue'
-import { useEventListener } from '@vueuse/core'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
-import { useSortable } from '@vueuse/integrations/useSortable'
 
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { cloneDeep, isEqual } from 'lodash-es'
@@ -38,16 +36,42 @@ store.typeID = matchedType ?? 1
 const deleteModal = ref()
 const mediaModal = ref()
 const blockModal = ref()
-const blockEL = useTemplateRef('blockEL')
-const dropField = useTemplateRef('dropField')
+const dropValueRaw = ref('')
+const dropValue = computed({
+    get: () => dropValueRaw.value,
+    set: (value: string) => {
+        dropValueRaw.value = value
+
+        if (!value) return
+
+        try {
+            const json = JSON.parse(value)
+
+            if (Array.isArray(json)) {
+                const nIndex = currentNodeIndex.value
+                for (const obj of json) {
+                    addDataNode({ media: null, data: obj })
+                    currentNodeIndex.value = nIndex
+                }
+
+                currentNodeIndex.value = -1
+            } else {
+                addDataNode({ media: null, data: json })
+            }
+
+            dropValueRaw.value = ''
+        } catch {
+            store.msgAlert('error', 'No valid json data!')
+        }
+    },
+})
 const content = ref({
     id: 0,
     group_id: groupID,
     type: '',
     title: '',
     slug: '',
-    description: '',
-    text: '',
+    nodes: [],
     status: 'draft',
     locale_id: 0,
     group_members: [],
@@ -56,46 +80,6 @@ const content = ref({
 } as Content)
 const contentOriginal = ref(cloneDeep(content))
 
-useSortable(blockEL, content.value.blocks ?? [], {
-    onUpdate: (e: any) => {
-        const blocks = content.value.blocks ?? []
-        const [movedBlock] = blocks.splice(e.oldIndex, 1)
-        if (movedBlock) {
-            blocks.splice(e.newIndex, 0, movedBlock)
-        }
-
-        nextTick(() => {
-            content.value.blocks?.forEach((block, index) => {
-                block.order_index = index + 1
-            })
-        })
-    },
-})
-
-useEventListener(dropField, 'paste', (e) => {
-    const text = e.clipboardData?.getData('text')
-
-    if (text) {
-        try {
-            const json = JSON.parse(text)
-
-            if (Array.isArray(json)) {
-                for (const obj of json) {
-                    addBlock({ media: null, block: obj })
-                }
-            } else {
-                addBlock({ media: null, block: json })
-            }
-        } catch {
-            store.msgAlert('error', 'No valid json data!')
-        }
-    }
-
-    if (dropField.value) {
-        dropField.value.value = ''
-    }
-})
-
 contentOriginal.value.group_id = 0
 const media = ref<Media | null>(null)
 const categories = ref<Category[]>([])
@@ -103,12 +87,13 @@ const tags = ref<Tag[]>([])
 const locales = ref<Locale[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status = ['draft', 'published', 'archived']
+const currentNodeIndex = ref(-1)
 
 const authorsFormatted = computed(() =>
     store.authors.map((a) => ({
         ...a,
         displayName: `${a.first_name} ${a.last_name}`.trim(),
-    })),
+    }))
 )
 
 const selectedAuthorsFormatted = computed({
@@ -143,7 +128,7 @@ if (contentId > 0) {
         `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
         {
             headers: auth.authHeader,
-        },
+        }
     )
         .then(async (resp) => {
             if (resp.status >= 400) {
@@ -157,8 +142,8 @@ if (contentId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
-                ),
+                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
+                )
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
@@ -166,6 +151,8 @@ if (contentId > 0) {
             store.msgAlert('error', e)
         })
 } else {
+    addTextNode()
+
     setTimeout(() => {
         locales.value = store.locales
     }, 1000)
@@ -199,6 +186,10 @@ function selectContent() {
                     }
                 } else {
                     content.value.meta = {}
+                }
+
+                if (!content.value.nodes) {
+                    content.value.nodes = []
                 }
 
                 contentOriginal.value = cloneDeep(content.value)
@@ -307,48 +298,76 @@ const openMediaBrowser = () => {
     mediaModal.value.showModal()
 }
 
-const openBlockModal = () => {
+const openBlockModal = (index: number) => {
+    currentNodeIndex.value = index
     blockModal.value.showModal()
 }
 
-function addBlock(item: { media: null | Media; block: Record<string, any> }) {
-    if (!content.value.blocks) {
-        content.value.blocks = []
-    }
-
-    content.value.blocks.push({
-        media_id: item.media?.id ?? null,
-        data: item.block,
-        media: item.media,
-    } as any)
-
-    content.value.blocks?.forEach((block, index) => {
-        block.order_index = index + 1
+function addTextNode() {
+    content.value.nodes?.push({
+        order_index: (content.value.nodes?.length ?? 0) + 1,
+        text: '',
     })
 }
 
-function updateDescription() {
-    if (!content.value.text) return
+function addBlocksNode() {
+    content.value.nodes?.push({
+        blocks: [],
+    })
+}
 
-    const textWithoutFrontmatter = content.value.text
-        .split('\n')
-        .filter((line: string) => {
-            const trimmed = line.trim()
-            return (
-                !trimmed.startsWith('#') &&
-                !trimmed.startsWith('![') &&
-                !trimmed.startsWith('[') &&
-                !trimmed.startsWith('<') &&
-                !trimmed.startsWith('>')
-            )
-        })
-        .join('\n')
-        .trim()
+function sortBlocks(index: number) {
+    const node = content.value.nodes?.[index] as { blocks: Array<ContentNodeSerializer> }
+    if (node?.blocks) {
+        const prevOrder = node.blocks.slice()
+        node.blocks.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
 
-    const excerpt = textWithoutFrontmatter.slice(0, 255)
+        const orderChanged = node.blocks.some((block, i) => block !== prevOrder[i])
+        if (orderChanged) {
+            node.blocks.forEach((block, index) => {
+                block.order_index = index + 1
+            })
+        }
+    }
+}
 
-    if (!content.value.description && excerpt.length > 160) {
-        content.value.description = excerpt
+function addDataNode(item: { media: null | Media; data: Record<string, any> }) {
+    if (!content.value.nodes) {
+        content.value.nodes = []
+    }
+
+    if (currentNodeIndex.value > -1 && content.value.nodes && content.value.nodes[currentNodeIndex.value]) {
+        const node = content.value.nodes[currentNodeIndex.value] as { blocks: Array<ContentNodeSerializer> }
+        if (!node.blocks) {
+            node.blocks = []
+        }
+
+        node.blocks.push({
+            media_id: item.media?.id ?? null,
+            data: item.data,
+            media: item.media,
+            order_index: (node.blocks?.length ?? 0) + 1,
+        } as any)
+    } else {
+        content.value.nodes.push({
+            media_id: item.media?.id ?? null,
+            data: item.data,
+            media: item.media,
+            order_index: (content.value.nodes?.length ?? 0) + 1,
+        } as any)
+    }
+
+    currentNodeIndex.value = -1
+}
+
+function deleteNode(index: number, blockIndex: number | null = null) {
+    if (content.value.nodes) {
+        if (blockIndex) {
+            const node = content.value.nodes[index] as { blocks: Array<ContentNodeSerializer> }
+            node.blocks.splice(blockIndex, 1)
+        } else {
+            content.value.nodes.splice(index, 1)
+        }
     }
 }
 
@@ -360,10 +379,10 @@ function memberLink(id: number): string {
 
 async function save() {
     // Build payload with only changed fields
-    const payload = Object.fromEntries(
-        Object.entries(content.value).filter(([key, value]) => {
-            return !isEqual(value, contentOriginal.value[key as keyof Content])
-        }),
+    const payload: Record<string, any> = Object.fromEntries(
+        Object.entries(content.value as Record<string, any>).filter(([key, value]) => {
+            return !isEqual(value, (contentOriginal.value as Record<string, any>)[key])
+        })
     )
 
     // Calculate tag changes
@@ -486,7 +505,7 @@ function deleteContent() {
                 } else {
                     store.msgAlert(
                         'success',
-                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id }),
+                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id })
                     )
 
                     router.push(rootPath)
@@ -633,12 +652,6 @@ async function insertEntryAuthor(entry: number, author: number) {
             store.msgAlert('error', e)
         })
 }
-
-function deleteBlock(index: number) {
-    if (content.value.blocks) {
-        content.value.blocks.splice(index, 1)
-    }
-}
 </script>
 
 <template>
@@ -649,7 +662,7 @@ function deleteBlock(index: number) {
             </div>
 
             <!-- Form + Editor Container -->
-            <div v-if="content" class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded">
+            <div v-if="content" class="flex flex-col flex-1 max-w-5xl bg-base-300 px-4 pt-1 pb-2 mt-4 rounded">
                 <!-- Form inputs -->
                 <div class="flex flex-wrap-reverse gap-4">
                     <div class="grow flex flex-col md:flex-row gap-2">
@@ -705,8 +718,6 @@ function deleteBlock(index: number) {
                             >
                                 <i class="bi bi-plus-lg"></i>
                             </RouterLink>
-
-                            <!-- <button class="btn btn-disabled bg-base-300 p-1"></button> -->
 
                             <details class="dropdown">
                                 <summary
@@ -828,50 +839,105 @@ function deleteBlock(index: number) {
                     </div>
                 </div>
 
-                <div class="w-full">
-                    <fieldset class="fieldset">
-                        <legend class="fieldset-legend">{{ $t('article.description') }}</legend>
-                        <textarea
-                            v-model="content.description"
-                            class="textarea h-20 w-full"
-                            :placeholder="$t('article.description')"
-                        ></textarea>
-                    </fieldset>
-                </div>
+                <!-- Nodes -->
 
-                <!-- Toolbar -->
-                <TextEditor v-model="content.text" :update="updateDescription" />
-
-                <div class="flex mt-4 items-center">
-                    <h3 class="text-xl">Blocks</h3>
-                    <div class="grow flex justify-end">
-                        <button class="btn btn-sm" title="New Block" @click="openBlockModal()">
-                            <i class="bi bi-plus-lg text-xl"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <div ref="blockEL">
-                    <div v-if="!content.blocks || content.blocks?.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
-                        <input ref="dropField" class="w-full h-full focus:outline-0 text-base-content/0 cursor-default" />
-                    </div>
-                    <div
-                        v-for="(block, i) in content.blocks"
-                        :key="block.id ?? i"
-                        class="bg-base-200 rounded mt-2 p-2 flex gap-1 cursor-grab active:cursor-grabbing"
-                    >
+                <template v-for="(node, i) in content.nodes" :key="i">
+                    <TextEditor
+                        v-if="!('blocks' in node) && !('data' in node)"
+                        v-model="node.text"
+                        :remove-node="() => deleteNode(i)"
+                    />
+                    <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
                         <div class="w-10">
                             <img
-                                v-if="block.media_id"
-                                :src="mediaPath(block.media!)"
-                                :atl="block.media?.alt"
+                                v-if="node.media_id"
+                                :src="mediaPath(node.media!)"
+                                :atl="node.media?.alt"
                                 class="object-cover w-10 h-10"
                             />
                             <div v-else class="bg-base-content/30 w-full h-10"></div>
                         </div>
-                        <GenericBlock v-model:block="block.data" class="grow" />
-                        <button class="btn leading-0 w-10" @click="deleteBlock(i)">
+                        <GenericBlock v-model:block="node.data" class="grow" />
+                        <button class="btn leading-0 w-10" @click="deleteNode(i)">
                             <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div v-else-if="'blocks' in node">
+                        <div class="flex mt-4 items-center">
+                            <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
+                            <div class="grow flex justify-end">
+                                <div class="join">
+                                    <button
+                                        class="btn btn-sm"
+                                        :title="$t('common.newBlock')"
+                                        @click="openBlockModal(i)"
+                                    >
+                                        <i class="bi bi-plus-lg scale-130"></i>
+                                    </button>
+                                    <button
+                                        class="btn btn-sm"
+                                        :title="$t('common.removeBlock')"
+                                        @click="deleteNode(i)"
+                                    >
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="node.blocks.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
+                            <input
+                                v-model="dropValue"
+                                class="w-full h-full focus:outline-0 text-base-content/10 cursor-default"
+                                @focus="currentNodeIndex = i"
+                            />
+                        </div>
+                        <div v-else class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
+                            <div
+                                v-for="(block, bi) in node.blocks"
+                                :key="block.id ?? bi"
+                                class="bg-base-200 rounded p-2 flex gap-1"
+                            >
+                                <div class="w-10">
+                                    <img
+                                        v-if="block.media"
+                                        :src="mediaPath(block.media!)"
+                                        :atl="block.media?.alt"
+                                        class="object-cover w-10 h-10"
+                                    />
+                                    <div v-else class="bg-base-content/30 w-full h-10"></div>
+                                </div>
+                                <GenericBlock
+                                    v-model:block="block.data"
+                                    class="grow"
+                                />
+                                <input v-model="block.order_index" type="number" class="input w-15" @change="sortBlocks(i)" />
+                                <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <div class="flex justify-center mt-2">
+                    <div class="join">
+                        <button
+                            class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
+                            @click="addTextNode()"
+                        >
+                            {{ $t('common.text') }}
+                        </button>
+                        <button
+                            class="btn btn-sm btn-outline border-base-content/30 join-item"
+                            @click="openBlockModal(-1)"
+                        >
+                            {{ $t('common.data') }}
+                        </button>
+                        <button
+                            class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
+                            @click="addBlocksNode()"
+                        >
+                            {{ $t('common.blocks') }}
                         </button>
                     </div>
                 </div>
@@ -882,13 +948,13 @@ function deleteBlock(index: number) {
             v-if="store.preview"
             class="grow max-w-200 hidden 2xl:flex flex-col mb-6 mt-12 bg-base-300 p-4 rounded overflow-hidden"
         >
-            <MarkdownRender v-if="content.text" :text="content.text" />
+            <MarkdownRender v-if="content.nodes" :nodes="content.nodes" />
         </div>
 
         <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
             <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
         </GenericModal>
         <MediaBrowser ref="mediaModal" :update="addMedia" />
-        <BlockModal ref="blockModal" @add-block="addBlock" />
+        <BlockModal ref="blockModal" @add-block="addDataNode" />
     </div>
 </template>

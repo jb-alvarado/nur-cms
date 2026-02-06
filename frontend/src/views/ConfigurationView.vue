@@ -4,6 +4,7 @@ import { version } from '../../../package.json'
 import GlobalSettings from '@/components/config/GlobalSettings.vue'
 import ContentType from '@/components/config/ContentType.vue'
 import MailTargets from '@/components/config/MailTargets.vue'
+import NodeTemplates from '@/components/config/NodeTemplates.vue'
 </script>
 
 <template>
@@ -19,5 +20,6 @@ import MailTargets from '@/components/config/MailTargets.vue'
         <GlobalSettings />
         <ContentType />
         <MailTargets />
+        <NodeTemplates />
     </div>
 </template>

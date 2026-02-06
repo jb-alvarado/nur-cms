@@ -24,8 +24,6 @@ const fetchEntry = async () => {
 onMounted(() => {
     fetchEntry()
 })
-
-console.log(route.params.slug)
 </script>
 <template>
     <div class="flex justify-center p-8 h-full">

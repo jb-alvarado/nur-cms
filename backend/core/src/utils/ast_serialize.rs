@@ -9,7 +9,7 @@ use tracing::error;
 
 use crate::{
     NurError, PUBLIC_UPLOADS,
-    db::{fields::Table, handles, models::ContentMedia, serialize::MediaSerializer},
+    db::{fields::Table, handles, models::ContentNodeMedia, serialize::MediaSerializer},
 };
 
 pub static STYLE_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
@@ -360,7 +360,7 @@ fn normalize_media_path(raw_url: &str) -> Option<(String, String)> {
 
 pub async fn persist_content_media(
     pool: &PgPool,
-    entry_id: i32,
+    node_id: i64,
     ast: &Value,
 ) -> Result<(), NurError> {
     let mut images = Vec::new();
@@ -382,16 +382,20 @@ pub async fn persist_content_media(
                 continue;
             }
 
-            let link = ContentMedia {
-                entry_id,
+            let link = ContentNodeMedia {
+                node_id,
                 media_id,
                 ast_line: image.ast_line,
                 start_offset: image.start_offset,
                 end_offset: image.end_offset,
             };
 
-            if let Err(e) =
-                handles::insert_record::<ContentMedia, i64>(pool, &Table::ContentMedia, &link).await
+            if let Err(e) = handles::insert_record::<ContentNodeMedia, i64>(
+                pool,
+                &Table::ContentNodeMedia,
+                &link,
+            )
+            .await
             {
                 error!("content_media insert error: {e}");
             }

@@ -6,11 +6,12 @@ use ts_rs::TS;
 
 use super::traits::StrCompare;
 
+use super::ContentNodeFields;
+
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum ContentEntryFields {
     ID,
-    AST,
     GroupID,
     CategoryID,
     LocaleID,
@@ -22,23 +23,18 @@ pub enum ContentEntryFields {
     Category,
     Tags,
     Meta,
-    Blocks,
     Title,
-    Description,
-    Html,
-    Text,
     CreatedAt,
     UpdatedAt,
     GroupMembers,
     Media,
-    Embeds,
+    Node(ContentNodeFields),
 }
 
 impl StrCompare for ContentEntryFields {
     fn is_equal_to_str(&self, other: &str) -> bool {
         match self {
             Self::ID => other == "id",
-            Self::AST => other == "ast",
             Self::GroupID => other == "group_id",
             Self::CategoryID => other == "category_id",
             Self::LocaleID => other == "locale_id",
@@ -49,16 +45,12 @@ impl StrCompare for ContentEntryFields {
             Self::Category => other == "category",
             Self::Tags => other == "tags",
             Self::Meta => other == "meta",
-            Self::Blocks => other == "blocks",
             Self::Title => other == "title",
-            Self::Description => other == "description",
-            Self::Html => other == "html",
-            Self::Text => other == "text",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
             Self::GroupMembers => other == "group_members",
             Self::Media => other == "media",
-            Self::Embeds => other == "embeds",
+            Self::Node(_) => false,
         }
     }
 }
@@ -67,9 +59,14 @@ impl FromStr for ContentEntryFields {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
+        // Handle nested node fields: "node.text", "node.data", etc.
+        if let Some(node_field) = input.strip_prefix("node.") {
+            let node_fields = ContentNodeFields::from_str(node_field)?;
+            return Ok(Self::Node(node_fields));
+        }
+
         match input {
             "id" => Ok(Self::ID),
-            "ast" => Ok(Self::AST),
             "group_id" => Ok(Self::GroupID),
             "category_id" => Ok(Self::CategoryID),
             "locale_id" => Ok(Self::LocaleID),
@@ -80,16 +77,11 @@ impl FromStr for ContentEntryFields {
             "category" => Ok(Self::Category),
             "tags" => Ok(Self::Tags),
             "meta" => Ok(Self::Meta),
-            "blocks" => Ok(Self::Blocks),
             "title" => Ok(Self::Title),
-            "description" => Ok(Self::Description),
-            "html" => Ok(Self::Html),
-            "text" => Ok(Self::Text),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
             "group_members" => Ok(Self::GroupMembers),
             "media" => Ok(Self::Media),
-            "embeds" => Ok(Self::Embeds),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -99,7 +91,6 @@ impl fmt::Display for ContentEntryFields {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Self::ID => write!(f, "id"),
-            Self::AST => write!(f, "text"),
             Self::GroupID => write!(f, "group_id"),
             Self::CategoryID => write!(f, "category_id"),
             Self::LocaleID => write!(f, "locale_id"),
@@ -110,16 +101,12 @@ impl fmt::Display for ContentEntryFields {
             Self::Category => write!(f, "category"),
             Self::Tags => write!(f, "tags"),
             Self::Meta => write!(f, "meta"),
-            Self::Blocks => write!(f, "blocks"),
             Self::Title => write!(f, "title"),
-            Self::Description => write!(f, "description"),
-            Self::Html => write!(f, "html"),
-            Self::Text => write!(f, "text"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
             Self::GroupMembers => write!(f, "group_members"),
             Self::Media => write!(f, "media"),
-            Self::Embeds => write!(f, "embeds"),
+            Self::Node(ref node_field) => write!(f, "node.{}", node_field),
         }
     }
 }

@@ -21,9 +21,9 @@ impl<'de> Deserialize<'de> for OutputType {
     {
         let s = String::deserialize(deserializer)?;
         match s.to_lowercase().as_str() {
-            "ast" => Ok(OutputType::AST),
-            "html" => Ok(OutputType::HTML),
-            "markdown" => Ok(OutputType::Markdown),
+            "ast" => Ok(Self::AST),
+            "html" => Ok(Self::HTML),
+            "markdown" => Ok(Self::Markdown),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &["AST", "HTML", "Markdown"],

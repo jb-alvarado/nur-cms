@@ -109,8 +109,6 @@ INSERT INTO
         media_id,
         slug,
         title,
-        description,
-        text,
         status,
         created_by,
         updated_by
@@ -124,8 +122,6 @@ VALUES
         1,
         'erster-artikel',
         'Willkommen auf meinem Blog',
-        'Dies ist mein erster Artikel in Markdown.',
-        E'# Hallo Welt\nDies ist mein erster Artikel in **Markdown**.\n\nUnd wir haben einen _zweiten_ Absatz!\n\nUnd ein eingebettetes Bild: ![Cover](/uploads/2025/11/cover.jpg)\n\nAber auch ein Block-Bild:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHier einige HTML-Tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHier haben wir <i>inline</i> HTML.',
         'published',
         1,
         1
@@ -138,8 +134,6 @@ VALUES
         1,
         'first-article',
         'Welcome to my blog',
-        'This is my first article in Markdown.',
-        E'# Hello World\nThis is my first article in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/11/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
         'published',
         1,
         1
@@ -152,8 +146,6 @@ VALUES
         2,
         'about-us',
         'Über uns',
-        NULL,
-        E'Dies ist die **About** Seite.',
         'published',
         1,
         1
@@ -166,8 +158,6 @@ VALUES
         2,
         'second-article',
         'Un autre billet',
-        'This is the second article.',
-        E'# Deuxième billet\nCeci est du **Markdown** pour le deuxième billet.',
         'published',
         1,
         1
@@ -180,8 +170,6 @@ VALUES
         3,
         'third-article',
         'Third article',
-        'Third article description.',
-        E'# Third Post\nMore content with _italic_ and **bold**.',
         'published',
         1,
         1
@@ -194,8 +182,6 @@ VALUES
         NULL,
         'privacy-policy',
         'Privacy Policy',
-        'Information about privacy.',
-        E'# Privacy Policy\nThis page explains our privacy practices.',
         'published',
         1,
         1
@@ -208,8 +194,6 @@ VALUES
         NULL,
         'terms-of-service',
         'Nutzungsbedingungen',
-        'Terms and conditions.',
-        E'# Nutzungsbedingungen\nAlle rechtlichen Hinweise.',
         'published',
         1,
         1
@@ -222,8 +206,6 @@ VALUES
         NULL,
         'faq',
         'FAQ',
-        'Common questions answered.',
-        E'# FAQ\nNous répondons aux questions fréquentes.',
         'published',
         1,
         1
@@ -236,8 +218,6 @@ VALUES
         NULL,
         'team',
         'Nuestro Equipo',
-        'Meet the team.',
-        E'# Equipo\nDetalles sobre los miembros del equipo.',
         'published',
         1,
         1
@@ -250,8 +230,6 @@ VALUES
         NULL,
         'contact',
         'Contact Us',
-        'How to contact us.',
-        E'# Contact\nInformation to reach us.',
         'published',
         1,
         1
@@ -264,8 +242,6 @@ VALUES
         NULL,
         'rust-meetup-1',
         'Rust Meetup #1',
-        'First Rust meetup.',
-        E'# Rust Meetup #1\nJoin us for our first Rust meetup.',
         'published',
         1,
         1
@@ -278,8 +254,6 @@ VALUES
         NULL,
         'rust-meetup-2',
         'Rencontre Rust #2',
-        'Second Rust meetup.',
-        E'# Rust Meetup #2\nDétails du second meetup.',
         'published',
         1,
         1
@@ -292,8 +266,6 @@ VALUES
         NULL,
         'opensource-conference',
         'Open Source Konferenz',
-        'Annual conference.',
-        E'# Open Source Konferenz\nDetails zur jährlichen Konferenz.',
         'published',
         1,
         1
@@ -306,8 +278,6 @@ VALUES
         NULL,
         'web-dev-workshop',
         'Taller de Desarrollo Web',
-        'Hands-on workshop.',
-        E'# Taller de Desarrollo Web\nAprende desarrollo web con ejercicios prácticos.',
         'published',
         1,
         1
@@ -320,8 +290,6 @@ VALUES
         NULL,
         'ai-seminar',
         'AI Seminar',
-        'Seminar about AI.',
-        E'# AI Seminar\nDiscussing AI trends and technologies.',
         'published',
         1,
         1
@@ -334,8 +302,6 @@ VALUES
         2,
         'blocks-article',
         'Blocks Article',
-        'An article with blocks.',
-        '',
         'published',
         1,
         1
@@ -376,38 +342,165 @@ VALUES
     (14, '2026-02-10T10:15:00Z', '2026-02-12T12:15:00Z');
 
 INSERT INTO
-    content_blocks (entry_id, media_id, order_index, data)
+    content_nodes (entry_id, order_index, text, data, media_id, parent_id)
 VALUES
     (
-        16,
-        null,
         1,
-        '{"text":"This is the first block of content."}'
+        1,
+        E'# Hallo Welt\nDies ist mein erster Artikel in **Markdown**.\n\nUnd wir haben einen _zweiten_ Absatz!\n\nUnd ein eingebettetes Bild: ![Cover](/uploads/2025/11/cover.jpg)\n\nAber auch ein Block-Bild:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHier einige HTML-Tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHier haben wir <i>inline</i> HTML.',
+        NULL,
+        NULL,
+        NULL
     ),
     (
-        16,
-        null,
         2,
-        '{"text":"Here is another paragraph with some bold text."}'
+        1,
+        E'# Hello World\nThis is my first article in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/11/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
+        NULL,
+        NULL,
+        NULL
     ),
+    (3, 1, E'Dies ist die **About** Seite.', NULL, NULL, NULL),
     (
-        16,
-        3,
-        3,
-        '{"author":"The Cat"}'
-    ),
-    (
-        16,
-        null,
         4,
-        '{"text":"Yet another text block with italic text."}'
+        1,
+        E'# Deuxième billet\nCeci est du **Markdown** pour le deuxième billet.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        5,
+        1,
+        E'# Third Post\nMore content with _italic_ and **bold**.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        6,
+        1,
+        E'# Privacy Policy\nThis page explains our privacy practices.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        7,
+        1,
+        E'# Nutzungsbedingungen\nAlle rechtlichen Hinweise.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        8,
+        1,
+        E'# FAQ\nNous répondons aux questions fréquentes.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        9,
+        1,
+        E'# Equipo\nDetalles sobre los miembros del equipo.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        10,
+        1,
+        E'# Contact\nInformation to reach us.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        11,
+        1,
+        E'# Rust Meetup #1\nJoin us for our first Rust meetup.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        12,
+        1,
+        E'# Rust Meetup #2\nDétails du second meetup.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        13,
+        1,
+        E'# Open Source Konferenz\nDetails zur jährlichen Konferenz.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        14,
+        1,
+        E'# Taller de Desarrollo Web\nAprende desarrollo web con ejercicios prácticos.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (
+        15,
+        1,
+        E'# AI Seminar\nDiscussing AI trends and technologies.',
+        NULL,
+        NULL,
+        NULL
+    ),
+    (16, 1, 'Just a random text', NULL, NULL, NULL),
+    (
+        16,
+        2,
+        NULL,
+        '{"text":"This is the first block of content."}',
+        NULL,
+        NULL
     ),
     (
         16,
-        null,
+        3,
+        NULL,
+        '{"text":"Here is another paragraph with some bold text."}',
+        NULL,
+        17
+    ),
+    (
+        16,
+        4,
+        NULL,
+        '{"author":"The Cat", "url": "https://example.org"}',
+        3,
+        17
+    ),
+    (
+        16,
         5,
-        '{"text":"First list item"}'
-    );
+        NULL,
+        '{"text":"Yet another text block with italic text."}',
+        NULL,
+        17
+    ),
+    (16, 6, NULL, '{"text":"Last item"}', NULL, NULL);
+
+INSERT INTO
+    content_node_templates (name, data)
+VALUES
+    (
+        'employee',
+        '{"first_name": "", "last_name": "", "position": ""}'
+    ),
+    ('text', '{"text": ""}'),
+    ('author', '{"author": "", "url": ""}');
 
 INSERT INTO
     content_entry_tags (entry_id, tag_id)
@@ -421,7 +514,7 @@ VALUES
     (12, 3);
 
 INSERT INTO
-    content_media (entry_id, media_id, ast_line)
+    content_node_media (node_id, media_id, ast_line)
 VALUES
     (1, 1, 6),
     (1, 2, 10),

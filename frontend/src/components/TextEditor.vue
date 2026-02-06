@@ -43,6 +43,10 @@ const props = defineProps({
         type: Function,
         default() {},
     },
+    removeNode: {
+        type: Function,
+        default: null,
+    },
 })
 
 function openLinkModal() {
@@ -284,9 +288,14 @@ function quote() {
             </button>
 
             <div class="grow flex justify-end">
-                <button class="btn rounded p-3" @click="store.preview = !store.preview">
-                    <i class="bi bi-markdown text-xl"></i>
-                </button>
+                <div class="join">
+                    <button class="join-item btn rounded p-3 hidden 2xl:flex" @click="store.preview = !store.preview">
+                        <i class="bi bi-markdown scale-130"></i>
+                    </button>
+                    <button v-if="removeNode" class="join-item btn rounded p-3" @click="removeNode()">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
             </div>
         </div>
 

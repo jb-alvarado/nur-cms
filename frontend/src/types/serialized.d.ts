@@ -6,13 +6,13 @@ export type AuthUserSerializer = { id?: number | null, email?: string | null, us
 
 export type AuthorSerializer = { id?: number | null, first_name?: string | null, last_name?: string | null, slug?: string | null, bio?: string | null, media_id?: number | null, media?: MediaSerializer | null, total_count?: bigint | null, };
 
-export type ContentBlockSerializer = { id?: number | null, media_id?: number | null, order_index?: number | null, data: JsonValue, media?: MediaSerializer | null, };
-
 export type ContentCategorySerializer = { id?: number | null, group_id?: number | null, locale_id?: number | null, name?: string | null, slug?: string | null, status?: string | null, media_id?: number | null, media?: MediaSerializer | null, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 
-export type ContentEntrySerializer = { id?: number | null, group_id?: number | null, category_id?: number | null, locale_id?: number | null, media_id?: number | null, slug?: string | null, status?: string | null, authors?: Array<AuthorSerializer>, meta?: ContentMetaSerializer | null, category?: ContentCategorySerializer | null, tags?: Array<ContentTagSerializer>, blocks?: Array<ContentBlockSerializer>, title?: string | null, description?: string | null, text?: string | null, ast?: any, html?: any, created_at?: string | null, updated_at?: string | null, media?: MediaSerializer | null, embeds?: Array<MediaSerializer>, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
+export type ContentEntrySerializer = { id?: number | null, group_id?: number | null, category_id?: number | null, locale_id?: number | null, media_id?: number | null, slug?: string | null, status?: string | null, authors?: Array<AuthorSerializer>, meta?: ContentMetaSerializer | null, category?: ContentCategorySerializer | null, tags?: Array<ContentTagSerializer>, title?: string | null, nodes?: Array<NodeSerializer>, media?: MediaSerializer | null, created_at?: string | null, updated_at?: string | null, group_members?: Array<GroupMemberSerializer>, total_count?: bigint | null, };
 
-export type ContentMetaSerializer = { data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
+export type ContentMetaSerializer = { start_time?: string | null, end_time?: string | null, };
+
+export type ContentNodeSerializer = { id?: number | null, entry_id?: number | null, order_index?: number | null, text?: string | null, ast?: any, html?: string | null, data?: JsonValue | null, media_id?: number | null, parent_id?: number | null, embeds?: Array<MediaSerializer>, media?: MediaSerializer | null, };
 
 export type ContentTagSerializer = { id?: number | null, name?: string | null, slug?: string | null, total_count?: bigint | null, };
 
@@ -21,3 +21,5 @@ export type GroupMemberSerializer = { id: number, locale_id: number, };
 export type MediaSerializer = { id?: number | null, alt?: string | null, filename?: string | null, path?: string | null, type?: string | null, width?: number | null, height?: number | null, size?: number, ast_line?: number | null, start_offset?: number | null, end_offset?: number | null, created_at?: string | null, variants?: Array<MediaVariantSerializer>, total_count?: bigint | null, };
 
 export type MediaVariantSerializer = { id: number, width: number, height: number, filename: string, };
+
+export type NodeSerializer = { "blocks": Array<ContentNodeSerializer> } | ContentNodeSerializer;

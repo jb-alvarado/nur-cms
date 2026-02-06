@@ -40,10 +40,8 @@ pub async fn author_insert(
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
 ) -> Result<Json<i32>, NurError> {
-    let table = Table::ContentAuthors;
-
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        return match handles::insert_record(&pool, &table, &content).await {
+        return match handles::insert_record(&pool, &Table::ContentAuthors, &content).await {
             Ok(id) => Ok(Json(id)),
             Err(e) => {
                 error!("{e}");

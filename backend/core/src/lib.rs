@@ -144,6 +144,14 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .route("/entries", get(entries_select).post(entry_insert))
         .route("/entries/{id}", put(entry_update).delete(entry_delete))
         .route("/entries/{param}/{slug}", get(entry_select))
+        .route(
+            "/node/templates",
+            get(template_select).post(template_insert),
+        )
+        .route(
+            "/node/templates/{id}",
+            delete(template_delete).put(template_update),
+        )
         .route("/tags", get(tags_select).post(tag_insert))
         .route("/tags/{id}", put(tag_update));
 

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -120,6 +122,44 @@ impl ColumnCounter for AuthorSerializer {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "serialized.d.ts")]
+pub enum NodeSerializer {
+    Blocks(Vec<ContentNodeSerializer>),
+    #[serde(untagged)]
+    Single(Box<ContentNodeSerializer>),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct ContentNodeSerializer {
+    #[ts(as = "Option<i32>")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order_index: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[ts(type = "any")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ast: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<i32>,
+    #[serde(default, skip_serializing)]
+    pub parent_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub embeds: Vec<MediaSerializer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<MediaSerializer>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentEntrySerializer {
@@ -146,28 +186,16 @@ pub struct ContentEntrySerializer {
     pub category: Option<ContentCategorySerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<ContentTagSerializer>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub blocks: Vec<ContentBlockSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<NodeSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-    #[ts(type = "any")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ast: Option<serde_json::Value>,
-    #[ts(type = "any")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub html: Option<String>,
+    pub media: Option<MediaSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media: Option<MediaSerializer>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub embeds: Vec<MediaSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_members: Vec<GroupMemberSerializer>,
     #[serde(default, skip_serializing)]
@@ -185,13 +213,10 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             .unwrap_or_default();
 
         let meta = row
-            .try_get::<(Option<Value>, Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>("meta")
+            .try_get::<(Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>("meta")
             .ok()
-            .filter(|(data, start_time, end_time)| {
-                data.is_some() || start_time.is_some() || end_time.is_some()
-            })
-            .map(|(data, start_time, end_time)| ContentMetaSerializer {
-                data,
+            .filter(|(start_time, end_time)| start_time.is_some() || end_time.is_some())
+            .map(|(start_time, end_time)| ContentMetaSerializer {
                 start_time,
                 end_time,
             });
@@ -215,10 +240,65 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             });
         }
 
-        let blocks = row
-            .try_get::<Option<serde_json::Value>, _>("blocks")
+        let nodes = row
+            .try_get::<Option<serde_json::Value>, _>("nodes")
             .unwrap_or_default()
-            .map(|v| serde_json::from_value::<Vec<ContentBlockSerializer>>(v).unwrap_or_default())
+            .map(|v| {
+                let nodes_vec =
+                    serde_json::from_value::<Vec<ContentNodeSerializer>>(v).unwrap_or_default();
+
+                // Build a map of node_id -> children
+                let mut children_map: HashMap<i64, Vec<ContentNodeSerializer>> = HashMap::new();
+                let mut parent_nodes: HashMap<i64, ContentNodeSerializer> = HashMap::new();
+                let mut single_nodes: Vec<ContentNodeSerializer> = Vec::new();
+
+                for node in nodes_vec {
+                    if let Some(parent_id) = node.parent_id {
+                        // This node has a parent - add it to children_map
+                        children_map.entry(parent_id as i64).or_default().push(node);
+                    } else if let Some(node_id) = node.id {
+                        // This node has no parent - it might be a parent itself or a single
+                        parent_nodes.insert(node_id, node);
+                    } else {
+                        // Node without id and without parent - treat as single
+                        single_nodes.push(node);
+                    }
+                }
+
+                // Convert to NodeSerializer
+                let mut result = Vec::new();
+
+                // Process parent nodes
+                for (node_id, parent_node) in parent_nodes {
+                    if let Some(mut children) = children_map.remove(&node_id) {
+                        // Sort children by order_index
+                        children.sort_by_key(|n| n.order_index.unwrap_or(0));
+
+                        // This node has children - create a Block with parent + children
+                        let mut block = vec![parent_node];
+                        block.extend(children);
+                        result.push(NodeSerializer::Blocks(block));
+                    } else {
+                        // This node has no children - it's a Single
+                        result.push(NodeSerializer::Single(Box::new(parent_node)));
+                    }
+                }
+
+                // Add any single nodes without id
+                for node in single_nodes {
+                    result.push(NodeSerializer::Single(Box::new(node)));
+                }
+
+                // Sort result by order_index of the first node
+                result.sort_by_key(|n| match n {
+                    NodeSerializer::Single(node) => node.order_index.unwrap_or(0),
+                    NodeSerializer::Blocks(nodes) => {
+                        nodes.first().and_then(|n| n.order_index).unwrap_or(0)
+                    }
+                });
+
+                result
+            })
             .unwrap_or_default();
 
         let group_members = row
@@ -232,11 +312,11 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             .unwrap_or_default()
             .and_then(|v| serde_json::from_value::<MediaSerializer>(v).ok());
 
-        let embeds = row
-            .try_get::<Option<serde_json::Value>, _>("embeds")
-            .unwrap_or_default()
-            .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
-            .unwrap_or_default();
+        // let embeds = row
+        //     .try_get::<Option<serde_json::Value>, _>("embeds")
+        //     .unwrap_or_default()
+        //     .map(|v| serde_json::from_value::<Vec<MediaSerializer>>(v).unwrap_or_default())
+        //     .unwrap_or_default();
 
         Ok(Self {
             id: row.try_get("id").ok(),
@@ -250,17 +330,12 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             meta,
             category,
             tags,
-            blocks,
             title: row.try_get("title").ok(),
-            description: row.try_get("description").ok(),
-            text: row.try_get("text").ok(),
-            ast: None,
-            html: None,
+            nodes,
+            media,
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
             group_members,
-            media,
-            embeds,
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -366,26 +441,9 @@ impl ColumnCounter for ContentTagSerializer {
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentMetaSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_time: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_time: Option<DateTime<Utc>>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "serialized.d.ts")]
-pub struct ContentBlockSerializer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media_id: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub order_index: Option<i32>,
-    #[serde(default)]
-    pub data: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub media: Option<MediaSerializer>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
