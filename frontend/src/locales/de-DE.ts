@@ -43,8 +43,8 @@ export default {
         start: 'Start',
         end: 'Ende',
         text: 'Text',
-        blocks: 'Blöcke',
-        data: 'Daten',
+        blocks: 'Blocksammlung',
+        data: 'Block',
         newBlock: 'Neuer Block',
         removeBlock: 'Block entfernen',
         name: 'Name',
@@ -205,6 +205,9 @@ export default {
         recipients: 'Empfänger',
         recipientPlaceholder: 'E-Mail-Adresse eingeben',
         allowHtml: 'HTML erlauben',
+    },
+    nodeTemplates: {
+        title: 'Node-Vorlagen',
     },
     block: {
         create: 'Block erstellen',

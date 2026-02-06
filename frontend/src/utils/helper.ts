@@ -47,6 +47,5 @@ export function mediaPath(media: Media): string {
             return `${media.path}/${variance320.filename}`
         }
     }
-    console.log(`${media.path}/${media.filename}`)
     return `${media.path}/${media.filename}`
 }

@@ -86,6 +86,8 @@ pub async fn template_update(
     Json(template): Json<ContentNodeTemplate>,
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
+        println!("{template:#?}");
+
         return match handles::update_record(&pool, &Table::ContentNodeTemplates, id, &template)
             .await
         {

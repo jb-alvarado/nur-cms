@@ -581,6 +581,7 @@ pub struct ContentNodeMedia {
 #[ts(export, export_to = "models.d.ts")]
 #[serde(rename_all = "snake_case")]
 pub struct ContentNodeTemplate {
+    #[serde(default)]
     pub id: i32,
     pub name: String,
     pub data: Value,

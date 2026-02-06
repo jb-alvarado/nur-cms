@@ -26,12 +26,12 @@ const deleteModal = ref()
 const templateModal = ref()
 const isEditing = ref(false)
 
-const targetRows = computed(() => [
+const templateRows = computed(() => [
     { name: t('table.id'), field: 'id' },
     { name: t('mail.name'), field: 'name' },
 ])
 
-async function selectTargets() {
+async function selectTemplates() {
     await fetch(`/api/content/node/templates?ordering=${ordering.value}`, {
         headers: auth.authHeader,
     })
@@ -54,7 +54,7 @@ async function selectTargets() {
         })
 }
 
-selectTargets()
+selectTemplates()
 
 function selectAll() {
     for (const item of templates.value) {
@@ -73,7 +73,8 @@ const removeKey = (key: string) => {
     delete template.value.data[key]
 }
 
-function editTarget(node: NodeTemplateExt) {
+function editTemplate(node: NodeTemplateExt) {
+    // @ts-ignore
     template.value = {
         id: node.id,
         name: node.name,
@@ -112,7 +113,7 @@ async function deleteTemplate() {
         }
     }
 
-    await selectTargets()
+    await selectTemplates()
 }
 
 function deselect() {
@@ -148,7 +149,7 @@ function saveTemplate() {
                 template.value.name = ''
                 template.value.data = {}
 
-                await selectTargets()
+                await selectTemplates()
             }
         })
         .catch((e) => {
@@ -160,7 +161,7 @@ function saveTemplate() {
 <template>
     <div class="bg-base-200 p-2 max-w-full border border-base-content/25 rounded-sm">
         <div class="flex">
-            <div class="grow font-bold">Node Templates</div>
+            <div class="grow font-bold">{{ $t('nodeTemplates.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="openCreateModal()">{{ $t('button.new') }}</button>
         </div>
 
@@ -182,7 +183,7 @@ function saveTemplate() {
                         <th class="w-10">
                             <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                         </th>
-                        <th v-for="row in targetRows" :key="row.field" class="min-w-16">
+                        <th v-for="row in templateRows" :key="row.field" class="min-w-16">
                             {{ row.name }}
                         </th>
                         <th class="w-10"></th>
@@ -195,11 +196,11 @@ function saveTemplate() {
                                 <input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" />
                             </label>
                         </th>
-                        <td v-for="row in targetRows" :key="row.field">
+                        <td v-for="row in templateRows" :key="row.field">
                             {{ (col as any)[row.field] }}
                         </td>
                         <td>
-                            <button class="btn btn-sm p-1" @click="editTarget(col)">
+                            <button class="btn btn-sm p-1" @click="editTemplate(col)">
                                 <i class="bi bi-pencil-square text-lg"></i>
                             </button>
                         </td>
@@ -223,39 +224,49 @@ function saveTemplate() {
         :ok-action="saveTemplate"
     >
         <div class="flex flex-col gap-4">
-            <fieldset class="fieldset py-2">
+            <fieldset class="fieldset py-0">
                 <legend class="fieldset-legend">{{ $t('common.name') }}</legend>
                 <input v-model="template.name" type="text" class="input w-full" :placeholder="$t('common.name')" />
             </fieldset>
 
-            <div class="flex gap-2">
-                <fieldset class="fieldset py-2 grow">
+            <div>
+                <fieldset class="fieldset py-0 grow">
                     <legend class="fieldset-legend">{{ $t('common.key') }}</legend>
                     <div class="join">
-                    <input
-                        v-model="keyInput"
-                        type="text"
-                        class="input grow join-item"
-                        :placeholder="$t('common.key')"
-                        @keyup.enter="addKeyValue()"
-                    />
-                    <button class="btn join-item" @click="addKeyValue()">
-                        <i class="bi bi-plus-lg"></i>
-                    </button>
+                        <input
+                            v-model="keyInput"
+                            type="text"
+                            class="input grow join-item"
+                            :placeholder="$t('common.key')"
+                            @keyup.enter="addKeyValue()"
+                        />
+                        <button class="btn join-item border border-base-content/20" @click="addKeyValue()">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
                     </div>
-
                 </fieldset>
             </div>
 
-            <div v-if="Object.keys(template.data).length > 0" class="mt-2">
+            <div v-if="Object.keys(template.data).length > 0">
                 <h3 class="font-semibold mb-2">{{ $t('common.fields') }}:</h3>
-                <div class="flex flex-wrap gap-2">
-                    <div v-for="key in Object.keys(template.data)" :key="key" class="badge badge-lg gap-2">
-                        <span>{{ key }}</span>
-                        <button class="btn btn-xs btn-ghost" @click="removeKey(key)">
+                <div class="flex flex-col gap-2">
+                    <fieldset v-for="key in Object.keys(template.data)" :key="key" class="flex w-full join">
+                        <input
+                            :value="key"
+                            type="text"
+                            class="input input-sm w-1/3 join-item border border-base-content/20 text-base-content"
+                            disabled
+                        />
+                        <input
+                            value="'' ''"
+                            type="text"
+                            class="input input-sm grow join-item border border-base-content/20"
+                            disabled
+                        />
+                        <button class="btn btn-sm join-item border border-base-content/20" @click="removeKey(key)">
                             <i class="bi bi-x-lg"></i>
                         </button>
-                    </div>
+                    </fieldset>
                 </div>
             </div>
         </div>

@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::db::{
     fields::{ColumnCounter, StrCompare, Table},
@@ -329,9 +329,8 @@ where
                     separated.push_bind_unseparated(None::<String>);
                 }
             }
-            _ => {
-                error!("Unknown Type {key}={val:?} in Update!");
-                continue;
+            Value::Object(o) => {
+                separated.push_bind_unseparated(serde_json::Value::Object(o.clone()));
             }
         }
     }

@@ -847,7 +847,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                         v-model="node.text"
                         :remove-node="() => deleteNode(i)"
                     />
-                    <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex">
+                    <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
                         <div class="w-10">
                             <img
                                 v-if="node.media_id"
@@ -908,10 +908,9 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </div>
                                 <GenericBlock
                                     v-model:block="block.data"
-                                    v-model:index="block.order_index"
-                                    @sort="sortBlocks(i)"
                                     class="grow"
                                 />
+                                <input v-model="block.order_index" type="number" class="input w-15" @change="sortBlocks(i)" />
                                 <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
                                     <i class="bi bi-x-lg"></i>
                                 </button>
@@ -930,15 +929,15 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </button>
                         <button
                             class="btn btn-sm btn-outline border-base-content/30 join-item"
-                            @click="addBlocksNode()"
-                        >
-                            {{ $t('common.blocks') }}
-                        </button>
-                        <button
-                            class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
                             @click="openBlockModal(-1)"
                         >
                             {{ $t('common.data') }}
+                        </button>
+                        <button
+                            class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
+                            @click="addBlocksNode()"
+                        >
+                            {{ $t('common.blocks') }}
                         </button>
                     </div>
                 </div>

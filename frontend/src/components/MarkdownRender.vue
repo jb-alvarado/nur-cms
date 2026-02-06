@@ -67,9 +67,20 @@ defineProps({
                         />
                         <div v-else class="bg-base-content/30 w-full h-10"></div>
                     </div>
-                    <div v-for="(_, key) in (block.data as Record<string, any>) ?? {}" :key="key" class="flex items-center gap-2 grow">
-                        <label class="min-w-20">{{ key }}: </label>
-                        <input v-model="(block.data as Record<string, any>)[key]" type="text" class="input grow" disabled />
+                    <div class="flex flex-col gap-2 grow">
+                        <div
+                            v-for="(_, key) in (block.data as Record<string, any>) ?? {}"
+                            :key="key"
+                            class="flex items-center gap-2 grow"
+                        >
+                            <label class="min-w-20">{{ key }}: </label>
+                            <input
+                                v-model="(block.data as Record<string, any>)[key]"
+                                type="text"
+                                class="input grow border border-base-content/10"
+                                disabled
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -80,7 +91,7 @@ defineProps({
             />
             <div
                 v-else-if="'data' in node && node.data && typeof node.data === 'object' && !Array.isArray(node.data)"
-                class="flex items-center gap-2 bg-base-200 p-2"
+                class="flex items-center gap-1 bg-base-200 p-2"
             >
                 <div class="w-10">
                     <img
@@ -93,7 +104,7 @@ defineProps({
                 </div>
                 <div v-for="(_, key) in node.data" :key="key" class="flex items-center gap-2 grow">
                     <label class="min-w-20">{{ key }}: </label>
-                    <input v-model="node.data[key]" type="text" class="input grow" disabled />
+                    <input v-model="node.data[key]" type="text" class="input grow border border-base-content/10" disabled />
                 </div>
             </div>
         </template>
