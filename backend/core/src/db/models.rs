@@ -343,10 +343,6 @@ pub struct ContentEntry {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub description: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub text: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub status: String,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub created_by: i32,
@@ -372,8 +368,6 @@ impl FromRow<'_, PgRow> for ContentEntry {
             media_id: row.try_get("media_id").ok(),
             slug: row.try_get("slug").unwrap_or_default(),
             title: row.try_get("title").unwrap_or_default(),
-            description: row.try_get("description").unwrap_or_default(),
-            text: row.try_get("text").unwrap_or_default(),
             status: row.try_get("status").unwrap_or_default(),
             created_by: row.try_get("created_by").unwrap_or_default(),
             updated_by: row.try_get("updated_by").unwrap_or_default(),

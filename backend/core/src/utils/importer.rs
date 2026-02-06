@@ -305,7 +305,6 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
             .ok_or(NurError::BadRequest("Missing locale_id".into()))?,
         slug,
         title,
-        text: body,
         status,
         created_by: opts
             .created_by
@@ -352,9 +351,19 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let entry_id =
         handles::insert_record::<ContentEntry, i32>(pool, &Table::ContentEntries, &entry).await?;
 
+    // Insert content_node with the markdown body
+    let node_id: i64 = sqlx::query_scalar(
+        "INSERT INTO content_nodes (entry_id, order_index, text) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(entry_id)
+    .bind(0)
+    .bind(&body)
+    .fetch_one(pool)
+    .await?;
+
     // Build AST from body content and persist content_media links (with positions)
     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-    persist_content_media(pool, entry_id.into(), &tree).await?;
+    persist_content_media(pool, node_id, &tree).await?;
 
     // Insert authors/meta/tags if present
     if let Some(ref fm) = frontmatter {

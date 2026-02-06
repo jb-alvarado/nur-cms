@@ -124,9 +124,13 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
 
     where_chain.push_and_bind(
             Some("OR"),
-            "ce.text_vector @@ websearch_to_tsquery((SELECT tsv_dict::regconfig FROM locales WHERE id = ce.locale_id), ",
+            "EXISTS (
+                SELECT 1
+                FROM content_nodes cn2
+                WHERE cn2.entry_id = ce.id
+                AND cn2.text_vector @@ websearch_to_tsquery((SELECT tsv_dict::regconfig FROM locales WHERE id = ce.locale_id), ",
             search,
-            Some(")))"),
+            Some("))))"),
         );
 }
 
@@ -504,8 +508,8 @@ pub async fn delete_content_media_for_entry(
         .map(|_| ())
 }
 
-pub async fn select_entry_text(pool: &PgPool, node_id: i32) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar::<_, String>("SELECT text FROM content_entries WHERE id = $1")
+pub async fn select_entry_text(pool: &PgPool, node_id: i64) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>("SELECT text FROM content_nodes WHERE id = $1")
         .bind(node_id)
         .fetch_optional(pool)
         .await
