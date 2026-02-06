@@ -129,7 +129,7 @@ function setLanguage(code: string) {
                     <i class="swap-on bi bi-brightness-high text-lg"></i>
                     <i class="swap-off bi bi-moon text-lg"></i>
                 </label>
-                <RouterLink to="/configuration" class="join-item btn btn-sm p-1.5" :title="t('button.configure')">
+                <RouterLink v-if="auth.role === 'admin'" to="/configuration" class="join-item btn btn-sm p-1.5" :title="t('button.configure')">
                     <i class="bi bi-gear text-lg" />
                 </RouterLink>
                 <div class="dropdown dropdown-top">
