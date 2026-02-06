@@ -184,7 +184,11 @@ where
                 separated.push_bind(b);
             }
             Value::Null => {
-                separated.push_bind("DEFAULT");
+                if key.contains("_id") {
+                    separated.push_bind(None::<i32>);
+                } else {
+                    separated.push_bind(None::<String>);
+                }
             }
             Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
