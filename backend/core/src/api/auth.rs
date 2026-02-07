@@ -430,3 +430,261 @@ fn mail_body(verification_code: &str) -> String {
     </html>"#
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn with_test_jwt_secret<T>(secret: &str, f: impl std::future::Future<Output = T>) -> T {
+        let prev = CONFIG.read().await.clone();
+        {
+            let mut cfg = CONFIG.write().await;
+            cfg.jwt_secret = secret.to_string();
+        }
+
+        let result = f.await;
+
+        {
+            let mut cfg = CONFIG.write().await;
+            *cfg = prev;
+        }
+
+        result
+    }
+
+    #[tokio::test]
+    async fn claims_exp_in_expected_range() {
+        let now = Utc::now().timestamp();
+        let lifetime_days = 1;
+        let claims = Claims::new(42, Role::Admin, lifetime_days);
+        let exp = claims.exp;
+
+        let max = now + lifetime_days * 24 * 60 * 60 + 5;
+        assert!(exp >= now, "exp should be in the future");
+        assert!(exp <= max, "exp should be within expected range");
+    }
+
+    #[tokio::test]
+    async fn jwt_encode_decode_roundtrip() {
+        with_test_jwt_secret("test-secret", async {
+            let claims = Claims::new(7, Role::Author, 1);
+            let token = encode_jwt(claims.clone()).await.expect("encode ok");
+            let decoded = decode_jwt(&token).await.expect("decode ok");
+
+            assert_eq!(decoded.id, claims.id);
+            assert_eq!(decoded.role, claims.role);
+            assert_eq!(decoded.exp, claims.exp);
+        })
+        .await;
+    }
+
+    #[test]
+    fn mail_body_includes_code_and_branding() {
+        let code = "1234567";
+        let body = mail_body(code);
+
+        assert!(body.contains(code));
+        assert!(body.contains("NUR CMS"));
+        assert!(body.contains("expires in 5 minutes"));
+    }
+
+    #[test]
+    fn mail_body_different_codes() {
+        let codes = vec!["1234567", "9999999", "0000000"];
+
+        for code in codes {
+            let body = mail_body(code);
+            assert!(body.contains(code), "Code {} should be in mail body", code);
+        }
+    }
+
+    #[tokio::test]
+    async fn claims_new_with_different_roles() {
+        let user_id = 123;
+        let lifetime = 7;
+
+        let admin_claims = Claims::new(user_id, Role::Admin, lifetime);
+        let author_claims = Claims::new(user_id, Role::Author, lifetime);
+
+        assert_eq!(admin_claims.id, user_id);
+        assert_eq!(admin_claims.role, Role::Admin);
+        assert_eq!(author_claims.id, user_id);
+        assert_eq!(author_claims.role, Role::Author);
+    }
+
+    #[tokio::test]
+    async fn jwt_different_users_produce_different_tokens() {
+        with_test_jwt_secret("test-secret", async {
+            let claims1 = Claims::new(1, Role::Admin, 1);
+            let claims2 = Claims::new(2, Role::Admin, 1);
+
+            let token1 = encode_jwt(claims1).await.expect("encode ok");
+            let token2 = encode_jwt(claims2).await.expect("encode ok");
+
+            assert_ne!(
+                token1, token2,
+                "Different user IDs should produce different tokens"
+            );
+
+            let decoded1 = decode_jwt(&token1).await.expect("decode ok");
+            let decoded2 = decode_jwt(&token2).await.expect("decode ok");
+
+            assert_eq!(decoded1.id, 1);
+            assert_eq!(decoded2.id, 2);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn jwt_invalid_token_fails_decode() {
+        with_test_jwt_secret("test-secret", async {
+            let invalid_token = "invalid.token.here";
+            let result = decode_jwt(invalid_token).await;
+
+            assert!(result.is_err(), "Invalid token should fail to decode");
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn jwt_tampered_token_fails_decode() {
+        with_test_jwt_secret("test-secret", async {
+            let claims = Claims::new(1, Role::Admin, 1);
+            let token = encode_jwt(claims).await.expect("encode ok");
+
+            // Try to decode with different secret
+            let decoding_key = DecodingKey::from_secret("wrong-secret".as_bytes());
+            let result =
+                jsonwebtoken::decode::<Claims>(&token, &decoding_key, &Validation::default());
+
+            assert!(result.is_err(), "Token with wrong secret should fail");
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn verification_code_struct_creation() {
+        let now = Utc::now();
+        let code = VerificationCode {
+            code: "1234567".to_string(),
+            user_id: 42,
+            role: Role::Author,
+            created_at: now,
+        };
+
+        assert_eq!(code.code, "1234567");
+        assert_eq!(code.user_id, 42);
+        assert_eq!(code.role, Role::Author);
+        assert_eq!(code.created_at, now);
+    }
+
+    #[tokio::test]
+    async fn verification_code_expiry_check_fresh() {
+        let now = Utc::now();
+        let code = VerificationCode {
+            code: "1234567".to_string(),
+            user_id: 42,
+            role: Role::Author,
+            created_at: now,
+        };
+
+        let elapsed = Utc::now().signed_duration_since(code.created_at);
+        assert!(
+            elapsed.num_minutes() <= 5,
+            "Fresh code should not be expired"
+        );
+    }
+
+    #[tokio::test]
+    async fn verification_code_expires_after_5_minutes() {
+        let far_past = Utc::now() - chrono::Duration::minutes(6);
+        let code = VerificationCode {
+            code: "1234567".to_string(),
+            user_id: 42,
+            role: Role::Author,
+            created_at: far_past,
+        };
+
+        let elapsed = Utc::now().signed_duration_since(code.created_at);
+        assert!(
+            elapsed.num_minutes() > 5,
+            "Code older than 5 minutes should be expired"
+        );
+    }
+
+    #[tokio::test]
+    async fn credentials_struct_creation() {
+        let creds = Credentials {
+            username: "testuser".to_string(),
+            password: "testpass".to_string(),
+        };
+
+        assert_eq!(creds.username, "testuser");
+        assert_eq!(creds.password, "testpass");
+    }
+
+    #[tokio::test]
+    async fn verify_request_struct_creation() {
+        let req = VerifyRequest {
+            username: "testuser".to_string(),
+            code: "1234567".to_string(),
+        };
+
+        assert_eq!(req.username, "testuser");
+        assert_eq!(req.code, "1234567");
+    }
+
+    #[tokio::test]
+    async fn token_refresh_request_struct_creation() {
+        let req = TokenRefreshRequest {
+            refresh: "refresh.token.here".to_string(),
+        };
+
+        assert_eq!(req.refresh, "refresh.token.here");
+    }
+
+    #[tokio::test]
+    async fn claims_exp_increases_with_lifetime() {
+        let user_id = 1;
+        let role = Role::Admin;
+        let now = Utc::now().timestamp();
+
+        let claims_1day = Claims::new(user_id, role.clone(), 1);
+        let claims_7day = Claims::new(user_id, role.clone(), 7);
+        let claims_30day = Claims::new(user_id, role.clone(), 30);
+
+        // Verify that longer lifetimes produce later expiration timestamps
+        assert!(claims_1day.exp < claims_7day.exp);
+        assert!(claims_7day.exp < claims_30day.exp);
+
+        // Verify first claim is roughly 1 day from now
+        let expected_1day = now + (24 * 60 * 60);
+        assert!(
+            (claims_1day.exp - expected_1day).abs() < 5,
+            "1-day claim should expire ~24h from now"
+        );
+    }
+
+    #[tokio::test]
+    async fn jwt_encode_decode_preserves_all_fields() {
+        with_test_jwt_secret("test-secret", async {
+            let original_id = 999;
+            let original_role = Role::Author;
+            let lifetime = 10;
+
+            let claims = Claims::new(original_id, original_role.clone(), lifetime);
+            let original_exp = claims.exp;
+
+            let token = encode_jwt(claims).await.expect("encode ok");
+            let decoded = decode_jwt(&token).await.expect("decode ok");
+
+            assert_eq!(decoded.id, original_id, "ID should be preserved");
+            assert_eq!(decoded.role, original_role, "Role should be preserved");
+            assert_eq!(
+                decoded.exp, original_exp,
+                "Expiration should be preserved exactly"
+            );
+        })
+        .await;
+    }
+}
