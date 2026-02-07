@@ -89,7 +89,7 @@ fn validate_mime_type(filename: &str) -> Result<String, NurError> {
         Ok(mime_type)
     } else {
         Err(NurError::BadRequest(format!(
-            "File type '{}' is not allowed. Only images, videos, audio, and PDF files are permitted.",
+            "File type '{}' is not allowed.",
             mime_type
         )))
     }
