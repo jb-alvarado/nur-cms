@@ -168,9 +168,9 @@ pub async fn upload_chunk(
     // Validate chunk size
     if chunk_data.len() as u64 > *MAX_CHUNK_SIZE {
         return Err(NurError::BadRequest(format!(
-            "Chunk size {} bytes exceeds maximum allowed chunk size of {} bytes",
-            chunk_data.len(),
-            *MAX_CHUNK_SIZE
+            "Chunk size {} exceeds maximum allowed chunk size of {}",
+            format_bytes(chunk_data.len() as u64),
+            format_bytes(*MAX_CHUNK_SIZE)
         )));
     }
 
