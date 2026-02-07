@@ -48,7 +48,7 @@ pub async fn config_update(
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
 ) -> Result<(), NurError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+    if details.has_any_authority(&[&Role::Admin]) {
         return match handles::update_record(&pool, &Table::Configuration, 1, &content).await {
             Ok(_) => {
                 {
