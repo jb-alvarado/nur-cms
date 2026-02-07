@@ -1,4 +1,5 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use axum::{
     Extension,
@@ -19,12 +20,97 @@ use tokio::{
 use tracing::{error, info};
 
 use crate::{
-    AuthUserMeta, CONFIG, STORAGE,
+    AuthUserMeta, CONFIG, MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE, PUBLIC_UPLOADS, STORAGE,
     db::models::Role,
     file::helper::*,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
+
+// Allowed MIME types for uploads
+const ALLOWED_MIME_TYPES: &[&str] = &[
+    "application/epub+zip",
+    "application/gzip",
+    "application/json",
+    "application/msword",
+    "application/pdf",
+    "application/rtf",
+    "application/vnd.apple.keynote",
+    "application/vnd.apple.numbers",
+    "application/vnd.apple.pages",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-outlook",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/x-7z-compressed",
+    "application/x-bzip2",
+    "application/x-rar-compressed",
+    "application/x-tar",
+    "application/x-xz",
+    "application/x-zip-compressed",
+    "application/xml",
+    "application/zip",
+    "audio/aac",
+    "audio/flac",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/wav",
+    "audio/webm",
+    "image/avif",
+    "image/gif",
+    "image/heic",
+    "image/heif",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/svg+xml",
+    "image/webp",
+    "text/csv",
+    "text/plain",
+    "text/xml",
+    "video/mp4",
+    "video/ogg",
+    "video/quicktime",
+    "video/webm",
+];
+
+fn validate_mime_type(filename: &str) -> Result<String, NurError> {
+    let mime_type = mime_guess::from_path(filename)
+        .first_or_octet_stream()
+        .to_string();
+
+    if ALLOWED_MIME_TYPES.contains(&mime_type.as_str()) {
+        Ok(mime_type)
+    } else {
+        Err(NurError::BadRequest(format!(
+            "File type '{}' is not allowed. Only images, videos, audio, and PDF files are permitted.",
+            mime_type
+        )))
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * KB;
+    const GB: f64 = 1024.0 * MB;
+
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= MB {
+        format!("{:.1} MB", b / MB)
+    } else if b >= KB {
+        format!("{:.1} KB", b / KB)
+    } else {
+        format!("{} B", bytes)
+    }
+}
 
 /// Handle chunked/resumable file uploads
 pub async fn upload_chunk(
@@ -61,15 +147,40 @@ pub async fn upload_chunk(
         }
     }
 
-    let file_name = file_name.ok_or_else(|| NurError::BadRequest("Missing filename".into()))?;
+    let original_filename =
+        file_name.ok_or_else(|| NurError::BadRequest("Missing filename".into()))?;
     let start = start.ok_or_else(|| NurError::BadRequest("Missing start offset".into()))?;
     let end = end.ok_or_else(|| NurError::BadRequest("Missing end offset".into()))?;
     let chunk_data = chunk_data.ok_or_else(|| NurError::BadRequest("Missing chunk".into()))?;
+
+    // Validate MIME type
+    let mime_type = validate_mime_type(&original_filename)?;
+
+    // Validate file size limits
+    if size > *MAX_UPLOAD_SIZE {
+        return Err(NurError::BadRequest(format!(
+            "File size {} exceeds maximum allowed size of {}",
+            format_bytes(size),
+            format_bytes(*MAX_UPLOAD_SIZE)
+        )));
+    }
+
+    // Validate chunk size
+    if chunk_data.len() as u64 > *MAX_CHUNK_SIZE {
+        return Err(NurError::BadRequest(format!(
+            "Chunk size {} bytes exceeds maximum allowed chunk size of {} bytes",
+            chunk_data.len(),
+            *MAX_CHUNK_SIZE
+        )));
+    }
 
     // Validate chunk
     if end <= start || chunk_data.len() as u64 != end - start || end > size {
         return Err(NurError::BadRequest("Invalid chunk range".into()));
     }
+
+    // Use sanitized original filename (DB check prevents overwrites)
+    let file_name = original_filename;
 
     // Storage path: YEAR/MONTH
     let mut output_path = PathBuf::from(&*STORAGE);
@@ -79,7 +190,29 @@ pub async fn upload_chunk(
     }
 
     let output_file = output_path.join(&file_name);
-    let meta = Arc::new(Mutex::new(Meta::default()));
+
+    // On first chunk: check if file already exists in DB to prevent overwriting
+    if start == 0 {
+        let file_path = output_file
+            .strip_prefix(STORAGE.as_str())
+            .unwrap_or(&output_file)
+            .parent()
+            .map(|p| Path::new(PUBLIC_UPLOADS).join(p))
+            .unwrap_or_else(|| Path::new(PUBLIC_UPLOADS).to_path_buf())
+            .to_string_lossy()
+            .to_string();
+
+        if file_exists_in_db(&pool, &file_name, &file_path).await? {
+            return Err(NurError::Conflict(format!(
+                "File '{}' already exists in database. Cannot overwrite.",
+                file_name
+            )));
+        }
+    }
+    let meta = Arc::new(Mutex::new(Meta {
+        db_id: None,
+        mime_type: Some(mime_type),
+    }));
     let upload_value = file_ranges(start, size, &file_name, &output_file, &batch_id, meta).await?;
 
     // Write chunk

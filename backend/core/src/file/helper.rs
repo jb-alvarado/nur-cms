@@ -122,7 +122,7 @@ pub async fn file_ranges(
         && !uploads.contains_key(&upload_key)
     {
         return Err(NurError::Conflict(format!(
-            "File {file_name:?} already exists!"
+            "File {file_name:?} is currently being uploaded!"
         )));
     }
 
@@ -163,6 +163,21 @@ pub async fn cleanup_uploads(batch_id: &str) {
     uploads.retain(|_, upload| upload.batch_id != batch_id);
 }
 
+/// Check if file already exists in database
+pub async fn file_exists_in_db(
+    pool: &PgPool,
+    filename: &str,
+    path: &str,
+) -> Result<bool, NurError> {
+    const QUERY: &str = "SELECT EXISTS(SELECT 1 FROM media WHERE filename = $1 AND path = $2)";
+    let exists: bool = sqlx::query_scalar(QUERY)
+        .bind(filename)
+        .bind(path)
+        .fetch_one(pool)
+        .await?;
+    Ok(exists)
+}
+
 /// Add media record to database and update UploadMeta
 pub async fn add_media_record(
     pool: &PgPool,
@@ -198,8 +213,8 @@ pub async fn add_media_record(
         alt: Some(
             output_file
                 .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
                 .to_string(),
         ),
         filename: output_file

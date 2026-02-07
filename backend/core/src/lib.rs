@@ -55,6 +55,10 @@ pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFR
 pub static STORAGE: LazyLock<String> =
     LazyLock::new(|| env_parse_or("STORAGE", "./uploads".to_string()));
 pub static PUBLIC_UPLOADS: &str = "/uploads";
+pub static MAX_UPLOAD_SIZE: LazyLock<u64> =
+    LazyLock::new(|| env_parse_or("MAX_UPLOAD_SIZE", 800 * 1024 * 1024)); // 800MB default
+pub static MAX_CHUNK_SIZE: LazyLock<u64> =
+    LazyLock::new(|| env_parse_or("MAX_CHUNK_SIZE", 10 * 1024 * 1024)); // 10MB default
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));

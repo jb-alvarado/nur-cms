@@ -14,24 +14,28 @@ pub mod routes;
 
 use crate::utils::errors::NurError;
 
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, Hash, PartialEq, Clone)]
 pub struct UuidData {
     pub uuid: Uuid,
     pub expiration: SystemTime,
+    pub ip_address: String,
+    pub user_id: Option<i32>,
 }
 
 impl UuidData {
-    pub fn new() -> Self {
+    pub fn new(ip_address: String, user_id: Option<i32>) -> Self {
         Self {
             uuid: Uuid::new_v4(),
-            expiration: SystemTime::now() + Duration::from_secs(2 * 3600), // 2 hours
+            expiration: SystemTime::now() + Duration::from_mins(30),
+            ip_address,
+            user_id,
         }
     }
 }
 
 impl Default for UuidData {
     fn default() -> Self {
-        Self::new()
+        Self::new(String::from("127.0.0.1"), None)
     }
 }
 
@@ -106,14 +110,24 @@ pub fn prune_uuids(uuids: &mut HashSet<UuidData>) {
     uuids.retain(|entry| entry.expiration > SystemTime::now());
 }
 
-pub fn check_uuid(uuids: &mut HashSet<UuidData>, uuid: &str) -> Result<&'static str, NurError> {
+pub fn check_uuid(
+    uuids: &mut HashSet<UuidData>,
+    uuid: &str,
+    ip_address: &str,
+) -> Result<&'static str, NurError> {
     let client_uuid = Uuid::parse_str(uuid)
         .map_err(|_| NurError::Forbidden("Invalid missing UUID".to_string()))?;
 
     prune_uuids(uuids);
 
     match uuids.iter().find(|entry| entry.uuid == client_uuid) {
-        Some(_) => Ok("UUID is valid"),
-        None => Err(NurError::Forbidden("Invalid missing UUID".to_string())),
+        Some(entry) => {
+            // Verify IP address matches
+            if entry.ip_address != ip_address {
+                return Err(NurError::Forbidden("UUID IP address mismatch".to_string()));
+            }
+            Ok("UUID is valid")
+        }
+        None => Err(NurError::Forbidden("Invalid or expired UUID".to_string())),
     }
 }
