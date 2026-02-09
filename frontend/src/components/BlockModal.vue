@@ -17,9 +17,7 @@ const media = ref<null | Media>(null)
 const templates = ref<NodeTemplateExt[]>([])
 const selectedTemplate = ref()
 
-const emit = defineEmits<{
-    'add-block': [{ media: null | Media; data: Record<string, any> }]
-}>()
+const emit = defineEmits(['add-block', 'template-count'])
 
 const selectTemplates = async () => {
     try {
@@ -32,6 +30,8 @@ const selectTemplates = async () => {
         }
 
         const resp = await response.json()
+
+        emit('template-count', resp.count)
 
         templates.value = resp.results
     } catch (err) {

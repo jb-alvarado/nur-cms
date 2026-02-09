@@ -44,7 +44,7 @@ const props = defineProps({
         default() {},
     },
     removeNode: {
-        type: Function,
+        type: [Function, null] as const,
         default: null,
     },
 })

@@ -88,12 +88,13 @@ const locales = ref<Locale[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status = ['draft', 'published', 'archived']
 const currentNodeIndex = ref(-1)
+const templateCount = ref(0)
 
 const authorsFormatted = computed(() =>
     store.authors.map((a) => ({
         ...a,
         displayName: `${a.first_name} ${a.last_name}`.trim(),
-    }))
+    })),
 )
 
 const selectedAuthorsFormatted = computed({
@@ -128,7 +129,7 @@ if (contentId > 0) {
         `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
         {
             headers: auth.authHeader,
-        }
+        },
     )
         .then(async (resp) => {
             if (resp.status >= 400) {
@@ -142,8 +143,8 @@ if (contentId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
-                )
+                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
+                ),
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
@@ -382,7 +383,7 @@ async function save() {
     const payload: Record<string, any> = Object.fromEntries(
         Object.entries(content.value as Record<string, any>).filter(([key, value]) => {
             return !isEqual(value, (contentOriginal.value as Record<string, any>)[key])
-        })
+        }),
     )
 
     // Calculate tag changes
@@ -505,7 +506,7 @@ function deleteContent() {
                 } else {
                     store.msgAlert(
                         'success',
-                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id })
+                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id }),
                     )
 
                     router.push(rootPath)
@@ -662,7 +663,11 @@ async function insertEntryAuthor(entry: number, author: number) {
             </div>
 
             <!-- Form + Editor Container -->
-            <div v-if="content" class="flex flex-col flex-1 max-w-5xl bg-base-300 px-4 pt-1 pb-2 mt-4 rounded">
+            <div
+                v-if="content"
+                class="flex flex-col flex-1 max-w-5xl bg-base-300 px-4 pt-1 mt-4 rounded"
+                :class="templateCount > 0 ? 'pb-2' : 'pb-4'"
+            >
                 <!-- Form inputs -->
                 <div class="flex flex-wrap-reverse gap-4">
                     <div class="grow flex flex-col md:flex-row gap-2">
@@ -845,7 +850,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                     <TextEditor
                         v-if="!('blocks' in node) && !('data' in node)"
                         v-model="node.text"
-                        :remove-node="() => deleteNode(i)"
+                        :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
                     />
                     <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
                         <div class="w-10">
@@ -874,11 +879,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     >
                                         <i class="bi bi-plus-lg scale-130"></i>
                                     </button>
-                                    <button
-                                        class="btn btn-sm"
-                                        :title="$t('common.removeBlock')"
-                                        @click="deleteNode(i)"
-                                    >
+                                    <button class="btn btn-sm" :title="$t('common.removeBlock')" @click="deleteNode(i)">
                                         <i class="bi bi-x-lg"></i>
                                     </button>
                                 </div>
@@ -906,11 +907,13 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     />
                                     <div v-else class="bg-base-content/30 w-full h-10"></div>
                                 </div>
-                                <GenericBlock
-                                    v-model:block="block.data"
-                                    class="grow"
+                                <GenericBlock v-model:block="block.data" class="grow" />
+                                <input
+                                    v-model="block.order_index"
+                                    type="number"
+                                    class="input w-15"
+                                    @change="sortBlocks(i)"
                                 />
-                                <input v-model="block.order_index" type="number" class="input w-15" @change="sortBlocks(i)" />
                                 <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
                                     <i class="bi bi-x-lg"></i>
                                 </button>
@@ -919,7 +922,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                     </div>
                 </template>
 
-                <div class="flex justify-center mt-2">
+                <div v-if="templateCount > 0" class="flex justify-center mt-2">
                     <div class="join">
                         <button
                             class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
@@ -955,6 +958,6 @@ async function insertEntryAuthor(entry: number, author: number) {
             <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
         </GenericModal>
         <MediaBrowser ref="mediaModal" :update="addMedia" />
-        <BlockModal ref="blockModal" @add-block="addDataNode" />
+        <BlockModal ref="blockModal" @add-block="addDataNode" @template-count="(count) => (templateCount = count)" />
     </div>
 </template>
