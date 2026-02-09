@@ -34,7 +34,7 @@ body {
 .file-input,
 .input,
 .select,
-.textarea {
+textarea {
     &:focus,
     &:focus-within {
         --input-color: color-mix(in srgb, var(--color-base-content) 30%, transparent);

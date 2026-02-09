@@ -289,6 +289,15 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
                     result.push(NodeSerializer::Single(Box::new(node)));
                 }
 
+                // Handle orphaned children (nodes with parent_id but no parent found)
+                if !children_map.is_empty() {
+                    for (_, children) in children_map {
+                        for child in children {
+                            result.push(NodeSerializer::Single(Box::new(child)));
+                        }
+                    }
+                }
+
                 // Sort result by order_index of the first node
                 result.sort_by_key(|n| match n {
                     NodeSerializer::Single(node) => node.order_index.unwrap_or(0),

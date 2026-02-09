@@ -151,6 +151,23 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
             CF::Node(CN::ID) => fields.push("'id', cn.id".to_string()),
             CF::Node(CN::OrderIndex) => fields.push("'order_index', cn.order_index".to_string()),
             CF::Node(CN::Text) => fields.push(format!("'text', {text}")),
+            CF::Node(CN::Blocks) => {
+                if !query_obj.fields.contains(&CF::Node(CN::ID)) {
+                    fields.push("'id', cn.id".to_string());
+                }
+
+                if !query_obj.fields.contains(&CF::Node(CN::OrderIndex)) {
+                    fields.push("'order_index', cn.order_index".to_string());
+                }
+
+                if !query_obj.fields.contains(&CF::Node(CN::Data)) {
+                    fields.push("'data', cn.data".to_string());
+                }
+
+                if !query_obj.fields.contains(&CF::Node(CN::ParentID)) {
+                    fields.push("'parent_id', cn.parent_id".to_string());
+                }
+            }
             CF::Node(CN::Data) => fields.push("'data', cn.data".to_string()),
             CF::Node(CN::Embeds) => {
                 fields.push("'embeds', COALESCE(embed_data.media, '[]')".to_string());
@@ -225,15 +242,30 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
         );
     }
 
+    let sort = match query_obj.blocks_random {
+        true => "random()",
+        false => "cn.order_index",
+    };
+
+    let limit = match query_obj.blocks_limit {
+        Some(limit) => format!("LIMIT {limit}"),
+        None => String::new(),
+    };
+
     format!(
         r#"LEFT JOIN LATERAL (
         SELECT jsonb_agg(
             jsonb_build_object(
                 {}
-            ) ORDER BY cn.order_index
+            )
         ) AS nodes
-        {}
-        WHERE cn.entry_id = ce.id
+        FROM (
+            SELECT cn.*
+            {}
+            WHERE cn.entry_id = ce.id
+            ORDER BY {sort}
+            {limit}
+        ) cn
     ) AS nodes ON TRUE "#,
         fields.join(", "),
         from_clause
