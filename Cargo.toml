@@ -3,7 +3,7 @@ members = ["backend/app", "backend/core"]
 resolver = "2"
 
 [workspace.package]
-description = "NUR CMS backend"
+description = "NUR CMS - simple and fast headless CMS"
 readme = "README.md"
 version = "0.5.1"
 license = "GPL-3.0"

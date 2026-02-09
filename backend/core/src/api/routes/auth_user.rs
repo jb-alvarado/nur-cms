@@ -4,7 +4,6 @@ use axum::{
 };
 use chrono::Utc;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
-
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;

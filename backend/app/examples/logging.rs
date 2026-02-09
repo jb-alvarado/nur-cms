@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{net::SocketAddr, time::Instant};
 
 use axum::{
     Router,
@@ -9,10 +9,9 @@ use axum::{
     routing::get,
 };
 use real::RealIpLayer;
-use std::net::SocketAddr;
 use tracing::{error, info};
 
-use backend_core::utils::errors::NurError;
+use nur_core::utils::errors::NurError;
 
 async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     let timer = Instant::now();

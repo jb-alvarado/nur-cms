@@ -1,5 +1,5 @@
 [package]
-name = "backend_core"
+name = "nur_core"
 description.workspace = true
 readme.workspace = true
 version.workspace = true

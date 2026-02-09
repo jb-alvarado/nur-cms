@@ -1,3 +1,8 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
+
 use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Local, TimeDelta, Utc};
@@ -6,10 +11,7 @@ use rand::Rng;
 use real::RealIp;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
-use tokio::sync::Mutex;
-use tokio::task;
+use tokio::{sync::Mutex, task};
 use tracing::{error, info, warn};
 
 use crate::{

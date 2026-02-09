@@ -16,7 +16,10 @@ use dotenvy::{dotenv, from_filename};
 use lazy_limit::{Duration as LDuration, HttpMethod, RuleConfig, init_rate_limiter};
 use protect_axum::GrantsLayer;
 use real::RealIpLayer;
-use tokio::sync::{Mutex, broadcast};
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, broadcast},
+};
 use tower::ServiceBuilder;
 use tower_http::services::ServeDir;
 use tracing::{debug, error, info, warn};
@@ -26,7 +29,7 @@ mod serve;
 
 mod utils;
 
-use backend_core::{
+use nur_core::{
     CONFIG, STORAGE,
     db::handles,
     extract, init_db,
@@ -185,13 +188,12 @@ async fn main() -> Result<(), NurError> {
         app = app.nest_service("/uploads", uploads_service);
     }
 
-    let listener =
-        tokio::net::TcpListener::bind(args.core.listen.as_deref().unwrap_or("127.0.0.1:8777"))
-            .await
-            .map_err(|e| {
-                error!("Failed to bind TCP listener: {e:?}");
-                NurError::InternalServerError
-            })?;
+    let listener = TcpListener::bind(args.core.listen.as_deref().unwrap_or("127.0.0.1:8777"))
+        .await
+        .map_err(|e| {
+            error!("Failed to bind TCP listener: {e:?}");
+            NurError::InternalServerError
+        })?;
 
     if let Ok(addr) = listener.local_addr() {
         debug!("listening on {}", addr.to_string().yellow());

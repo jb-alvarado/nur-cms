@@ -1,7 +1,7 @@
 #[cfg(not(debug_assertions))]
 use std::{
     io::{BufRead, BufReader},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 #[cfg(not(debug_assertions))]
@@ -13,8 +13,8 @@ fn main() {
         let output = Command::new("npm")
             .args(["run", "build"])
             .current_dir("../../frontend")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
             .spawn()
             .and_then(|mut child| {
                 let stdout = child.stdout.take().expect("Failed to capture stdout");

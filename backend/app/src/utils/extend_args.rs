@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use backend_core::utils::cmd_args::Args;
+use nur_core::utils::cmd_args::Args;
 
 #[derive(Parser, Debug, Clone)]
 pub struct AppArgs {
