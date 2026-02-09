@@ -270,10 +270,7 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
 
                 // Process parent nodes
                 for (node_id, parent_node) in parent_nodes {
-                    if let Some(mut children) = children_map.remove(&node_id) {
-                        // Sort children by order_index
-                        children.sort_by_key(|n| n.order_index.unwrap_or(0));
-
+                    if let Some(children) = children_map.remove(&node_id) {
                         // This node has children - create a Block with parent + children
                         let mut block = vec![parent_node];
                         block.extend(children);
@@ -297,14 +294,6 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
                         }
                     }
                 }
-
-                // Sort result by order_index of the first node
-                result.sort_by_key(|n| match n {
-                    NodeSerializer::Single(node) => node.order_index.unwrap_or(0),
-                    NodeSerializer::Blocks(nodes) => {
-                        nodes.first().and_then(|n| n.order_index).unwrap_or(0)
-                    }
-                });
 
                 result
             })

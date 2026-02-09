@@ -254,21 +254,23 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
 
     format!(
         r#"LEFT JOIN LATERAL (
-        SELECT jsonb_agg(
-            jsonb_build_object(
-                {}
-            )
-        ) AS nodes
+        SELECT jsonb_agg(node_json ORDER BY sort_key) AS nodes
         FROM (
-            SELECT cn.*
+            SELECT {} AS sort_key,
+                   jsonb_build_object(
+                       {}
+                   ) AS node_json
             {}
             WHERE cn.entry_id = ce.id
-            ORDER BY {sort}
-            {limit}
-        ) cn
+            ORDER BY {}
+            {}
+        ) AS node_data
     ) AS nodes ON TRUE "#,
+        sort,
         fields.join(", "),
-        from_clause
+        from_clause,
+        sort,
+        limit
     )
 }
 
