@@ -94,7 +94,7 @@ const router = createRouter({
         {
             path: '/:pathMatch(.*)*',
             name: '404',
-            component: () => import('../views/404.vue'),
+            component: () => import('../views/404NotFount.vue'),
             alias: '/404',
         },
     ],
