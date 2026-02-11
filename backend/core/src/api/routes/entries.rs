@@ -72,7 +72,7 @@ pub async fn entries_select(
                     if !text.is_empty() {
                         match output {
                             OutputType::AST => {
-                                let ast = to_mdast(&text, &ParseOptions::default())?;
+                                let ast = to_mdast(&text, &ParseOptions::gfm())?;
                                 let json = serde_json::to_string(&ast).unwrap_or_default();
                                 let tree: Value = serde_json::from_str(&json).unwrap_or_default();
                                 let body = to_structure_root(&tree, &mut node.embeds);
@@ -143,7 +143,7 @@ pub async fn entry_select(
                     if !text.is_empty() {
                         match output {
                             OutputType::AST => {
-                                let ast = to_mdast(&text, &ParseOptions::default())?;
+                                let ast = to_mdast(&text, &ParseOptions::gfm())?;
                                 let json = serde_json::to_string(&ast).unwrap_or_default();
                                 let tree: Value = serde_json::from_str(&json).unwrap_or_default();
                                 let body = to_structure_root(&tree, &mut node.embeds);
@@ -243,7 +243,7 @@ pub async fn entry_insert(
                     handles::insert_record(&pool, &Table::ContentNodes, &node).await?;
 
                 if let Some(text) = node.get("text").and_then(|t| t.as_str()) {
-                    let ast = to_mdast(text, &ParseOptions::default())?;
+                    let ast = to_mdast(text, &ParseOptions::gfm())?;
                     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
 
                     persist_content_media(&pool, node_id, &tree).await?;

@@ -1,6 +1,6 @@
 use markdown::{ParseOptions, to_mdast};
 use serde_json::Value;
-use sqlx::{PgConnection, Postgres, QueryBuilder, postgres::PgPool};
+use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 use tracing::error;
 
@@ -532,7 +532,7 @@ pub async fn select_media_id_by_path(
 }
 
 pub async fn delete_content_media_for_entry(
-    pool: &mut PgConnection,
+    pool: &PgPool,
     node_id: i32,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM content_node_media WHERE node_id = $1")
@@ -573,8 +573,9 @@ pub async fn sync_entry_nodes(
     .await?;
 
     let mut existing_ids = Vec::new();
-    let mut tx = pool.begin().await?;
     let mut order_index = 1;
+
+    // TODO: work with transactions: let mut tx = pool.begin().await?;
 
     // Process each node in the incoming array
     for node in nodes {
@@ -620,7 +621,7 @@ pub async fn sync_entry_nodes(
                         .bind(parent_id)
                         .bind(id)
                         .bind(entry_id)
-                        .execute(&mut *tx)
+                        .execute(pool)
                         .await?;
                     }
                     None => {
@@ -633,7 +634,7 @@ pub async fn sync_entry_nodes(
                         .bind(order_index)
                         .bind(&data)
                         .bind(parent_id)
-                        .fetch_one(&mut *tx)
+                        .fetch_one(pool)
                         .await?;
 
                         if parent_id.is_none() {
@@ -669,7 +670,7 @@ pub async fn sync_entry_nodes(
                     .bind(&data)
                     .bind(id)
                     .bind(entry_id)
-                    .execute(&mut *tx)
+                    .execute(pool)
                     .await?;
 
                     // Process text and media
@@ -678,7 +679,7 @@ pub async fn sync_entry_nodes(
                     {
                         let ast = to_mdast(text_str, &ParseOptions::default())?;
                         let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-                        delete_content_media_for_entry(&mut tx, entry_id).await?;
+                        delete_content_media_for_entry(pool, entry_id).await?;
                         persist_content_media(pool, id, &tree).await?;
                     }
                 }
@@ -692,7 +693,7 @@ pub async fn sync_entry_nodes(
                     .bind(order_index)
                     .bind(text)
                     .bind(&data)
-                    .fetch_one(&mut *tx)
+                    .fetch_one(pool)
                     .await?;
 
                     // Process text and media
@@ -717,12 +718,11 @@ pub async fn sync_entry_nodes(
         if !existing_ids.contains(db_id) {
             sqlx::query("DELETE FROM content_nodes WHERE id = $1")
                 .bind(db_id)
-                .execute(&mut *tx)
+                .execute(pool)
                 .await?;
         }
     }
 
-    tx.commit().await?;
     Ok(())
 }
 
