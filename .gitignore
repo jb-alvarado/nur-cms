@@ -38,3 +38,5 @@ coverage
 *.rpm
 
 *.tsbuildinfo
+
+temp/

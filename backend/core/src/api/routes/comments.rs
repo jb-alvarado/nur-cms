@@ -103,19 +103,19 @@ pub async fn comment_insert(
 
         content.author_email = Some(validate_email_address(content.author_email.unwrap()).await?);
         content.status = Some("pending".to_string());
-    }
 
-    let result = evaluate_text(content.text.as_deref().unwrap_or(""), None);
+        let result = evaluate_text(content.text.as_deref().unwrap_or(""), None);
 
-    if !result.passed {
-        error!(
-            "Spam detected from: {:?}, score: {:?}",
-            real_ip.ip(),
-            result.score
-        );
-        return Err(NurError::Conflict(
-            "This message is not allowed!".to_string(),
-        ));
+        if !result.passed {
+            error!(
+                "Spam detected from: {:?}, score: {:?}",
+                real_ip.ip(),
+                result.score
+            );
+            return Err(NurError::Conflict(
+                "This message is not allowed!".to_string(),
+            ));
+        }
     }
 
     match handles::insert_comment(&pool, &content).await {
@@ -123,7 +123,12 @@ pub async fn comment_insert(
             let msg = SSEMessage::new(SSELevel::Success, &format!("New Comment received: {id}"));
             let _ = tx.send(msg.to_string());
 
-            notify(content).await?;
+            if content.author_email.is_some()
+                && content.author_name.is_some()
+                && CONFIG.read().await.mail_smtp.is_some()
+            {
+                notify(content).await?;
+            }
 
             Ok(Json(id))
         }

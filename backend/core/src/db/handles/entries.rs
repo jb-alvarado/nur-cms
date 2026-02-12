@@ -288,6 +288,10 @@ pub async fn select_content_entries(
             CF::Category => sep.push(format!("COALESCE(cats.data, NULL) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
+            CF::CommentCount => sep.push(
+                "COALESCE((SELECT COUNT(*) FROM comments c WHERE c.entry_id = ce.id AND c.status = 'approved'), 0) AS comment_count"
+                    .to_string(),
+            ),
             CF::Node(_) => {
                 if add_node {
                     add_node = false;

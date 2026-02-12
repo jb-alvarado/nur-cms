@@ -28,6 +28,7 @@ pub enum ContentEntryFields {
     UpdatedAt,
     GroupMembers,
     Media,
+    CommentCount,
     Node(ContentNodeFields),
 }
 
@@ -50,6 +51,7 @@ impl StrCompare for ContentEntryFields {
             Self::UpdatedAt => other == "updated_at",
             Self::GroupMembers => other == "group_members",
             Self::Media => other == "media",
+            Self::CommentCount => other == "comment_count",
             Self::Node(_) => false,
         }
     }
@@ -82,6 +84,7 @@ impl FromStr for ContentEntryFields {
             "updated_at" => Ok(Self::UpdatedAt),
             "group_members" => Ok(Self::GroupMembers),
             "media" => Ok(Self::Media),
+            "comment_count" => Ok(Self::CommentCount),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -106,6 +109,7 @@ impl fmt::Display for ContentEntryFields {
             Self::UpdatedAt => write!(f, "updated_at"),
             Self::GroupMembers => write!(f, "group_members"),
             Self::Media => write!(f, "media"),
+            Self::CommentCount => write!(f, "comment_count"),
             Self::Node(ref node_field) => write!(f, "node.{}", node_field),
         }
     }

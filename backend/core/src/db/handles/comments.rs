@@ -105,24 +105,76 @@ pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError>
     let entry_id = c.entry_id.ok_or(NurError::InvalidInput)?;
     let text = c.text.as_deref().ok_or(NurError::InvalidInput)?;
     let status = c.status.as_deref().unwrap_or("pending");
+    let mut qb = QueryBuilder::<Postgres>::new("INSERT INTO comments (");
+    let mut keys = vec!["entry_id", "text", "status"];
 
-    const QUERY: &str = r#"
-        INSERT INTO comments (entry_id, author_name, author_email, status, text)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id
-    "#;
+    if c.parent_id.is_some() {
+        keys.push("parent_id");
+    }
+
+    if c.author_email.is_some() {
+        keys.push("author_email");
+    }
+
+    if c.author_name.is_some() {
+        keys.push("author_name");
+    }
+
+    if c.user_id.is_some() && c.author_email.is_none() {
+        keys.push("user_id");
+    }
+
+    if c.user_id.is_some() && c.created_at.is_some() {
+        keys.push("created_at");
+    }
+
+    if c.user_id.is_some() && c.updated_at.is_some() {
+        keys.push("updated_at");
+    }
+
+    qb.push(keys.join(", "));
+    qb.push(") VALUES (");
+
+    let mut separated = qb.separated(", ");
+    separated.push_bind(entry_id);
+    separated.push_bind(text);
+    separated.push_bind(status);
+
+    if let Some(parent_id) = c.parent_id {
+        separated.push_bind(parent_id);
+    }
+
+    if let Some(author_email) = c.author_email.as_deref() {
+        separated.push_bind(author_email);
+    }
+
+    if let Some(author_name) = c.author_name.as_deref() {
+        separated.push_bind(author_name);
+    }
+
+    if let Some(user_id) = c.user_id
+        && c.author_email.is_none()
+    {
+        separated.push_bind(user_id);
+    }
+
+    if c.user_id.is_some() {
+        if let Some(created_at) = c.created_at {
+            separated.push_bind(created_at);
+        }
+        if let Some(updated_at) = c.updated_at {
+            separated.push_bind(updated_at);
+        }
+    }
+
+    qb.push(") RETURNING id");
+
+    let query = qb.build_query_scalar();
 
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(QUERY));
+    debug!("{}", format_sql(query.sql()));
 
-    let id = sqlx::query_scalar(QUERY)
-        .bind(entry_id)
-        .bind(&c.author_name)
-        .bind(&c.author_email)
-        .bind(status)
-        .bind(text)
-        .fetch_one(pool)
-        .await?;
+    let id = query.fetch_one(pool).await?;
 
     Ok(id)
 }

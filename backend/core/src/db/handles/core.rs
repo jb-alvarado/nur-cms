@@ -130,7 +130,7 @@ where
         None => return Err(NurError::NoContent),
     };
 
-    let type_ignore = ["id", "last_login", "total_count"];
+    let type_ignore = ["id", "last_login", "total_count", "comment_count"];
     let type_time = ["created_at", "updated_at", "start_time", "end_time"];
 
     let mut keys = Vec::new();
@@ -262,7 +262,7 @@ where
         None => return Ok(()),
     };
 
-    let type_ignore = ["id", "created_at", "nodes", "meta"];
+    let type_ignore = ["id", "created_at", "nodes", "meta", "comment_count"];
     let type_time = ["updated_at", "last_login"];
 
     let mut qb = QueryBuilder::<Postgres>::new(format!("UPDATE {table} SET "));

@@ -198,6 +198,8 @@ pub struct ContentEntrySerializer {
     pub updated_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_members: Vec<GroupMemberSerializer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment_count: Option<i64>,
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -334,6 +336,7 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             created_at: row.try_get("created_at").ok(),
             updated_at: row.try_get("updated_at").ok(),
             group_members,
+            comment_count: row.try_get("comment_count").ok(),
             total_count: row.try_get("total_count").ok(),
         })
     }
