@@ -152,6 +152,14 @@ export const useIndex = defineStore('index', {
             for (const r of this.allRows) {
                 r.check = visibleSet.has(r.field)
             }
+
+            for (const row of this.visibleRows) {
+                if (row.active && row.up) {
+                    this.ordering = row.field
+                } else if (row.active && !row.up) {
+                    this.ordering = `-${row.field}`
+                }
+            }
         },
 
         activeFields() {

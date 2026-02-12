@@ -415,13 +415,13 @@ pub async fn select_content_entries(
         .filter_map(|item| {
             let item = item.trim();
             if item.contains("author") {
-                Some(item.replace("author", "u.last_name"))
-            } else if item.contains("locale") {
-                Some(item.replace("locale", "l.code"))
+                Some(item.replace("author", "ca.last_name"))
+            // } else if item.contains("locale") {
+            //     Some(item.replace("locale", "l.code"))
             } else if item.contains("start_time") {
-                Some(item.replace("start_time", "m.start_time"))
+                Some(item.replace("start_time", "cm.start_time"))
             } else if item.contains("end_time") {
-                Some(item.replace("end_time", "m.end_time"))
+                Some(item.replace("end_time", "cm.end_time"))
             } else if CF::iter().any(|f| item.contains(&f.to_string())) {
                 Some(format!("ce.{item}"))
             } else {

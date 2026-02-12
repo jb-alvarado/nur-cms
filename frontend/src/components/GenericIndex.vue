@@ -22,6 +22,7 @@ store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : rou
 const matchedType = store.types.find((type) => type.slug === store.routeType)?.id
 
 store.typeID = matchedType ?? 1
+store.ordering = 'id'
 
 const authorRows = computed(() => [
     { active: true, up: true, name: t('table.id'), field: 'id' },
@@ -50,7 +51,7 @@ const eventRows = computed(() => [
     { active: false, up: false, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.title'), field: 'title' },
     { active: false, up: false, name: t('table.status'), field: 'status' },
-    { active: false, up: false, name: t('table.startTime'), field: 'start_time' },
+    { active: true, up: false, name: t('table.startTime'), field: 'start_time' },
     { active: false, up: false, name: t('table.endTime'), field: 'end_time' },
     { active: false, up: false, name: t('table.language'), field: 'locale_id' },
 ])

@@ -53,21 +53,28 @@ watch(
 )
 
 function groupColumns(columns: any[]) {
-    const groups: Record<string, any[]> = {}
+    const groups = new Map<string, { items: any[]; firstIndex: number }>()
 
-    // 1. Create groups
-    for (const item of columns) {
+    // 1. Create groups while preserving the first-seen order
+    columns.forEach((item, index) => {
         const key = String(item.group_id ?? item.id) // if no group_id exists -> its own group
+        const entry = groups.get(key)
 
-        if (!groups[key]) groups[key] = []
-        groups[key].push(item)
-    }
+        if (entry) {
+            entry.items.push(item)
+        } else {
+            groups.set(key, { items: [item], firstIndex: index })
+        }
+    })
 
     const result = []
 
+    const orderedGroups = Array.from(groups.values()).sort(
+        (a, b) => a.firstIndex - b.firstIndex
+    )
+
     // 2. Show only the object with the smallest id AND add an array of all IDs in the group
-    for (const key in groups) {
-        const group = groups[key]
+    for (const { items: group } of orderedGroups) {
 
         if (group?.length === 1) {
             // no group, just include as-is
@@ -84,7 +91,6 @@ function groupColumns(columns: any[]) {
             const sortedLocaleIds = sortedGroup
                 .map((g) => ({ id: g.id, locale_id: g.locale_id }))
                 .sort((a, b) => {
-                    // z. B. nach locale_id alphabetisch
                     if (a.locale_id < b.locale_id) return -1
                     if (a.locale_id > b.locale_id) return 1
                     return 0
@@ -95,28 +101,6 @@ function groupColumns(columns: any[]) {
                 locale_ids: sortedLocaleIds,
             })
         }
-    }
-
-    // 3. apply sorting
-    if (store.ordering) {
-        const field = store.ordering.replace('-', '')
-        const asc = !store.ordering.startsWith('-')
-
-        result.sort((a, b) => {
-            let aValue = a[field]
-            let bValue = b[field]
-
-            // Wenn nach locale_id sortiert werden soll
-            if (field === 'locale_id') {
-                // Nimm die kleinste locale_id (oder id, je nach Bedarf)
-                aValue = a.locale_ids?.[0]?.locale_id ?? ''
-                bValue = b.locale_ids?.[0]?.locale_id ?? ''
-            }
-
-            if (aValue < bValue) return asc ? -1 : 1
-            if (aValue > bValue) return asc ? 1 : -1
-            return 0
-        })
     }
 
     return result
