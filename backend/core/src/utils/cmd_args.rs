@@ -34,7 +34,7 @@ pub struct Args {
     #[clap(short, long, help = "Listen on IP:PORT, like: 127.0.0.1:7777")]
     pub listen: Option<String>,
 
-    #[clap(long, help = "Disabling two-factor authentication", hide = true)]
+    #[clap(long, help = "Disabling two-factor authentication")]
     pub disable_two_factor: bool,
 }
 

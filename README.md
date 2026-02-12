@@ -37,3 +37,7 @@ For two-factor authentication setup email credentials in the configuration.
 ![Media](/docs/screenshots/media.png)
 
 ![Configuration](/docs/screenshots/configuration.png)
+
+### Notes
+
+When email settings are configured, nur-cms uses email for two-factor authentication. You can disable this with `--disable-two-factor`, which is useful when you want to seed the CMS from a script.
