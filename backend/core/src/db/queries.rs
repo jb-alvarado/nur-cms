@@ -49,6 +49,9 @@ pub struct QueryObj<T> {
     #[serde(default, rename = "type")]
     pub type_slug: Option<String>,
 
+    #[serde(default, rename = "category")]
+    pub category_slug: Option<String>,
+
     #[serde(default)]
     pub type_id: Option<i32>,
 
@@ -118,6 +121,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             offset: 0,
             ordering: default_ordering(),
             type_slug: None,
+            category_slug: None,
             type_id: None,
             media_type: Vec::new(),
             entry_id: None,

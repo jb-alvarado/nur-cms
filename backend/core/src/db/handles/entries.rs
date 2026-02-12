@@ -373,6 +373,15 @@ pub async fn select_content_entries(
         where_chain.push_and_bind(None, "ce.slug = ", slug, None);
     }
 
+    if let Some(category_slug) = &query_obj.category_slug {
+        where_chain.push_and_bind(
+            None,
+            "EXISTS (SELECT 1 FROM content_categories cc WHERE cc.id = ce.category_id AND cc.slug = ",
+            category_slug,
+            Some(")"),
+        );
+    }
+
     if let Some(status) = &query_obj.search_status {
         where_chain.push_and_bind(None, "ce.status = ", status, None);
     }
