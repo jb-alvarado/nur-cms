@@ -457,6 +457,11 @@ async fn extract_body_and_title(
 
     for line in lines.by_ref() {
         let trimmed = line.trim();
+
+        if is_bootstrap_table_tag(trimmed) {
+            continue;
+        }
+
         if trimmed == "---" {
             if in_frontmatter {
                 let front = frontmatter_raw.join("\n");
@@ -483,8 +488,15 @@ async fn extract_body_and_title(
             continue;
         }
 
+        if let Some(ln) =
+            replace_markdown_image(line, pool, media_root, file_dir, &created_at, user_id).await
+        {
+            body_lines.push(ln);
+            continue;
+        }
+
         // Handle custom DOM/image syntax
-        if trimmed.starts_with("{{") && trimmed.ends_with("}}") {
+        if trimmed.starts_with("{{") && trimmed.contains("}}") {
             let mut ln = trimmed
                 .replace("{{", "")
                 .replace("}}", "")
@@ -567,6 +579,101 @@ async fn extract_body_and_title(
     };
 
     Ok((frontmatter, created_at, body, fallback_title))
+}
+
+async fn replace_markdown_image(
+    line: &str,
+    pool: &PgPool,
+    media_root: Option<&Path>,
+    file_dir: &Path,
+    created_at: &DateTime<Utc>,
+    user_id: i32,
+) -> Option<String> {
+    let (image_start, image_close, link_open, link_close) = if let Some(start) = line.find("[![") {
+        let alt_start = start + 3;
+        let alt_end = line[alt_start..].find("](")? + alt_start;
+        let src_start = alt_end + 2;
+        let image_close = line[src_start..].find(")]")? + src_start + 1;
+        let link_open = line[image_close + 1..].find('(')? + image_close + 1;
+        let link_close = line[link_open + 1..].find(')')? + link_open + 1;
+        (start, image_close, Some(link_open), Some(link_close))
+    } else {
+        let start = line.find("![")?;
+        let alt_start = start + 2;
+        let alt_end = line[alt_start..].find("](")? + alt_start;
+        let src_start = alt_end + 2;
+        let image_close = line[src_start..].find(')')? + src_start;
+        (start, image_close, None, None)
+    };
+
+    let image = &line[image_start..=image_close];
+    let alt_start = image.find("![")? + 2;
+    let alt_end = image[alt_start..].find("](")? + alt_start;
+    let src_start = alt_end + 2;
+    let src_end = image[src_start..].rfind(')')? + src_start;
+
+    let alt = image[alt_start..alt_end].trim();
+    let src = image[src_start..src_end].trim();
+
+    if src.is_empty() {
+        return None;
+    }
+
+    let ensured = ensure_media(pool, src, media_root, file_dir, created_at, user_id).await;
+    let new_src = match ensured {
+        Ok(Some(_media_id)) => {
+            let source = resolve_source_path(src, media_root, file_dir);
+            let filename = source.file_name().and_then(|n| n.to_str()).unwrap_or(src);
+            let (target_dir, _target_fs) = ensure_target_paths(created_at);
+            format!("{}/{}", target_dir, filename)
+        }
+        _ => src.to_string(),
+    };
+
+    let image_md = format!("![{alt}]({new_src})");
+    if let (Some(link_open), Some(link_close)) = (link_open, link_close) {
+        let url = line[link_open + 1..link_close].trim();
+        if url.is_empty() {
+            return None;
+        }
+
+        return Some(format!(
+            "{}[{}]({}){}",
+            &line[..image_start],
+            image_md,
+            url,
+            &line[link_close + 1..]
+        ));
+    }
+
+    Some(format!(
+        "{}{}{}",
+        &line[..image_start],
+        image_md,
+        &line[image_close + 1..]
+    ))
+}
+
+fn is_bootstrap_table_tag(line: &str) -> bool {
+    let mut rest = line;
+
+    while let Some(start) = rest.find('<') {
+        let after_start = &rest[start + 1..];
+        let Some(end) = after_start.find('>') else {
+            return false;
+        };
+
+        let inner = after_start[..end].trim();
+        let inner = inner.trim_start_matches('/').trim_start();
+
+        if inner.starts_with("bootstrap-table") {
+            return true;
+        }
+
+        rest = &after_start[end + 1..];
+    }
+
+    false
 }
 
 fn normalize_footnote_links(lines: Vec<String>) -> String {
