@@ -265,6 +265,140 @@ pub fn to_structure_root(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value
     }
 }
 
+fn truncate_text_at_word(text: &str, remaining: usize) -> String {
+    let mut out: String = text.chars().take(remaining).collect();
+
+    if let Some(pos) = out.rfind(|c: char| c.is_whitespace()) {
+        out.truncate(pos);
+    }
+
+    let out = out.trim_end();
+
+    if out.is_empty() {
+        return " ...".to_string();
+    }
+
+    let mut result = out.to_string();
+    result.push_str(" ...");
+    result
+}
+
+fn truncate_structure_node(node: &mut Value, remaining: &mut usize) -> bool {
+    match node {
+        Value::Object(map) => {
+            let node_type = map
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+
+            if ![
+                "text",
+                "paragraph",
+                "heading",
+                "list",
+                "listItem",
+                "link",
+                "quote",
+            ]
+            .contains(&node_type.as_str())
+            {
+                return false;
+            }
+
+            if node_type == "text" {
+                let text = map.get("text").and_then(Value::as_str).unwrap_or("");
+
+                if text.is_empty() {
+                    return false;
+                }
+
+                if *remaining == 0 {
+                    map.insert("text".into(), Value::String(String::new()));
+                    return false;
+                }
+
+                let len = text.chars().count();
+
+                if len <= *remaining {
+                    *remaining -= len;
+                    return true;
+                }
+
+                let truncated_text = truncate_text_at_word(text, *remaining);
+                *remaining = 0;
+                map.insert("text".into(), Value::String(truncated_text));
+                return true;
+            }
+
+            if let Some(Value::Array(children)) = map.get_mut("children") {
+                let mut next_children = Vec::new();
+
+                for mut child in std::mem::take(children) {
+                    if truncate_structure_node(&mut child, remaining) {
+                        next_children.push(child);
+                    }
+                }
+
+                *children = next_children;
+            }
+
+            let is_empty_children = map
+                .get("children")
+                .and_then(Value::as_array)
+                .map(Vec::is_empty)
+                .unwrap_or(false);
+
+            if is_empty_children {
+                return false;
+            }
+
+            true
+        }
+        Value::Array(arr) => {
+            let mut next_children = Vec::new();
+
+            for mut child in std::mem::take(arr) {
+                if truncate_structure_node(&mut child, remaining) {
+                    next_children.push(child);
+                }
+            }
+
+            *arr = next_children;
+            !arr.is_empty()
+        }
+        _ => true,
+    }
+}
+
+pub fn truncate_structure_root(root: &mut Value, limit: usize) {
+    if limit == 0 {
+        if let Value::Array(arr) = root {
+            arr.clear();
+        }
+        return;
+    }
+
+    let mut remaining = limit;
+
+    match root {
+        Value::Array(arr) => {
+            let mut next_children = Vec::new();
+
+            for mut child in std::mem::take(arr) {
+                if truncate_structure_node(&mut child, &mut remaining) {
+                    next_children.push(child);
+                }
+            }
+
+            *arr = next_children;
+        }
+        _ => {
+            let _ = truncate_structure_node(root, &mut remaining);
+        }
+    }
+}
+
 fn collect_image_refs(node: &Value, acc: &mut Vec<AstImageRef>) {
     match node {
         Value::Object(map) => {

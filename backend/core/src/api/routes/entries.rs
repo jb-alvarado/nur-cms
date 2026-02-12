@@ -20,7 +20,7 @@ use crate::{
         serialize::*,
     },
     utils::{
-        ast_serialize::{persist_content_media, to_structure_root},
+        ast_serialize::{persist_content_media, to_structure_root, truncate_structure_root},
         errors::NurError,
     },
 };
@@ -48,8 +48,7 @@ pub async fn entries_select(
 
     if params.fields.contains(&CEF::Node(CNF::Text))
         && !params.fields.contains(&CEF::Node(CNF::Embeds))
-        && params.output_type == Some(OutputType::AST)
-        && params.character_limit.is_none()
+        && output == OutputType::AST
     {
         params.fields.push(CEF::Node(CNF::Embeds));
     }
@@ -75,7 +74,11 @@ pub async fn entries_select(
                                 let ast = to_mdast(&text, &ParseOptions::gfm())?;
                                 let json = serde_json::to_string(&ast).unwrap_or_default();
                                 let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                                let body = to_structure_root(&tree, &mut node.embeds);
+                                let mut body = to_structure_root(&tree, &mut node.embeds);
+
+                                if let Some(limit) = params.character_limit {
+                                    truncate_structure_root(&mut body, limit as usize);
+                                }
 
                                 node.ast = Some(body);
                             }
@@ -116,10 +119,15 @@ pub async fn entry_select(
 
     if params.fields.contains(&CEF::Node(CNF::Text))
         && !params.fields.contains(&CEF::Node(CNF::Embeds))
-        && params.output_type == Some(OutputType::AST)
-        && params.character_limit.is_none()
+        && output == OutputType::AST
     {
         params.fields.push(CEF::Node(CNF::Embeds));
+    }
+
+    let character_limit = params.character_limit;
+
+    if output == OutputType::AST {
+        params.character_limit = None;
     }
 
     if let Some(mut content) = handles::select_content_entries(&pool, &params)
@@ -146,7 +154,11 @@ pub async fn entry_select(
                                 let ast = to_mdast(&text, &ParseOptions::gfm())?;
                                 let json = serde_json::to_string(&ast).unwrap_or_default();
                                 let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                                let body = to_structure_root(&tree, &mut node.embeds);
+                                let mut body = to_structure_root(&tree, &mut node.embeds);
+
+                                if let Some(limit) = character_limit {
+                                    truncate_structure_root(&mut body, limit as usize);
+                                }
 
                                 node.ast = Some(body);
                             }

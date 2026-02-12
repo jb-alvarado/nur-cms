@@ -135,11 +135,6 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
 }
 
 fn nodes_join(query_obj: &QueryObj<CF>) -> String {
-    let text = match query_obj.character_limit {
-        Some(limit) => format!(r#"regexp_replace(left(cn.text, {limit}), '\s+\S*$', ' …')"#),
-        None => "cn.text".to_string(),
-    };
-
     let mut fields = Vec::new();
     let needs_embeds = query_obj
         .fields
@@ -150,7 +145,7 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
         match *f {
             CF::Node(CN::ID) => fields.push("'id', cn.id".to_string()),
             CF::Node(CN::OrderIndex) => fields.push("'order_index', cn.order_index".to_string()),
-            CF::Node(CN::Text) => fields.push(format!("'text', {text}")),
+            CF::Node(CN::Text) => fields.push("'text', cn.text".to_string()),
             CF::Node(CN::Blocks) => {
                 if !query_obj.fields.contains(&CF::Node(CN::ID)) {
                     fields.push("'id', cn.id".to_string());
