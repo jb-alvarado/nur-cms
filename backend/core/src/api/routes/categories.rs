@@ -20,10 +20,15 @@ use crate::utils::errors::NurError;
 pub async fn categories_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Query(mut params): Query<QueryObj<ContentCategoryFields>>,
+    details: AuthDetails<Role>,
     OriginalUri(original_uri): OriginalUri,
 ) -> Result<Json<RespondObj<ContentCategorySerializer>>, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
+
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        params.search_status = Some("published".to_string());
+    }
 
     match handles::select_categories(&pool, &params).await {
         Ok(categories) => Ok(Json(categories)),
