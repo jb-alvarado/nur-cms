@@ -120,6 +120,12 @@ export const useIndex = defineStore('index', {
                                 case 'Article':
                                     t.icon = 'bi-card-list'
                                     break
+                                case 'Collection':
+                                    t.icon = 'bi-collection'
+                                    break
+                                case 'Data':
+                                    t.icon = 'bi-collection'
+                                    break
                                 case 'Page':
                                     t.icon = 'bi-card-heading'
                                     break
