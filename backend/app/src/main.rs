@@ -123,6 +123,9 @@ async fn main() -> Result<(), NurError> {
         return Ok(());
     }
 
+    #[cfg(debug_assertions)]
+    handles::dev_migrate(&pool).await?;
+
     if let Some(path) = args.core.import_markdown {
         let ignore = args.core.ignore_files.unwrap_or_default();
         importer::import_markdown(&pool, path, ignore, args.core.import_media.clone()).await?;

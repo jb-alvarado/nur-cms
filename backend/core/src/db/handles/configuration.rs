@@ -38,9 +38,6 @@ pub async fn db_migrate(pool: &PgPool) -> Result<(), NurError> {
         sqlx::query(QUERY).bind(secret).execute(pool).await?;
     }
 
-    #[cfg(debug_assertions)]
-    dev_migrate(pool).await?;
-
     Ok(())
 }
 
@@ -67,33 +64,40 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
         );
 
         insert_record::<AuthUser, i32>(pool, &crate::db::fields::Table::AuthUsers, &user).await?;
-    }
 
-    if media_resp.results.is_empty() {
-        let migrations_path = env::current_dir()?.join("../migrations_dev");
-        let mut rd = fs::read_dir(migrations_path).await?;
-        let mut migrations = Vec::new();
-        while let Some(entry) = rd.next_entry().await? {
-            if entry
-                .path()
-                .extension()
-                .map(|ext| ext == "sql")
-                .unwrap_or(false)
-            {
-                migrations.push(entry);
+        if media_resp.results.is_empty() {
+            let mut migrations_path = env::current_dir()?.join("migrations_dev");
+
+            if !migrations_path.is_dir() {
+                migrations_path = env::current_dir()?
+                    .join("../migrations_dev")
+                    .canonicalize()?;
             }
-        }
 
-        migrations.sort_by_key(fs::DirEntry::path);
+            let mut rd = fs::read_dir(migrations_path).await?;
+            let mut migrations = Vec::new();
+            while let Some(entry) = rd.next_entry().await? {
+                if entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "sql")
+                    .unwrap_or(false)
+                {
+                    migrations.push(entry);
+                }
+            }
 
-        for entry in migrations {
-            use sqlx::Executor;
+            migrations.sort_by_key(fs::DirEntry::path);
 
-            let path = entry.path();
-            let sql = fs::read_to_string(&path).await?;
-            info!("Executing dev migration: {:?}", path.file_name().unwrap());
+            for entry in migrations {
+                use sqlx::Executor;
 
-            pool.execute(&*sql).await?;
+                let path = entry.path();
+                let sql = fs::read_to_string(&path).await?;
+                info!("Executing dev migration: {:?}", path.file_name().unwrap());
+
+                pool.execute(&*sql).await?;
+            }
         }
     }
 
