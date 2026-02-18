@@ -69,7 +69,25 @@ pub async fn comments_select(
     params.query = original_uri.query().unwrap_or("").into();
 
     if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        if params.entry_id.is_none() {
+            return Err(NurError::Forbidden(
+                "You do not have permission to access this resource.".into(),
+            ));
+        }
+
+        params.ordering = "-creating_at".to_string();
         params.search_status = Some("approved".to_string());
+
+        params.fields.retain(|f| {
+            [
+                CommentFields::ID,
+                CommentFields::AuthorName,
+                CommentFields::Text,
+                CommentFields::CreatedAt,
+                CommentFields::ParentID,
+            ]
+            .contains(f)
+        });
     }
 
     match handles::select_comments(&pool, &params).await {
