@@ -17,10 +17,7 @@
 /// 6. Creates ContentEntry record with title, slug, and content
 /// 7. Inserts associated metadata: category, thumbnail, authors, tags, event dates
 ///
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use colored::Colorize;
@@ -570,7 +567,7 @@ async fn extract_body_and_title(
         }
     }
 
-    let body = normalize_footnote_links(body_lines);
+    let body = body_lines.join("\n").trim().to_string();
     let fallback_title = if title.is_empty() {
         let random_suffix = Uuid::new_v4().to_string()[0..8].to_string();
         format!("Untitled-{random_suffix}")
@@ -674,71 +671,6 @@ fn is_bootstrap_table_tag(line: &str) -> bool {
     }
 
     false
-}
-
-fn normalize_footnote_links(lines: Vec<String>) -> String {
-    let mut refs: HashMap<String, String> = HashMap::new();
-    let mut kept: Vec<String> = Vec::new();
-
-    for line in lines {
-        if let Some((key, url)) = parse_footnote_definition(&line) {
-            refs.insert(key, url);
-        } else {
-            kept.push(line);
-        }
-    }
-
-    let mut out: Vec<String> = Vec::new();
-    for line in kept {
-        out.push(replace_footnote_refs(&line, &refs));
-    }
-
-    out.join("\n").trim().to_string()
-}
-
-fn parse_footnote_definition(line: &str) -> Option<(String, String)> {
-    let trimmed = line.trim();
-    if !trimmed.starts_with("[^") {
-        return None;
-    }
-
-    let end = trimmed.find("]:")?;
-    let key = trimmed.get(2..end)?.trim();
-    let url = trimmed.get(end + 2..)?.trim();
-    if key.is_empty() || url.is_empty() {
-        return None;
-    }
-
-    Some((key.to_string(), url.to_string()))
-}
-
-fn replace_footnote_refs(line: &str, refs: &HashMap<String, String>) -> String {
-    let mut out = String::new();
-    let mut i = 0;
-
-    while let Some(rel) = line[i..].find("][^") {
-        let idx = i + rel; // points to the ']' before [^ref]
-        if let Some(label_start) = line[..idx].rfind('[') {
-            let ref_start = idx + 3;
-            if let Some(ref_end_rel) = line[ref_start..].find(']') {
-                let ref_end = ref_start + ref_end_rel;
-                let key = &line[ref_start..ref_end];
-                if let Some(url) = refs.get(key) {
-                    let label = &line[label_start + 1..idx];
-                    out.push_str(&line[i..label_start]);
-                    out.push_str(&format!("[{}]({})", label, url));
-                    i = ref_end + 1;
-                    continue;
-                }
-            }
-        }
-
-        out.push_str(&line[i..idx + 1]);
-        i = idx + 1;
-    }
-
-    out.push_str(&line[i..]);
-    out
 }
 
 fn extract_slug(url: &str) -> String {
