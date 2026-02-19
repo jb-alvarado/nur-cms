@@ -55,13 +55,6 @@ fn apply_styles(node_type: &str, map: &Map<String, Value>, o: &mut Map<String, V
     }
 
     match node_type {
-        "link" => {
-            if let Some(href) = map.get("url").and_then(Value::as_str) {
-                o.insert("url".into(), Value::String(href.into()));
-            }
-            o.insert("type".into(), Value::String("link".into()));
-            true
-        }
         "html" => {
             if let Some(value) = map.get("value") {
                 o.insert("text".into(), value.clone());
