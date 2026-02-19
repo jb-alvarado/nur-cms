@@ -21,7 +21,6 @@ const format = ref(0)
 
 const headings = [
     { name: t('editor.text'), value: 0 },
-    { name: t('editor.h1'), value: 1 },
     { name: t('editor.h2'), value: 2 },
     { name: t('editor.h3'), value: 3 },
     { name: t('editor.h4'), value: 4 },
