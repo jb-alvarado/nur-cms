@@ -35,7 +35,7 @@ pub async fn select_comments(
     sep.push_unseparated(" ");
     qb.push("FROM comments c ");
 
-    if query_obj.fields.contains(&CommentFields::Entry) {
+    if query_obj.fields.contains(&CommentFields::Entry) || query_obj.search_slug.is_some() {
         qb.push(
             "LEFT JOIN content_entries e ON e.id = c.entry_id
             LEFT JOIN content_types t ON t.id = e.type_id ",

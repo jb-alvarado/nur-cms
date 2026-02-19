@@ -69,7 +69,7 @@ pub async fn comments_select(
     params.query = original_uri.query().unwrap_or("").into();
 
     if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        if params.entry_id.is_none() {
+        if params.search_slug.is_none() {
             return Err(NurError::Forbidden(
                 "You do not have permission to access this resource.".into(),
             ));
