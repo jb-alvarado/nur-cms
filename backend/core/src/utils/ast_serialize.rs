@@ -59,7 +59,7 @@ fn apply_styles(node_type: &str, map: &Map<String, Value>, o: &mut Map<String, V
             if let Some(href) = map.get("url").and_then(Value::as_str) {
                 o.insert("url".into(), Value::String(href.into()));
             }
-            o.insert("type".into(), Value::String("text".into()));
+            o.insert("type".into(), Value::String("link".into()));
             true
         }
         "html" => {
@@ -98,13 +98,27 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
             }
 
             // If this AST node represents an image, try to pop the corresponding media entry.
-            if node_type == "image"
-                && let Some(mut media_node) = pop_media(map, media)
-                && let Some(obj) = media_node.as_object_mut()
-            {
-                obj.insert("type".into(), Value::String("image".into()));
+            if node_type == "image" {
+                if let Some(mut media_node) = pop_media(map, media)
+                    && let Some(obj) = media_node.as_object_mut()
+                {
+                    obj.insert("type".into(), Value::String("image".into()));
 
-                return media_node;
+                    return media_node;
+                }
+
+                // If no media entry found (e.g., external image), check if URL is external
+                if let Some(url) = map.get("url").and_then(Value::as_str)
+                    && (url.starts_with("http://") || url.starts_with("https://"))
+                {
+                    // Return external image node with src (not url) to avoid conflicts with link urls
+                    let alt = map.get("alt").and_then(Value::as_str).unwrap_or("");
+                    return json!({
+                        "type": "image",
+                        "src": url,
+                        "alt": alt,
+                    });
+                }
             }
 
             let mut children: Vec<Value> = vec![];
@@ -132,9 +146,22 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
                         return converted;
                     }
 
+                    if node_type == "link"
+                        && let Some(parent_url) = map.get("url").and_then(Value::as_str)
+                        && let Some(obj) = converted.as_object()
+                        && obj.get("type").and_then(Value::as_str) == Some("link")
+                        && obj.get("url").and_then(Value::as_str) == Some(parent_url)
+                        && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
+                    {
+                        children.extend(inner_children.clone());
+                        continue;
+                    }
+
                     // If the converted child is an object, attempt to apply inline styles based on the current node type.
                     // If a style was applied, return the styled object directly.
-                    if let Value::Object(ref mut o) = converted
+                    // Skip this for links - they should keep their children structure.
+                    if node_type != "link"
+                        && let Value::Object(ref mut o) = converted
                         && apply_styles(node_type, map, o)
                     {
                         return converted;
@@ -159,6 +186,13 @@ pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
             {
                 // Clone the Number since we only have an immutable borrow of `map`.
                 result.insert("level".into(), Value::Number(level.clone()));
+            }
+
+            // Link nodes should include their URL.
+            if node_type == "link"
+                && let Some(url) = map.get("url").and_then(Value::as_str)
+            {
+                result.insert("url".into(), Value::String(url.into()));
             }
 
             Value::Object(result)

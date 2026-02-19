@@ -20,54 +20,69 @@ pub async fn select_comments(
     pool: &PgPool,
     query_obj: &QueryObj<CommentFields>,
 ) -> Result<RespondObj<Comment>, NurError> {
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
-    let mut sep = query_builder.separated(", ");
+    let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
+    let mut sep = qb.separated(", ");
 
     for f in &query_obj.fields {
-        sep.push(f.to_string());
+        if *f == CommentFields::Entry {
+            sep.push("(e.id, e.title, t.slug, e.slug) AS entry".to_string());
+        } else {
+            sep.push(format!("c.{f}"));
+        }
     }
 
     sep.push("count(*) OVER() AS total_count");
     sep.push_unseparated(" ");
-    query_builder.push("FROM comments ");
+    qb.push("FROM comments c ");
 
-    let mut where_chain = WhereBuilder::new(query_builder);
+    if query_obj.fields.contains(&CommentFields::Entry) {
+        qb.push(
+            "LEFT JOIN content_entries e ON e.id = c.entry_id
+            LEFT JOIN content_types t ON t.id = e.type_id ",
+        );
+    }
+
+    let mut where_chain = WhereBuilder::new(qb);
 
     if let Some(id) = &query_obj.search_id {
-        where_chain.push_and_bind(None, "id = ", id, None);
+        where_chain.push_and_bind(None, "c.id = ", id, None);
     }
 
     if let Some(id) = &query_obj.entry_id {
-        where_chain.push_and_bind(None, "entry_id = ", id, None);
+        where_chain.push_and_bind(None, "c.entry_id = ", id, None);
     }
 
     if let Some(status) = &query_obj.search_status {
-        where_chain.push_and_bind(None, "status = ", status, None);
+        where_chain.push_and_bind(None, "c.status = ", status, None);
+    }
+
+    if let Some(slug) = &query_obj.search_slug {
+        where_chain.push_and_bind(None, "e.slug = ", slug, None);
     }
 
     if let Some(search) = &query_obj.search {
         where_chain.push_and_bind(
             None,
-            "author_name ILIKE CONCAT('%', ",
+            "c.author_name ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );
         where_chain.push_and_bind(
             Some("OR"),
-            "author_email ILIKE CONCAT('%', ",
+            "c.author_email ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );
         where_chain.push_and_bind(
             Some("OR"),
-            "text ILIKE CONCAT('%', ",
+            "c.text ILIKE CONCAT('%', ",
             search.clone(),
             Some(", '%')"),
         );
     }
 
     // take builder back from where_chain
-    query_builder = where_chain.into_inner();
+    qb = where_chain.into_inner();
 
     let ordering = query_obj
         .ordering
@@ -75,7 +90,7 @@ pub async fn select_comments(
         .filter_map(|item| {
             let item = item.trim();
             if CommentFields::iter().any(|f| item.contains(&f.to_string())) {
-                Some(item.to_string())
+                Some(format!("c.{item}"))
             } else {
                 None
             }
@@ -83,15 +98,15 @@ pub async fn select_comments(
         .collect::<Vec<_>>()
         .join(", ");
     if !ordering.is_empty() {
-        query_builder.push(format!(" ORDER BY {}", ordering));
+        qb.push(format!(" ORDER BY {}", ordering));
     }
 
-    query_builder.push(format!(
+    qb.push(format!(
         " LIMIT {} OFFSET {}",
         query_obj.limit, query_obj.offset
     ));
 
-    let query = query_builder.build_query_as::<Comment>();
+    let query = qb.build_query_as::<Comment>();
 
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(query.sql()));

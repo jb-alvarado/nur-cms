@@ -7,9 +7,9 @@ export type AuthRole = { id?: number, name: Role, total_count?: bigint | null, }
 
 export type AuthUser = { id?: number, email?: string, username?: string, first_name?: string, last_name?: string, password?: string, role_id?: number, created_at?: string | null, updated_at?: string | null, last_login?: string | null, };
 
-export type Comment = { id?: number, entry_id?: number | null, parent_id?: number | null, user_id?: number | null, author_name?: string | null, author_email?: string | null, text?: string | null, status?: string | null, created_at?: string | null, updated_at?: string | null, };
+export type Comment = { id?: number, entry_id?: number | null, parent_id?: number | null, user_id?: number | null, author_name?: string | null, author_email?: string | null, text?: string | null, status?: string | null, created_at?: string | null, updated_at?: string | null, entry?: Entry | null, };
 
-export type Configuration = { id: number, jwt_secret?: string, output_type: OutputType, mail_smtp: string | null, mail_port: number | null, mail_user: string | null, mail_password: string | null, mail_starttls: boolean, notification_emails: Array<string> | null, image_extensions: Array<string> | null, image_resolutions: Array<number> | null, };
+export type Configuration = { id: number, jwt_secret?: string, output_type: OutputType, mail_smtp: string | null, mail_port: number | null, mail_user: string | null, mail_password?: string | null, mail_starttls: boolean, notification_emails: Array<string> | null, image_extensions: Array<string> | null, image_resolutions: Array<number> | null, };
 
 export type ContentAuthor = { id?: number, first_name?: string, last_name?: string, slug?: string, bio?: string | null, media_id?: number | null, created_at?: string | null, updated_at?: string | null, };
 
@@ -26,6 +26,8 @@ export type ContentNodeTemplate = { id: number, name: string, data: JsonValue, }
 export type ContentTag = { id?: number, name?: string, slug?: string, };
 
 export type ContentType = { id?: number, name?: string, slug?: string, };
+
+export type Entry = { id: number, title: string, type: string, slug: string, };
 
 export type Locale = { id?: number, code?: string, name?: string, tsv_dict?: string, };
 

@@ -25,14 +25,14 @@ store.typeID = matchedType ?? 1
 store.ordering = 'id'
 
 const authorRows = computed(() => [
-    { active: true, up: true, name: t('table.id'), field: 'id' },
+    { active: true, up: false, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.firstName'), field: 'first_name' },
     { active: false, up: false, name: t('table.lastName'), field: 'last_name' },
     { active: false, up: false, name: t('table.createdAt'), field: 'created_at' },
 ])
 
 const categoryRows = computed(() => [
-    { active: true, up: true, name: t('table.id'), field: 'id' },
+    { active: true, up: false, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.name'), field: 'name' },
     { active: false, up: false, name: t('table.status'), field: 'status' },
     { active: false, up: false, name: t('table.language'), field: 'locale_id' },
@@ -57,7 +57,7 @@ const eventRows = computed(() => [
 ])
 
 const defaultEntryRows = computed(() => [
-    { active: true, up: true, name: t('table.id'), field: 'id' },
+    { active: true, up: false, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.title'), field: 'title' },
     { active: false, up: false, name: t('table.status'), field: 'status' },
     { active: false, up: false, name: t('table.createdAt'), field: 'created_at' },

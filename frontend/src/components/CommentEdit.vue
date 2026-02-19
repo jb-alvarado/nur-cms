@@ -26,6 +26,7 @@ const comment = ref({
     author_email: undefined,
     text: '',
     status: 'pending',
+    entry: null,
 } as CommentExt)
 const commentOriginal = ref(cloneDeep(comment))
 const needsSave = computed(() => !isEqual(comment.value, commentOriginal.value))
@@ -41,7 +42,7 @@ const openDeleteModal = () => {
 
 async function getComment() {
     await fetch(
-        `/api/comments?id=${commentId}&fields=id,entry_id,parent_id,user_id,author_name,author_email,text,status`,
+        `/api/comments?id=${commentId}&fields=id,entry_id,parent_id,user_id,author_name,author_email,text,status,entry`,
         {
             headers: auth.authHeader,
         }
@@ -124,7 +125,7 @@ async function save() {
 </script>
 
 <template>
-    <div class="flex flex-col md:h-96 pb-6">
+    <div class="flex flex-col pb-6">
         <div class="flex-none">
             <h1 class="text-2xl h-8">{{ comment?.author_name ?? '' }}</h1>
         </div>
@@ -132,8 +133,11 @@ async function save() {
         <!-- Form + Editor Container -->
         <div
             v-if="comment"
-            class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
+            class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded"
         >
+            <div class="mt-2 py-1 px-2 rounded bg-base-200">
+                {{ $t('comment.sourceArticle') }}: <RouterLink :to="`/content/${comment.entry?.type}/${comment.entry?.id}`" class="link hover:text-base-content/80">{{ comment.entry?.title ?? '' }}</RouterLink>
+            </div>
             <!-- Form inputs -->
             <div class="flex items-center flex-wrap gap-2 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">

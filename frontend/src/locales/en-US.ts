@@ -166,6 +166,7 @@ export default {
     },
     comment: {
         title: 'Comment',
+        sourceArticle: 'Source article',
         authorName: 'Author Name',
         authorEmail: 'Author Email',
         text: 'Comment Text',

@@ -167,6 +167,7 @@ export default {
     },
     comment: {
         title: 'Kommentar',
+        sourceArticle: 'Quellartikel',
         authorName: 'Verfasser',
         authorEmail: 'E-Mail',
         text: 'Kommentar Text',

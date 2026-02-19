@@ -20,6 +20,7 @@ pub enum CommentFields {
     Status,
     CreatedAt,
     UpdatedAt,
+    Entry,
 }
 
 impl StrCompare for CommentFields {
@@ -35,6 +36,7 @@ impl StrCompare for CommentFields {
             Self::Status => other == "status",
             Self::CreatedAt => other == "created_at",
             Self::UpdatedAt => other == "updated_at",
+            Self::Entry => other == "entry",
         }
     }
 }
@@ -54,6 +56,7 @@ impl FromStr for CommentFields {
             "status" => Ok(Self::Status),
             "created_at" => Ok(Self::CreatedAt),
             "updated_at" => Ok(Self::UpdatedAt),
+            "entry" => Ok(Self::Entry),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -72,6 +75,7 @@ impl fmt::Display for CommentFields {
             Self::Status => write!(f, "status"),
             Self::CreatedAt => write!(f, "created_at"),
             Self::UpdatedAt => write!(f, "updated_at"),
+            Self::Entry => write!(f, "entry"),
         }
     }
 }
