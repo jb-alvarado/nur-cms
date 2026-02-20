@@ -5,6 +5,8 @@ use strum::IntoEnumIterator;
 use tracing::error;
 
 #[cfg(debug_assertions)]
+use colored::Colorize;
+#[cfg(debug_assertions)]
 use sqlx::Execute;
 #[cfg(debug_assertions)]
 use tracing::debug;
@@ -19,23 +21,6 @@ use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
-
-const AUTHOR_JOIN: &str = r#"LEFT JOIN LATERAL (
-        SELECT jsonb_agg(
-            jsonb_build_object(
-                'id', ca.id,
-                'first_name', ca.first_name,
-                'last_name', ca.last_name,
-                'slug', ca.slug
-            )
-            ORDER BY ca.last_name
-        ) AS data
-        FROM content_authors ca
-        JOIN content_entry_authors cea ON cea.author_id = ca.id
-        WHERE cea.entry_id = ce.id
-    ) AS authors ON TRUE
-    LEFT JOIN content_entry_authors cea ON cea.entry_id = ce.id
-    LEFT JOIN content_authors ca ON ca.id = cea.author_id "#;
 
 const CATEGORY_JOIN: &str = r#"LEFT JOIN LATERAL (
         SELECT json_build_object(
@@ -132,6 +117,99 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
             search,
             Some("))))"),
         );
+}
+
+fn authors_join(query_obj: &QueryObj<CF>) -> String {
+    let mut fields = Vec::new();
+    let needs_media = query_obj
+        .fields
+        .iter()
+        .any(|f| matches!(f, CF::Author(crate::db::fields::ContentAuthorFields::Media)));
+
+    for f in &query_obj.fields {
+        match f {
+            CF::Author(crate::db::fields::ContentAuthorFields::Media) => {
+                fields.push(
+                    r#"'media', CASE
+                        WHEN ca2.media_id IS NOT NULL THEN (
+                            SELECT json_build_object(
+                                'id', m.id,
+                                'alt', m.alt,
+                                'path', m.path,
+                                'filename', m.filename,
+                                'variants', COALESCE(
+                                    (
+                                        SELECT json_agg(
+                                            json_build_object(
+                                                'id', mv.id,
+                                                'width', mv.width,
+                                                'height', mv.height,
+                                                'filename', mv.filename
+                                            )
+                                        )
+                                        FROM media_variants mv
+                                        WHERE mv.media_id = m.id
+                                    ),
+                                    '[]'
+                                )
+                            )
+                            FROM media m
+                            WHERE m.id = ca2.media_id
+                        )
+                        ELSE NULL
+                    END"#
+                        .to_string(),
+                );
+            }
+            CF::Author(author_field) => {
+                fields.push(format!("'{}', ca2.{}", author_field, author_field));
+            }
+            _ => (),
+        }
+    }
+
+    let mut join = String::new();
+
+    if !fields.is_empty() {
+        let media_id_select = if needs_media {
+            "ca2.media_id AS media_id,"
+        } else {
+            ""
+        };
+
+        join.push_str(&format!(
+            r#"LEFT JOIN LATERAL (
+        SELECT jsonb_agg(
+            jsonb_build_object(
+                {}
+            )
+            ORDER BY ca2.last_name
+        ) AS data
+        FROM (
+            SELECT DISTINCT
+                ca2.id,
+                ca2.first_name,
+                ca2.last_name,
+                ca2.slug,
+                ca2.bio,
+                {}
+                ca2.created_at,
+                ca2.updated_at
+            FROM content_authors ca2
+            JOIN content_entry_authors cea2 ON cea2.author_id = ca2.id
+            WHERE cea2.entry_id = ce.id
+        ) ca2
+    ) AS authors ON TRUE "#,
+            fields.join(", "),
+            media_id_select
+        ));
+    }
+
+    join.push_str(
+        "LEFT JOIN content_entry_authors cea ON cea.entry_id = ce.id LEFT JOIN content_authors ca ON ca.id = cea.author_id ",
+    );
+
+    join
 }
 
 fn nodes_join(query_obj: &QueryObj<CF>) -> String {
@@ -275,11 +353,22 @@ pub async fn select_content_entries(
 ) -> Result<RespondObj<ContentEntrySerializer>, NurError> {
     let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut sep = qb.separated(", ");
+    let mut add_author = true;
     let mut add_node = true;
+
+    #[cfg(debug_assertions)]
+    let timer = std::time::Instant::now();
 
     for f in &query_obj.fields {
         match *f {
-            CF::Authors => sep.push(format!("COALESCE(authors.data, '[]') AS {f}")),
+            CF::Author(_) => {
+                if add_author {
+                    add_author = false;
+                     sep.push("COALESCE(authors.data, '[]') AS authors".to_string())
+                } else {
+                    continue;
+                }
+            },
             CF::Category => sep.push(format!("COALESCE(cats.data, NULL) AS {f}")),
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
@@ -309,11 +398,11 @@ pub async fn select_content_entries(
         qb.push("JOIN content_types ct ON ct.id = ce.type_id ");
     }
 
-    if query_obj.fields.contains(&CF::Authors)
+    if query_obj.fields.iter().any(|f| matches!(f, CF::Author(_)))
         || query_obj.author.is_some()
         || query_obj.search.is_some()
     {
-        qb.push(AUTHOR_JOIN);
+        qb.push(authors_join(query_obj));
     }
 
     if query_obj.fields.contains(&CF::Category) {
@@ -412,21 +501,29 @@ pub async fn select_content_entries(
     let ordering = query_obj
         .ordering
         .split(',')
-        .filter_map(|item| {
-            let item = item.trim();
-            if item.contains("author") {
-                Some(item.replace("author", "ca.last_name"))
-            // } else if item.contains("locale") {
-            //     Some(item.replace("locale", "l.code"))
-            } else if item.contains("start_time") {
-                Some(item.replace("start_time", "cm.start_time"))
-            } else if item.contains("end_time") {
-                Some(item.replace("end_time", "cm.end_time"))
-            } else if CF::iter().any(|f| item.contains(&f.to_string())) {
-                Some(format!("ce.{item}"))
-            } else {
-                None
+        .filter_map(|part| {
+            let mut split = part.split_whitespace();
+            let field = split.next()?.trim();
+            let direction = split.next().unwrap_or("ASC").to_uppercase();
+
+            if direction != "ASC" && direction != "DESC" {
+                return None;
             }
+
+            let mapped = match field {
+                "author" | "author.last_name" => Some("ca.last_name".to_string()),
+                "author.id" => Some("ca.id".to_string()),
+                "author.first_name" => Some("ca.first_name".to_string()),
+                "author.slug" => Some("ca.slug".to_string()),
+                "author.created_at" => Some("ca.created_at".to_string()),
+                "author.updated_at" => Some("ca.updated_at".to_string()),
+                "start_time" => Some("cm.start_time".to_string()),
+                "end_time" => Some("cm.end_time".to_string()),
+                _ if CF::iter().any(|f| f.to_string() == field) => Some(format!("ce.{field}")),
+                _ => None,
+            }?;
+
+            Some(format!("{mapped} {direction}"))
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -445,6 +542,12 @@ pub async fn select_content_entries(
     debug!("{}", format_sql(query.sql()));
 
     let data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
+
+    #[cfg(debug_assertions)]
+    debug!(
+        "{}",
+        format!("--> Selection time: {:?}", timer.elapsed()).bright_black()
+    );
 
     Ok(RespondObj::new(query_obj, data))
 }

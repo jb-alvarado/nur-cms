@@ -194,6 +194,11 @@ impl DefaultFieldsProvider for ContentEntryFields {
             .filter(|f| !f.is_equal_to_str("count"))
             .collect::<Vec<_>>();
 
+        // Add nested author fields
+        for author_field in ContentAuthorFields::iter().filter(|f| !f.is_equal_to_str("count")) {
+            fields.push(ContentEntryFields::Author(author_field));
+        }
+
         // Add nested node fields
         for node_field in ContentNodeFields::iter()
             .filter(|f| !f.is_equal_to_str("count") && *f != ContentNodeFields::ID)

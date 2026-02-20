@@ -10,6 +10,11 @@ use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
+#[cfg(debug_assertions)]
+use colored::Colorize;
+#[cfg(debug_assertions)]
+use tracing::debug;
+
 use crate::{
     CONFIG,
     db::{
@@ -151,13 +156,54 @@ pub async fn entry_select(
                     if !text.is_empty() {
                         match output {
                             OutputType::AST => {
+                                #[cfg(debug_assertions)]
+                                let timer = std::time::Instant::now();
+
                                 let ast = to_mdast(&text, &ParseOptions::gfm())?;
-                                let json = serde_json::to_string(&ast).unwrap_or_default();
-                                let tree: Value = serde_json::from_str(&json).unwrap_or_default();
+
+                                #[cfg(debug_assertions)]
+                                debug!(
+                                    "{}",
+                                    format!("--> To mAST time: {:?}", timer.elapsed())
+                                        .bright_black()
+                                );
+
+                                #[cfg(debug_assertions)]
+                                let timer = std::time::Instant::now();
+
+                                let tree: Value = serde_json::to_value(&ast).unwrap_or_default();
+
+                                #[cfg(debug_assertions)]
+                                debug!(
+                                    "{}",
+                                    format!("--> To serde value time: {:?}", timer.elapsed())
+                                        .bright_black()
+                                );
+
+                                #[cfg(debug_assertions)]
+                                let timer = std::time::Instant::now();
+
                                 let mut body = to_structure_root(&tree, &mut node.embeds);
 
+                                #[cfg(debug_assertions)]
+                                debug!(
+                                    "{}",
+                                    format!("--> To structure time: {:?}", timer.elapsed())
+                                        .bright_black()
+                                );
+
                                 if let Some(limit) = character_limit {
+                                    #[cfg(debug_assertions)]
+                                    let timer = std::time::Instant::now();
+
                                     truncate_structure_root(&mut body, limit as usize);
+
+                                    #[cfg(debug_assertions)]
+                                    debug!(
+                                        "{}",
+                                        format!("--> Truncate time: {:?}", timer.elapsed())
+                                            .bright_black()
+                                    );
                                 }
 
                                 node.ast = Some(body);

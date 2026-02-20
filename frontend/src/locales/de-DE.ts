@@ -198,6 +198,7 @@ export default {
     },
     home: {
         welcome: 'Willkommen, du bist eingeloggt!',
+        lastLogins: 'Letzte Anmeldungen',
     },
     mail: {
         title: 'Mail Ziele',

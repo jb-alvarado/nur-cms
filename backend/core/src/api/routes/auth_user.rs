@@ -52,7 +52,7 @@ pub async fn auth_user_select(
 ) -> Result<Json<RespondObj<AuthUserSerializer>>, NurError> {
     params.path = original_uri.path().into();
 
-    if details.has_any_authority(&[&Role::Author, &Role::User]) {
+    if details.has_any_authority(&[&Role::Author]) {
         params.fields = vec![
             AuthUserFields::Email,
             AuthUserFields::FirstName,

@@ -275,6 +275,8 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     )
     .await?;
 
+    println!("frontmatter: {frontmatter:?}");
+
     let ast = markdown::to_mdast(&body, &markdown::ParseOptions::default())?;
 
     let (title, slug, status) = if let Some(ref fm) = frontmatter {
@@ -447,6 +449,7 @@ async fn extract_body_and_title(
 
     // Skip YAML frontmatter
     let mut in_frontmatter = false;
+    let mut frontmatter_parsed = false;
     let mut frontmatter_raw = Vec::new();
     let mut frontmatter: Option<Frontmatter> = None;
     let mut created_at = Utc::now();
@@ -459,29 +462,46 @@ async fn extract_body_and_title(
             continue;
         }
 
-        if trimmed == "---" {
+        if trimmed == "---" && !frontmatter_parsed {
             if in_frontmatter {
                 let front = frontmatter_raw.join("\n");
-                frontmatter = serde_yaml::from_str(&front).ok();
+                match serde_yaml::from_str::<Frontmatter>(&front) {
+                    Ok(fm) => frontmatter = Some(fm),
+                    Err(e) => {
+                        warn!("Failed to parse frontmatter: {e}\nContent:\n{front}");
+                    }
+                }
 
                 created_at = frontmatter
                     .as_ref()
                     .and_then(|f| f.date.as_ref())
                     .and_then(|d| d.parse::<DateTime<Utc>>().ok())
                     .unwrap_or(Utc::now());
+
+                frontmatter_raw.clear();
+                frontmatter_parsed = true;
             }
 
             in_frontmatter = !in_frontmatter;
             continue;
         }
+
         if in_frontmatter {
             frontmatter_raw.push(trimmed);
             continue;
         }
 
-        // Capture first H1 as title
+        if title.is_empty()
+            && let Some(t) = &frontmatter.as_ref().and_then(|f| f.title.as_ref())
+        {
+            title = t.trim().to_string();
+        }
+
         if trimmed.starts_with("# ") && title.is_empty() {
+            // Capture first H1 as title
             title = trimmed.trim_start_matches("# ").trim().to_string();
+            continue;
+        } else if trimmed.starts_with("# ") && !title.is_empty() {
             continue;
         }
 

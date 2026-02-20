@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 use ts_rs::TS;
 
-use super::traits::StrCompare;
-
-use super::ContentNodeFields;
+use super::{ContentAuthorFields, ContentNodeFields, traits::StrCompare};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
@@ -19,7 +17,7 @@ pub enum ContentEntryFields {
     #[default]
     Slug,
     Status,
-    Authors,
+    Author(ContentAuthorFields),
     Category,
     Tags,
     Meta,
@@ -42,7 +40,7 @@ impl StrCompare for ContentEntryFields {
             Self::MediaID => other == "media_id",
             Self::Slug => other == "slug",
             Self::Status => other == "status",
-            Self::Authors => other == "authors",
+            Self::Author(_) => false,
             Self::Category => other == "category",
             Self::Tags => other == "tags",
             Self::Meta => other == "meta",
@@ -61,6 +59,11 @@ impl FromStr for ContentEntryFields {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
+        // Handle nested node fields: "author.bio", etc.
+        if let Some(author_field) = input.strip_prefix("author.") {
+            let author_fields = ContentAuthorFields::from_str(author_field)?;
+            return Ok(Self::Author(author_fields));
+        }
         // Handle nested node fields: "node.text", "node.data", etc.
         if let Some(node_field) = input.strip_prefix("node.") {
             let node_fields = ContentNodeFields::from_str(node_field)?;
@@ -75,7 +78,6 @@ impl FromStr for ContentEntryFields {
             "media_id" => Ok(Self::MediaID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
-            "authors" => Ok(Self::Authors),
             "category" => Ok(Self::Category),
             "tags" => Ok(Self::Tags),
             "meta" => Ok(Self::Meta),
@@ -100,7 +102,7 @@ impl fmt::Display for ContentEntryFields {
             Self::MediaID => write!(f, "media_id"),
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
-            Self::Authors => write!(f, "authors"),
+            Self::Author(ref author_field) => write!(f, "author.{}", author_field),
             Self::Category => write!(f, "category"),
             Self::Tags => write!(f, "tags"),
             Self::Meta => write!(f, "meta"),
