@@ -25,7 +25,7 @@ use crate::{
         serialize::*,
     },
     utils::{
-        ast_serialize::{persist_content_media, to_structure_root, truncate_structure_root},
+        ast_serialize::{persist_content_media, to_structure_root_mdast, truncate_structure_root},
         errors::NurError,
     },
 };
@@ -77,9 +77,7 @@ pub async fn entries_select(
                         match output {
                             OutputType::AST => {
                                 let ast = to_mdast(&text, &ParseOptions::gfm())?;
-                                let json = serde_json::to_string(&ast).unwrap_or_default();
-                                let tree: Value = serde_json::from_str(&json).unwrap_or_default();
-                                let mut body = to_structure_root(&tree, &mut node.embeds);
+                                let mut body = to_structure_root_mdast(&ast, &mut node.embeds);
 
                                 if let Some(limit) = params.character_limit {
                                     truncate_structure_root(&mut body, limit as usize);
@@ -171,19 +169,7 @@ pub async fn entry_select(
                                 #[cfg(debug_assertions)]
                                 let timer = std::time::Instant::now();
 
-                                let tree: Value = serde_json::to_value(&ast).unwrap_or_default();
-
-                                #[cfg(debug_assertions)]
-                                debug!(
-                                    "{}",
-                                    format!("--> To serde value time: {:?}", timer.elapsed())
-                                        .bright_black()
-                                );
-
-                                #[cfg(debug_assertions)]
-                                let timer = std::time::Instant::now();
-
-                                let mut body = to_structure_root(&tree, &mut node.embeds);
+                                let mut body = to_structure_root_mdast(&ast, &mut node.embeds);
 
                                 #[cfg(debug_assertions)]
                                 debug!(

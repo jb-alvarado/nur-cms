@@ -1,8 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::LazyLock,
-};
+use std::collections::HashSet;
 
+use markdown::mdast::Node;
 use serde_json::{Map, Value, json};
 use sqlx::postgres::PgPool;
 use tracing::error;
@@ -12,16 +10,6 @@ use crate::{
     db::{fields::Table, handles, models::ContentNodeMedia, serialize::MediaSerializer},
 };
 
-pub static STYLE_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
-    HashMap::from([
-        ("strong", "bold"),
-        ("emphasis", "italic"),
-        ("underline", "underline"),
-        ("delete", "strikethrough"),
-        ("inlineCode", "code"),
-    ])
-});
-
 #[derive(Debug)]
 struct AstImageRef {
     url: String,
@@ -30,168 +18,10 @@ struct AstImageRef {
     end_offset: Option<i32>,
 }
 
-// Try to find and remove a matching media node from `media` based on the AST node's start line.
-// Returns the serde_json::Value representation of the removed media if found.
-fn pop_media(map: &Map<String, Value>, media: &mut Vec<MediaSerializer>) -> Option<Value> {
-    let line: i32 = map
-        .get("position")?
-        .get("start")?
-        .as_object()?
-        .get("line")?
-        .as_i64()?
-        .try_into()
-        .ok()?;
-
+fn pop_media_mdast(node: &Node, media: &mut Vec<MediaSerializer>) -> Option<Value> {
+    let line: i32 = node.position()?.start.line.try_into().ok()?;
     let pos = media.iter().position(|m| m.ast_line == Some(line))?;
     serde_json::to_value(media.remove(pos)).ok()
-}
-
-// Apply inline styles based on the node type onto `o` (an object representing converted node).
-// Returns true if a style was applied.
-fn apply_styles(node_type: &str, map: &Map<String, Value>, o: &mut Map<String, Value>) -> bool {
-    if let Some(&style_key) = STYLE_MAP.get(node_type) {
-        o.insert(style_key.into(), Value::Bool(true));
-        return true;
-    }
-
-    match node_type {
-        "html" => {
-            if let Some(value) = map.get("value") {
-                o.insert("text".into(), value.clone());
-            }
-            true
-        }
-        _ => false,
-    }
-}
-
-// Convert a single AST node into the target structure.
-// `media` is mutated to pick up external media nodes when an "image" node is encountered.
-pub fn to_structure(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
-    match ast {
-        Value::Object(map) => {
-            let node_type = map
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-
-            // Text nodes are terminal and directly map to a simple object.
-            if node_type == "text" {
-                return json!({
-                    "type": "text",
-                    "text": map.get("value").and_then(|v| v.as_str()).unwrap_or(""),
-                });
-            }
-
-            if node_type == "html" {
-                return json!({
-                    "type": "html",
-                    "text": map.get("value").and_then(|v| v.as_str()).unwrap_or(""),
-                });
-            }
-
-            // If this AST node represents an image, try to pop the corresponding media entry.
-            if node_type == "image" {
-                if let Some(mut media_node) = pop_media(map, media)
-                    && let Some(obj) = media_node.as_object_mut()
-                {
-                    obj.insert("type".into(), Value::String("image".into()));
-
-                    return media_node;
-                }
-
-                // If no media entry found (e.g., external image), check if URL is external
-                if let Some(url) = map.get("url").and_then(Value::as_str)
-                    && (url.starts_with("http://") || url.starts_with("https://"))
-                {
-                    // Return external image node with src (not url) to avoid conflicts with link urls
-                    let alt = map.get("alt").and_then(Value::as_str).unwrap_or("");
-                    return json!({
-                        "type": "image",
-                        "src": url,
-                        "alt": alt,
-                    });
-                }
-            }
-
-            let mut children: Vec<Value> = vec![];
-
-            // Convert children recursively if present.
-            if let Some(arr) = map.get("children").and_then(|v| v.as_array()) {
-                for child in arr {
-                    let mut converted = to_structure(child, media);
-
-                    // Special case: if a paragraph contains an image child, we either
-                    // - append the image if we already accumulated other children, then return the paragraph,
-                    // - or if the image is the only/first child, return the image directly (no wrapping paragraph).
-                    if node_type == "paragraph"
-                        && converted.get("type").and_then(Value::as_str) == Some("image")
-                    {
-                        if !children.is_empty() {
-                            children.push(converted.clone());
-
-                            return json!({
-                                "type": "paragraph",
-                                "children": children
-                            });
-                        };
-
-                        return converted;
-                    }
-
-                    if node_type == "link"
-                        && let Some(parent_url) = map.get("url").and_then(Value::as_str)
-                        && let Some(obj) = converted.as_object()
-                        && obj.get("type").and_then(Value::as_str) == Some("link")
-                        && obj.get("url").and_then(Value::as_str) == Some(parent_url)
-                        && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
-                    {
-                        children.extend(inner_children.clone());
-                        continue;
-                    }
-
-                    // If the converted child is an object, attempt to apply inline styles based on the current node type.
-                    // If a style was applied, return the styled object directly.
-                    // Skip this for links - they should keep their children structure.
-                    if node_type != "link"
-                        && let Value::Object(ref mut o) = converted
-                        && apply_styles(node_type, map, o)
-                    {
-                        return converted;
-                    }
-
-                    children.push(converted);
-                }
-            }
-
-            // Build the resulting object: always include the node type and children if any.
-            let mut result = Map::new();
-            result.insert("type".into(), Value::String(node_type.into()));
-
-            if !children.is_empty() {
-                let children = merge_html_blocks(children);
-                result.insert("children".into(), Value::Array(children));
-            }
-
-            // Heading nodes may carry a numeric depth; if present, attach it as "level".
-            if node_type.starts_with("heading")
-                && let Some(Value::Number(level)) = map.get("depth")
-            {
-                // Clone the Number since we only have an immutable borrow of `map`.
-                result.insert("level".into(), Value::Number(level.clone()));
-            }
-
-            // Link nodes should include their URL.
-            if node_type == "link"
-                && let Some(url) = map.get("url").and_then(Value::as_str)
-            {
-                result.insert("url".into(), Value::String(url.into()));
-            }
-
-            Value::Object(result)
-        }
-        _ => json!({}),
-    }
 }
 
 fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
@@ -267,6 +97,162 @@ fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
     merged
 }
 
+fn node_type_name(node: &Node) -> &'static str {
+    match node {
+        Node::Root(_) => "root",
+        Node::Blockquote(_) => "blockquote",
+        Node::FootnoteDefinition(_) => "footnoteDefinition",
+        Node::Paragraph(_) => "paragraph",
+        Node::Heading(_) => "heading",
+        Node::List(_) => "list",
+        Node::Toml(_) => "toml",
+        Node::Yaml(_) => "yaml",
+        Node::Break(_) => "break",
+        Node::InlineMath(_) => "inlineMath",
+        Node::FootnoteReference(_) => "footnoteReference",
+        Node::Link(_) => "link",
+        Node::LinkReference(_) => "linkReference",
+        Node::Image(_) => "image",
+        Node::ImageReference(_) => "imageReference",
+        Node::Text(_) => "text",
+        Node::Html(_) => "html",
+        Node::Strong(_) => "strong",
+        Node::Emphasis(_) => "emphasis",
+        Node::Delete(_) => "delete",
+        Node::InlineCode(_) => "inlineCode",
+        Node::Code(_) => "code",
+        Node::Math(_) => "math",
+        Node::Table(_) => "table",
+        Node::ThematicBreak(_) => "thematicBreak",
+        Node::TableRow(_) => "tableRow",
+        Node::TableCell(_) => "tableCell",
+        Node::ListItem(_) => "listItem",
+        Node::Definition(_) => "definition",
+        _ => "unknown",
+    }
+}
+
+fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
+    match ast {
+        Node::Text(text) => {
+            json!({
+                "type": "text",
+                "text": text.value,
+            })
+        }
+        Node::Html(html) => {
+            json!({
+                "type": "html",
+                "text": html.value,
+            })
+        }
+        Node::InlineCode(code) => {
+            json!({
+                "type": "text",
+                "text": code.value,
+                "code": true,
+            })
+        }
+        Node::Image(image) => {
+            if let Some(mut media_node) = pop_media_mdast(ast, media)
+                && let Some(obj) = media_node.as_object_mut()
+            {
+                obj.insert("type".into(), Value::String("image".into()));
+                return media_node;
+            }
+
+            if image.url.starts_with("http://") || image.url.starts_with("https://") {
+                return json!({
+                    "type": "image",
+                    "src": image.url,
+                    "alt": image.alt,
+                });
+            }
+
+            json!({ "type": "image" })
+        }
+        _ => {
+            let node_type = node_type_name(ast);
+            let is_paragraph = matches!(ast, Node::Paragraph(_));
+            let is_link = matches!(ast, Node::Link(_));
+            let style_key = match ast {
+                Node::Strong(_) => Some("bold"),
+                Node::Emphasis(_) => Some("italic"),
+                Node::Delete(_) => Some("strikethrough"),
+                _ => None,
+            };
+
+            let mut children: Vec<Value> = ast
+                .children()
+                .map(|nodes| Vec::with_capacity(nodes.len()))
+                .unwrap_or_default();
+
+            if let Some(nodes) = ast.children() {
+                for child in nodes {
+                    let mut converted = to_structure_mdast(child, media);
+
+                    if is_paragraph
+                        && converted.get("type").and_then(Value::as_str) == Some("image")
+                    {
+                        if !children.is_empty() {
+                            children.push(converted);
+
+                            return json!({
+                                "type": "paragraph",
+                                "children": children,
+                            });
+                        }
+
+                        return converted;
+                    }
+
+                    if is_link
+                        && let Node::Link(parent_link) = ast
+                        && let Some(obj) = converted.as_object()
+                        && obj.get("type").and_then(Value::as_str) == Some("link")
+                        && obj.get("url").and_then(Value::as_str) == Some(parent_link.url.as_str())
+                        && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
+                    {
+                        children.extend(inner_children.iter().cloned());
+                        continue;
+                    }
+
+                    if !is_link
+                        && let Some(style_key) = style_key
+                        && let Value::Object(ref mut out) = converted
+                    {
+                        out.insert(style_key.into(), Value::Bool(true));
+                        return converted;
+                    }
+
+                    children.push(converted);
+                }
+            }
+
+            let mut result = Map::new();
+            result.insert("type".into(), Value::String(node_type.into()));
+
+            if !children.is_empty() {
+                let children = merge_html_blocks(children);
+                result.insert("children".into(), Value::Array(children));
+            }
+
+            if let Node::Heading(heading) = ast {
+                result.insert(
+                    "level".into(),
+                    Value::Number(serde_json::Number::from(heading.depth)),
+                );
+            }
+
+            if let Node::Link(link) = ast {
+                result.insert("url".into(), Value::String(link.url.clone()));
+            }
+
+            Value::Object(result)
+        }
+    }
+}
+
 fn extract_tag_name(tag: &str) -> Option<String> {
     let tag = tag.trim_matches(|c| c == '<' || c == '>');
     let tag = tag.trim_start_matches('/');
@@ -277,18 +263,17 @@ fn extract_tag_name(tag: &str) -> Option<String> {
     if name.is_empty() { None } else { Some(name) }
 }
 
-// Convert the AST root: if it has children, map them, otherwise wrap the single converted node in an array.
-pub fn to_structure_root(ast: &Value, media: &mut Vec<MediaSerializer>) -> Value {
-    if let Some(children) = ast.get("children").and_then(|v| v.as_array()) {
-        let converted: Vec<Value> = children
-            .iter()
-            .map(|child| to_structure(child, media))
-            .collect();
+pub fn to_structure_root_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
+    if let Node::Root(root) = ast {
+        let mut converted: Vec<Value> = Vec::with_capacity(root.children.len());
+        for child in &root.children {
+            converted.push(to_structure_mdast(child, media));
+        }
 
         let merged = merge_html_blocks(converted);
         Value::Array(merged)
     } else {
-        Value::Array(vec![to_structure(ast, media)])
+        Value::Array(vec![to_structure_mdast(ast, media)])
     }
 }
 
