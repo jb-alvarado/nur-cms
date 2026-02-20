@@ -275,8 +275,6 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     )
     .await?;
 
-    println!("frontmatter: {frontmatter:?}");
-
     let ast = markdown::to_mdast(&body, &markdown::ParseOptions::default())?;
 
     let (title, slug, status) = if let Some(ref fm) = frontmatter {
@@ -716,6 +714,10 @@ fn slugify(s: &str) -> String {
         })
         .collect::<String>()
         .replace('_', "-")
+        .replace('ä', "ae")
+        .replace('ö', "oe")
+        .replace('ü', "ue")
+        .replace('ß', "ss")
         .split('-')
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
