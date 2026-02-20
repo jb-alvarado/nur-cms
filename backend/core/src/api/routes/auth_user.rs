@@ -123,11 +123,11 @@ pub async fn auth_user_update(
     details: AuthDetails<Role>,
     Json(auth_user): Json<AuthUser>,
 ) -> Result<(), NurError> {
-    let mut auth_user: AuthUser = auth_user;
-    auth_user.updated_at = Some(Utc::now());
-    auth_user.last_login = None;
-
     if details.has_any_authority(&[&Role::Admin]) {
+        let mut auth_user: AuthUser = auth_user;
+        auth_user.updated_at = Some(Utc::now());
+        auth_user.last_login = None;
+
         return match handles::update_record(&pool, &Table::AuthUsers, id, &auth_user).await {
             Ok(_) => Ok(()),
             Err(e) => {
