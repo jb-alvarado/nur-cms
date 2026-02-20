@@ -33,7 +33,7 @@ pub async fn db_migrate(pool: &PgPool) -> Result<(), NurError> {
             .map(char::from)
             .collect();
 
-        const QUERY: &str = "INSERT INTO configuration(jwt_secret, image_extensions, image_resolutions) VALUES($1, ARRAY['jpg', 'avif', 'webp'], ARRAY[1024, 480]);";
+        const QUERY: &str = "INSERT INTO configuration(jwt_secret, image_extensions, image_resolutions) VALUES($1, ARRAY['jpg', 'avif', 'webp'], ARRAY[2560, 1920, 1280, 1024, 768, 480]);";
 
         sqlx::query(QUERY).bind(secret).execute(pool).await?;
     }
