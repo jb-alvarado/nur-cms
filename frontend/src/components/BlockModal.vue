@@ -44,7 +44,7 @@ onMounted(async () => {
 })
 
 const saveBlock = () => {
-    emit('add-block', cloneDeep({ media: media.value ?? null, data: selectedTemplate.value.data }))
+    emit('add-block', cloneDeep({ name: selectedTemplate.value.name, media: media.value ?? null, data: selectedTemplate.value.data }))
     resetModal()
     modal.value?.close?.()
 }

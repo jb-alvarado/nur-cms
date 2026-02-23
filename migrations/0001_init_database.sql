@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS content_nodes (
     id BIGSERIAL PRIMARY KEY,
     entry_id INT NOT NULL REFERENCES content_entries (id) ON DELETE CASCADE,
     order_index INT NOT NULL,
+    name VARCHAR(255),
     text TEXT,
     text_vector TSVECTOR,
     data JSONB,
@@ -158,9 +159,9 @@ CREATE TABLE IF NOT EXISTS content_meta (
     UNIQUE (entry_id)
 );
 
-CREATE INDEX idx_meta_start ON content_meta (start_time);
+CREATE INDEX IF NOT EXISTS idx_meta_start ON content_meta (start_time);
 
-CREATE INDEX idx_meta_end ON content_meta (end_time);
+CREATE INDEX IF NOT EXISTS idx_meta_end ON content_meta (end_time);
 
 CREATE TABLE IF NOT EXISTS content_entry_tags (
     entry_id INT REFERENCES content_entries (id) ON DELETE CASCADE,
@@ -221,7 +222,7 @@ CREATE TABLE IF NOT EXISTS mail_targets (
     allow_html BOOLEAN NOT NULL DEFAULT false
 );
 
-CREATE FUNCTION content_node_tsv_update () RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION content_node_tsv_update () RETURNS trigger AS $$
 DECLARE
     dict TEXT;
 BEGIN
@@ -241,7 +242,16 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS content_text_vector_trigger ON content_nodes;
 
-CREATE TRIGGER trg_content_node_tsv BEFORE INSERT
-OR
-UPDATE ON content_nodes FOR EACH ROW WHEN (NEW.text IS NOT NULL)
-EXECUTE FUNCTION content_node_tsv_update ();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'trg_content_node_tsv'
+        AND tgrelid = 'content_nodes'::regclass
+    ) THEN
+        CREATE TRIGGER trg_content_node_tsv BEFORE INSERT
+        OR UPDATE ON content_nodes FOR EACH ROW
+        WHEN (NEW.text IS NOT NULL)
+        EXECUTE FUNCTION content_node_tsv_update();
+    END IF;
+END $$;

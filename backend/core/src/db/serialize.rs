@@ -142,6 +142,8 @@ pub struct ContentNodeSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_index: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[ts(type = "any")]
     #[serde(default, skip_serializing_if = "Option::is_none")]

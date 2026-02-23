@@ -22,6 +22,8 @@ use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 
+type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value>);
+
 const TAG_JOIN: &str = r#"LEFT JOIN LATERAL (
         SELECT ARRAY_AGG(
             (t.id, t.name, t.slug)
@@ -282,6 +284,7 @@ fn category_join(query_obj: &QueryObj<CF>) -> String {
 
 fn nodes_join(query_obj: &QueryObj<CF>) -> String {
     let mut fields = Vec::new();
+    let mut null_check_fields = Vec::new();
     let needs_embeds = query_obj
         .fields
         .iter()
@@ -289,9 +292,18 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
 
     for f in &query_obj.fields {
         match *f {
-            CF::Node(CN::ID) => fields.push("'id', cn.id".to_string()),
-            CF::Node(CN::OrderIndex) => fields.push("'order_index', cn.order_index".to_string()),
-            CF::Node(CN::Text) => fields.push("'text', cn.text".to_string()),
+            CF::Node(CN::ID) => {
+                fields.push("'id', cn.id".to_string());
+                // id is NOT NULL, don't add to null_check
+            }
+            CF::Node(CN::OrderIndex) => {
+                fields.push("'order_index', cn.order_index".to_string());
+                // order_index is NOT NULL, don't add to null_check
+            }
+            CF::Node(CN::Text) => {
+                fields.push("'text', cn.text".to_string());
+                null_check_fields.push("cn.text".to_string());
+            }
             CF::Node(CN::Blocks) => {
                 if !query_obj.fields.contains(&CF::Node(CN::ID)) {
                     fields.push("'id', cn.id".to_string());
@@ -309,12 +321,17 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
                     fields.push("'parent_id', cn.parent_id".to_string());
                 }
             }
-            CF::Node(CN::Data) => fields.push("'data', cn.data".to_string()),
+            CF::Node(CN::Data) => {
+                fields.push("'data', cn.data".to_string());
+                null_check_fields.push("cn.data".to_string());
+            }
             CF::Node(CN::Embeds) => {
                 fields.push("'embeds', COALESCE(embed_data.media, '[]')".to_string());
+                // embeds is always at least '[]', so it's never NULL
             }
-            CF::Node(CN::Media) => fields.push(
-                r#"'media', CASE
+            CF::Node(CN::Media) => {
+                fields.push(
+                    r#"'media', CASE
                     WHEN cn.media_id IS NOT NULL THEN json_build_object(
                         'id', m.id,
                         'alt', m.alt,
@@ -332,9 +349,14 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
                     )
                     ELSE NULL
                 END"#
-                    .to_string(),
-            ),
-            CF::Node(CN::ParentID) => fields.push("'parent_id', cn.parent_id".to_string()),
+                        .to_string(),
+                );
+                null_check_fields.push("cn.media_id".to_string());
+            }
+            CF::Node(CN::ParentID) => {
+                fields.push("'parent_id', cn.parent_id".to_string());
+                null_check_fields.push("cn.parent_id".to_string());
+            }
             _ => (),
         }
     }
@@ -393,6 +415,20 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
         None => String::new(),
     };
 
+    // Build a condition that ensures at least one requested field is NOT NULL
+    let null_check = if null_check_fields.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " AND ({})",
+            null_check_fields
+                .iter()
+                .map(|f| format!("{} IS NOT NULL", f))
+                .collect::<Vec<_>>()
+                .join(" OR ")
+        )
+    };
+
     format!(
         r#"LEFT JOIN LATERAL (
         SELECT jsonb_agg(node_json ORDER BY sort_key) AS nodes
@@ -402,7 +438,7 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
                        {}
                    ) AS node_json
             {}
-            WHERE cn.entry_id = ce.id
+            WHERE cn.entry_id = ce.id{}
             ORDER BY {}
             {}
         ) AS node_data
@@ -410,6 +446,7 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
         sort,
         fields.join(", "),
         from_clause,
+        null_check,
         sort,
         limit
     )
@@ -757,8 +794,8 @@ pub async fn sync_entry_nodes(
 ) -> Result<(), NurError> {
     // Get existing nodes from database
     // TODO: i32, Option<String>, Option<Value> are not needed
-    let existing_nodes: Vec<(i64, i32, Option<String>, Option<Value>)> = sqlx::query_as(
-        "SELECT id, order_index, text, data FROM content_nodes WHERE entry_id = $1 ORDER BY order_index",
+    let existing_nodes: Vec<ContentNodeRecord> = sqlx::query_as(
+        "SELECT id, order_index, name, text, data FROM content_nodes WHERE entry_id = $1 ORDER BY order_index",
     )
     .bind(entry_id)
     .fetch_all(pool)
@@ -794,6 +831,7 @@ pub async fn sync_entry_nodes(
                 };
 
                 let node_id = block_obj.get("id").and_then(Value::as_i64);
+                let node_name = block_obj.get("name").and_then(Value::as_str);
                 let media_id = block_obj
                     .get("media_id")
                     .and_then(Value::as_i64)
@@ -819,11 +857,12 @@ pub async fn sync_entry_nodes(
                     None => {
                         // Insert new node
                         let new_node_id: i64 = sqlx::query_scalar(
-                            "INSERT INTO content_nodes (entry_id, media_id, order_index, data, parent_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                            "INSERT INTO content_nodes (entry_id, media_id, order_index, name, data, parent_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
                         )
                         .bind(entry_id)
                         .bind(media_id)
                         .bind(order_index)
+                        .bind(node_name)
                         .bind(&data)
                         .bind(parent_id)
                         .fetch_one(pool)
@@ -846,6 +885,7 @@ pub async fn sync_entry_nodes(
                 .get("media_id")
                 .and_then(Value::as_i64)
                 .map(|v| v as i32);
+            let name = node_obj.get("name").and_then(|t| t.as_str());
             let text = node_obj.get("text").and_then(|t| t.as_str());
             let data = node_obj.get("data").cloned().unwrap_or(Value::Null);
 
@@ -878,11 +918,12 @@ pub async fn sync_entry_nodes(
                 None => {
                     // Insert new node
                     let new_node_id: i64 = sqlx::query_scalar(
-                        "INSERT INTO content_nodes (entry_id, media_id, order_index, text, data) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                        "INSERT INTO content_nodes (entry_id, media_id, order_index, name, text, data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
                     )
                     .bind(entry_id)
                     .bind(media_id)
                     .bind(order_index)
+                    .bind(name)
                     .bind(text)
                     .bind(&data)
                     .fetch_one(pool)
@@ -906,7 +947,7 @@ pub async fn sync_entry_nodes(
     }
 
     // Delete nodes that are no longer in the array
-    for (db_id, _, _, _) in &existing_nodes {
+    for (db_id, _, _, _, _) in &existing_nodes {
         if !existing_ids.contains(db_id) {
             sqlx::query("DELETE FROM content_nodes WHERE id = $1")
                 .bind(db_id)

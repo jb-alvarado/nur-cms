@@ -12,7 +12,7 @@ export type ContentEntrySerializer = { id?: number | null, group_id?: number | n
 
 export type ContentMetaSerializer = { start_time?: string | null, end_time?: string | null, };
 
-export type ContentNodeSerializer = { id?: number | null, entry_id?: number | null, order_index?: number | null, text?: string | null, ast?: any, html?: string | null, data?: JsonValue | null, media_id?: number | null, parent_id?: number | null, embeds?: Array<MediaSerializer>, media?: MediaSerializer | null, };
+export type ContentNodeSerializer = { id?: number | null, entry_id?: number | null, order_index?: number | null, name?: string | null, text?: string | null, ast?: any, html?: string | null, data?: JsonValue | null, media_id?: number | null, parent_id?: number | null, embeds?: Array<MediaSerializer>, media?: MediaSerializer | null, };
 
 export type ContentTagSerializer = { id?: number | null, name?: string | null, slug?: string | null, total_count?: bigint | null, };
 

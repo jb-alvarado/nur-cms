@@ -50,13 +50,13 @@ const dropValue = computed({
             if (Array.isArray(json)) {
                 const nIndex = currentNodeIndex.value
                 for (const obj of json) {
-                    addDataNode({ media: null, data: obj })
+                    addDataNode({ name: null, media: null, data: obj })
                     currentNodeIndex.value = nIndex
                 }
 
                 currentNodeIndex.value = -1
             } else {
-                addDataNode({ media: null, data: json })
+                addDataNode({name: null,  media: null, data: json })
             }
 
             dropValueRaw.value = ''
@@ -332,7 +332,7 @@ function sortBlocks(index: number) {
     }
 }
 
-function addDataNode(item: { media: null | Media; data: Record<string, any> }) {
+function addDataNode(item: { name: null | string, media: null | Media; data: Record<string, any> }) {
     if (!content.value.nodes) {
         content.value.nodes = []
     }
@@ -345,6 +345,7 @@ function addDataNode(item: { media: null | Media; data: Record<string, any> }) {
 
         node.blocks.push({
             media_id: item.media?.id ?? null,
+            name: item.name,
             data: item.data,
             media: item.media,
             order_index: (node.blocks?.length ?? 0) + 1,
@@ -352,6 +353,7 @@ function addDataNode(item: { media: null | Media; data: Record<string, any> }) {
     } else {
         content.value.nodes.push({
             media_id: item.media?.id ?? null,
+            name: item.name,
             data: item.data,
             media: item.media,
             order_index: (content.value.nodes?.length ?? 0) + 1,
