@@ -22,18 +22,6 @@ use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 
-const CATEGORY_JOIN: &str = r#"LEFT JOIN LATERAL (
-        SELECT json_build_object(
-            'id', cc.id,
-            'group_id', cc.group_id,
-            'locale_id', cc.locale_id,
-            'name', cc.name,
-            'slug', cc.slug
-        ) AS data
-        FROM content_categories cc
-        WHERE cc.id = ce.category_id
-    ) AS cats ON TRUE "#;
-
 const TAG_JOIN: &str = r#"LEFT JOIN LATERAL (
         SELECT ARRAY_AGG(
             (t.id, t.name, t.slug)
@@ -212,6 +200,86 @@ fn authors_join(query_obj: &QueryObj<CF>) -> String {
     join
 }
 
+fn category_join(query_obj: &QueryObj<CF>) -> String {
+    let mut fields = Vec::new();
+
+    for f in &query_obj.fields {
+        match f {
+            CF::Category(crate::db::fields::ContentCategoryFields::Media) => {
+                fields.push(
+                    r#"'media', CASE
+                        WHEN cc2.media_id IS NOT NULL THEN (
+                            SELECT json_build_object(
+                                'id', m.id,
+                                'alt', m.alt,
+                                'path', m.path,
+                                'filename', m.filename,
+                                'variants', COALESCE(
+                                    (
+                                        SELECT json_agg(
+                                            json_build_object(
+                                                'id', mv.id,
+                                                'width', mv.width,
+                                                'height', mv.height,
+                                                'filename', mv.filename
+                                            )
+                                        )
+                                        FROM media_variants mv
+                                        WHERE mv.media_id = m.id
+                                    ),
+                                    '[]'
+                                )
+                            )
+                            FROM media m
+                            WHERE m.id = cc2.media_id
+                        )
+                        ELSE NULL
+                    END"#
+                        .to_string(),
+                );
+            }
+            CF::Category(crate::db::fields::ContentCategoryFields::GroupMembers) => {
+                fields.push(
+                    r#"'group_members', COALESCE(
+                        (
+                            SELECT jsonb_agg(
+                                jsonb_build_object(
+                                    'id', cc3.id,
+                                    'locale_id', cc3.locale_id
+                                )
+                            )
+                            FROM content_categories cc3
+                            WHERE cc3.group_id = cc2.group_id
+                              AND cc3.id != cc2.id
+                        ),
+                        '[]'
+                    )"#
+                    .to_string(),
+                );
+            }
+            CF::Category(category_field) => {
+                fields.push(format!("'{}', cc2.{}", category_field, category_field));
+            }
+            _ => (),
+        }
+    }
+
+    if fields.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        r#"LEFT JOIN LATERAL (
+        SELECT json_build_object(
+            {}
+        ) AS data
+        FROM content_categories cc2
+        WHERE cc2.id = ce.category_id
+    ) AS cats ON TRUE "#,
+        fields.join(", ")
+    )
+}
+
 fn nodes_join(query_obj: &QueryObj<CF>) -> String {
     let mut fields = Vec::new();
     let needs_embeds = query_obj
@@ -354,6 +422,7 @@ pub async fn select_content_entries(
     let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
     let mut sep = qb.separated(", ");
     let mut add_author = true;
+    let mut add_category = true;
     let mut add_node = true;
 
     #[cfg(debug_assertions)]
@@ -369,8 +438,16 @@ pub async fn select_content_entries(
                     continue;
                 }
             },
-            CF::Category => sep.push(format!("COALESCE(cats.data, NULL) AS {f}")),
+            CF::Category(_) => {
+                if add_category {
+                    add_category = false;
+                    sep.push("COALESCE(cats.data, NULL) AS category".to_string())
+                } else {
+                    continue;
+                }
+            },
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
+            CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
             CF::CommentCount => sep.push(
                 "COALESCE((SELECT COUNT(*) FROM comments c WHERE c.entry_id = ce.id AND c.status = 'approved'), 0) AS comment_count"
@@ -394,7 +471,7 @@ pub async fn select_content_entries(
     sep.push_unseparated(" ");
     qb.push("FROM content_entries ce ");
 
-    if query_obj.type_slug.is_some() {
+    if query_obj.type_slug.is_some() || query_obj.fields.contains(&CF::Type) {
         qb.push("JOIN content_types ct ON ct.id = ce.type_id ");
     }
 
@@ -405,8 +482,12 @@ pub async fn select_content_entries(
         qb.push(authors_join(query_obj));
     }
 
-    if query_obj.fields.contains(&CF::Category) {
-        qb.push(CATEGORY_JOIN);
+    if query_obj
+        .fields
+        .iter()
+        .any(|f| matches!(f, CF::Category(_)))
+    {
+        qb.push(category_join(query_obj));
     }
 
     if query_obj.fields.contains(&CF::Tags) {

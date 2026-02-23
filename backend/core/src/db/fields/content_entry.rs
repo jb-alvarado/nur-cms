@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
 use ts_rs::TS;
 
-use super::{ContentAuthorFields, ContentNodeFields, traits::StrCompare};
+use super::{ContentAuthorFields, ContentCategoryFields, ContentNodeFields, traits::StrCompare};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, EnumIter, TS)]
 #[serde(rename_all = "snake_case")]
@@ -18,7 +18,8 @@ pub enum ContentEntryFields {
     Slug,
     Status,
     Author(ContentAuthorFields),
-    Category,
+    Category(ContentCategoryFields),
+    Type,
     Tags,
     Meta,
     Title,
@@ -41,7 +42,8 @@ impl StrCompare for ContentEntryFields {
             Self::Slug => other == "slug",
             Self::Status => other == "status",
             Self::Author(_) => false,
-            Self::Category => other == "category",
+            Self::Category(_) => false,
+            Self::Type => other == "type",
             Self::Tags => other == "tags",
             Self::Meta => other == "meta",
             Self::Title => other == "title",
@@ -59,10 +61,15 @@ impl FromStr for ContentEntryFields {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        // Handle nested node fields: "author.bio", etc.
+        // Handle nested author fields: "author.bio", etc.
         if let Some(author_field) = input.strip_prefix("author.") {
             let author_fields = ContentAuthorFields::from_str(author_field)?;
             return Ok(Self::Author(author_fields));
+        }
+        // Handle nested category fields: "category.name", etc.
+        if let Some(category_field) = input.strip_prefix("category.") {
+            let category_fields = ContentCategoryFields::from_str(category_field)?;
+            return Ok(Self::Category(category_fields));
         }
         // Handle nested node fields: "node.text", "node.data", etc.
         if let Some(node_field) = input.strip_prefix("node.") {
@@ -78,7 +85,7 @@ impl FromStr for ContentEntryFields {
             "media_id" => Ok(Self::MediaID),
             "slug" => Ok(Self::Slug),
             "status" => Ok(Self::Status),
-            "category" => Ok(Self::Category),
+            "type" => Ok(Self::Type),
             "tags" => Ok(Self::Tags),
             "meta" => Ok(Self::Meta),
             "title" => Ok(Self::Title),
@@ -103,7 +110,8 @@ impl fmt::Display for ContentEntryFields {
             Self::Slug => write!(f, "slug"),
             Self::Status => write!(f, "status"),
             Self::Author(ref author_field) => write!(f, "author.{}", author_field),
-            Self::Category => write!(f, "category"),
+            Self::Category(ref category_field) => write!(f, "category.{}", category_field),
+            Self::Type => write!(f, "type"),
             Self::Tags => write!(f, "tags"),
             Self::Meta => write!(f, "meta"),
             Self::Title => write!(f, "title"),

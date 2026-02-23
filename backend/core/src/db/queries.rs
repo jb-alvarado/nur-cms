@@ -199,6 +199,12 @@ impl DefaultFieldsProvider for ContentEntryFields {
             fields.push(ContentEntryFields::Author(author_field));
         }
 
+        // Add nested category fields
+        for category_field in ContentCategoryFields::iter().filter(|f| !f.is_equal_to_str("count"))
+        {
+            fields.push(ContentEntryFields::Category(category_field));
+        }
+
         // Add nested node fields
         for node_field in ContentNodeFields::iter()
             .filter(|f| !f.is_equal_to_str("count") && *f != ContentNodeFields::ID)

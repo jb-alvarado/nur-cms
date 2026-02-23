@@ -162,6 +162,17 @@ pub struct ContentNodeSerializer {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "serialized.d.ts")]
+pub struct ContentTypeSerializer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentEntrySerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i32>,
@@ -184,6 +195,8 @@ pub struct ContentEntrySerializer {
     pub meta: Option<ContentMetaSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<ContentCategorySerializer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<ContentTypeSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<ContentTagSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -227,6 +240,15 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             .try_get::<Option<serde_json::Value>, _>("category")
             .unwrap_or_default()
             .and_then(|v| serde_json::from_value::<ContentCategorySerializer>(v).ok());
+
+        let r#type = row
+            .try_get::<Option<(i32, String, String)>, _>("type")
+            .unwrap_or_default()
+            .map(|(id, name, slug)| ContentTypeSerializer {
+                id: Some(id),
+                name: Some(name),
+                slug: Some(slug),
+            });
 
         for (id, name, slug) in row
             .try_get::<Vec<Option<(i32, String, String)>>, &str>("tags")
@@ -329,6 +351,7 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             authors,
             meta,
             category,
+            r#type,
             tags,
             title: row.try_get("title").ok(),
             nodes,
