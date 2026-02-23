@@ -300,6 +300,10 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
                 fields.push("'order_index', cn.order_index".to_string());
                 // order_index is NOT NULL, don't add to null_check
             }
+            CF::Node(CN::Name) => {
+                fields.push("'name', cn.name".to_string());
+                null_check_fields.push("cn.name".to_string());
+            }
             CF::Node(CN::Text) => {
                 fields.push("'text', cn.text".to_string());
                 null_check_fields.push("cn.text".to_string());
