@@ -138,14 +138,17 @@ pub async fn mailer(
         ));
     }
 
-    let target = handles::select_mail_target(&pool, &target).await?;
-    let text = format!(
-        "Name: {}\nMail: {}\n------------------------------------\n\n{}",
-        contact.name, norm_email, contact.text
-    );
-    let msg = Msg::new(norm_email, contact.name, None, text, target);
+    if let Ok(target) = handles::select_mail_target(&pool, &target).await {
+        let text = format!(
+            "Name: {}\nMail: {}\n------------------------------------\n\n{}",
+            contact.name, norm_email, contact.text
+        );
+        let msg = Msg::new(norm_email, contact.name, None, text, target);
 
-    message(msg).await?;
+        message(msg).await?;
 
-    Ok(())
+        return Ok(());
+    }
+
+    Err(NurError::InternalServerError)
 }
