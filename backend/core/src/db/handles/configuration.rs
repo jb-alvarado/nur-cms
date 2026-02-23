@@ -5,7 +5,7 @@ use sqlx::postgres::PgPool;
 use {
     std::env,
     tokio::fs,
-    tracing::{debug, info},
+    tracing::{debug, info, warn},
 };
 
 #[cfg(debug_assertions)]
@@ -74,29 +74,33 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
                     .canonicalize()?;
             }
 
-            let mut rd = fs::read_dir(migrations_path).await?;
-            let mut migrations = Vec::new();
-            while let Some(entry) = rd.next_entry().await? {
-                if entry
-                    .path()
-                    .extension()
-                    .map(|ext| ext == "sql")
-                    .unwrap_or(false)
-                {
-                    migrations.push(entry);
+            if migrations_path.is_dir() {
+                let mut rd = fs::read_dir(migrations_path).await?;
+                let mut migrations = Vec::new();
+                while let Some(entry) = rd.next_entry().await? {
+                    if entry
+                        .path()
+                        .extension()
+                        .map(|ext| ext == "sql")
+                        .unwrap_or(false)
+                    {
+                        migrations.push(entry);
+                    }
                 }
-            }
 
-            migrations.sort_by_key(fs::DirEntry::path);
+                migrations.sort_by_key(fs::DirEntry::path);
 
-            for entry in migrations {
-                use sqlx::Executor;
+                for entry in migrations {
+                    use sqlx::Executor;
 
-                let path = entry.path();
-                let sql = fs::read_to_string(&path).await?;
-                info!("Executing dev migration: {:?}", path.file_name().unwrap());
+                    let path = entry.path();
+                    let sql = fs::read_to_string(&path).await?;
+                    info!("Executing dev migration: {:?}", path.file_name().unwrap());
 
-                pool.execute(&*sql).await?;
+                    pool.execute(&*sql).await?;
+                }
+            } else {
+                warn!("Dev migrations folder not found, no migration applied.");
             }
         }
     }
