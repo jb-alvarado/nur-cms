@@ -105,7 +105,7 @@ export const useIndex = defineStore('index', {
         },
 
         async selectTypes() {
-            await fetch('/api/content/types')
+            await fetch('/api/content/types?ordering=id')
                 .then(async (resp) => {
                     if (resp.status >= 400) {
                         const msg = await errMsg(resp)
