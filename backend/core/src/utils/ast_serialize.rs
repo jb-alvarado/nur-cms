@@ -154,22 +154,45 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
             })
         }
         Node::Image(image) => {
+            let image_title = image
+                .title
+                .as_ref()
+                .filter(|title| !title.trim().is_empty())
+                .cloned();
+
             if let Some(mut media_node) = pop_media_mdast(ast, media)
                 && let Some(obj) = media_node.as_object_mut()
             {
                 obj.insert("type".into(), Value::String("image".into()));
+
+                if let Some(title) = image_title.as_ref() {
+                    obj.insert("title".into(), Value::String(title.clone()));
+                }
+
                 return media_node;
             }
 
             if image.url.starts_with("http://") || image.url.starts_with("https://") {
-                return json!({
-                    "type": "image",
-                    "src": image.url,
-                    "alt": image.alt,
-                });
+                let mut node = Map::new();
+                node.insert("type".into(), Value::String("image".into()));
+                node.insert("src".into(), Value::String(image.url.clone()));
+                node.insert("alt".into(), Value::String(image.alt.clone()));
+
+                if let Some(title) = image_title {
+                    node.insert("title".into(), Value::String(title));
+                }
+
+                return Value::Object(node);
             }
 
-            json!({ "type": "image" })
+            let mut node = Map::new();
+            node.insert("type".into(), Value::String("image".into()));
+
+            if let Some(title) = image_title {
+                node.insert("title".into(), Value::String(title));
+            }
+
+            Value::Object(node)
         }
         _ => {
             let node_type = node_type_name(ast);

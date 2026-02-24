@@ -555,6 +555,8 @@ async fn extract_body_and_title(
 
                 if align.is_empty() && caption.is_empty() {
                     ln = format!("![{alt}]({new_src})");
+                } else if align.is_empty() && !caption.is_empty() {
+                    ln = format!(r#"![{alt}]({new_src} "{caption}")"#);
                 } else {
                     let al = match align {
                         "right" => " class=\"float-right\"",
