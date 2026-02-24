@@ -214,21 +214,6 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
                 for child in nodes {
                     let mut converted = to_structure_mdast(child, media);
 
-                    if is_paragraph
-                        && converted.get("type").and_then(Value::as_str) == Some("image")
-                    {
-                        if !children.is_empty() {
-                            children.push(converted);
-
-                            return json!({
-                                "type": "paragraph",
-                                "children": children,
-                            });
-                        }
-
-                        return converted;
-                    }
-
                     if is_link
                         && let Node::Link(parent_link) = ast
                         && let Some(obj) = converted.as_object()
@@ -250,6 +235,15 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
 
                     children.push(converted);
                 }
+            }
+
+            // Handle paragraph with single image: unwrap if only child
+            if is_paragraph
+                && children.len() == 1
+                && let Some(first) = children.first()
+                && first.get("type").and_then(Value::as_str) == Some("image")
+            {
+                return first.clone();
             }
 
             let mut result = Map::new();

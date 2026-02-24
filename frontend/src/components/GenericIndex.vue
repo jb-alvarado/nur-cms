@@ -18,6 +18,7 @@ const router = useRouter()
 const store = useIndex()
 const { t } = useI18n()
 
+store.selectAll = false
 store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? String(route.name)
 const matchedType = store.types.find((type) => type.slug === store.routeType)?.id
 

@@ -17,18 +17,26 @@
 /// 6. Creates ContentEntry record with title, slug, and content
 /// 7. Inserts associated metadata: category, thumbnail, authors, tags, event dates
 ///
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::LazyLock,
+};
 
 use chrono::{DateTime, Utc};
 use colored::Colorize;
-use html_parser::Dom;
 use inquire::Select;
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::fs;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+
+static IMAGE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"!\[([^\]]*)\]\(([^")"\s]+)(?:\s+"([^"]*)")?\)"#)
+        .expect("Invalid image regex pattern")
+});
 
 use crate::{
     CONFIG, PUBLIC_UPLOADS, STORAGE,
@@ -133,7 +141,10 @@ pub async fn import_markdown(
 
 async fn prompt_missing_options(pool: &PgPool, opts: &mut ImportOptions) -> Result<(), NurError> {
     if opts.content_type_id.is_none() {
-        let query: QueryObj<ContentTypeFields> = QueryObj::default();
+        let query: QueryObj<ContentTypeFields> = QueryObj {
+            ordering: "id".to_string(),
+            ..Default::default()
+        };
         let content_types = handles::select_record::<ContentTypeFields, ContentType>(
             pool,
             &Table::ContentTypes,
@@ -410,36 +421,6 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     Ok(())
 }
 
-fn build_picture_tag(fallback_src: &str, alt: &str, variants: Vec<(i32, i32, String)>) -> String {
-    let mut sources = String::new();
-
-    // Group variants by breakpoint (width)
-    let mut breakpoints: Vec<i32> = variants.iter().map(|(w, _, _)| *w).collect();
-    breakpoints.sort_by(|a, b| b.cmp(a)); // Descending order
-    breakpoints.dedup();
-
-    for bp in breakpoints {
-        let bp_variants: Vec<_> = variants.iter().filter(|(w, _, _)| *w == bp).collect();
-
-        for (_, _, filename) in bp_variants {
-            let media_query = format!("(min-width: {}px)", bp + 100);
-
-            // Build path consistent with ensure_target_paths output
-            let src_path = if let Some(dir_end) = fallback_src.rfind('/') {
-                format!("{}/{}", &fallback_src[..dir_end], filename)
-            } else {
-                filename.to_string()
-            };
-
-            sources.push_str(&format!(
-                r#"<source media="{media_query}" srcset="{src_path}" width="100%">"#
-            ));
-        }
-    }
-
-    format!(r#"<picture>{sources}<img src="{fallback_src}" alt="{alt}" width="100%"></picture>"#)
-}
-
 async fn extract_body_and_title(
     content: &str,
     pool: &PgPool,
@@ -460,10 +441,6 @@ async fn extract_body_and_title(
 
     for line in lines.by_ref() {
         let trimmed = line.trim();
-
-        if is_bootstrap_table_tag(trimmed) {
-            continue;
-        }
 
         if trimmed == "---" && !frontmatter_parsed {
             if in_frontmatter {
@@ -515,82 +492,7 @@ async fn extract_body_and_title(
             continue;
         }
 
-        // Handle custom DOM/image syntax
-        if trimmed.starts_with("{{") && trimmed.contains("}}") {
-            let mut ln = trimmed
-                .replace("{{", "")
-                .replace("}}", "")
-                .replace(r#" render="markdown""#, "")
-                .to_string();
-
-            if let Ok(dom_parsed) = Dom::parse(&ln)
-                && let Some(element) = dom_parsed.children.first().and_then(|c| c.element())
-                && element.name == "img"
-            {
-                let get_attr = |name: &str| {
-                    element
-                        .attributes
-                        .get(name)
-                        .and_then(|c| c.as_ref())
-                        .map_or("", |v| v)
-                };
-                let align = get_attr("align");
-                let alt = get_attr("alt");
-                let caption = get_attr("caption");
-                let src = get_attr("src");
-
-                // Try to ensure/copy media and use new public path when successful
-                let ensured =
-                    ensure_media(pool, src, media_root, file_dir, &created_at, user_id).await;
-                let new_src = match ensured {
-                    Ok(Some(_media_id)) => {
-                        // Compute public path consistent with ensure_media
-                        let source = resolve_source_path(src, media_root, file_dir);
-                        let filename = source.file_name().and_then(|n| n.to_str()).unwrap_or(src);
-                        let (target_dir, _target_fs) = ensure_target_paths(&created_at);
-                        format!("{}/{}", target_dir, filename)
-                    }
-                    _ => src.to_string(),
-                };
-
-                if align.is_empty() && caption.is_empty() {
-                    ln = format!("![{alt}]({new_src})");
-                } else if align.is_empty() && !caption.is_empty() {
-                    ln = format!(r#"![{alt}]({new_src} "{caption}")"#);
-                } else {
-                    let al = match align {
-                        "right" => " class=\"float-right\"",
-                        "left" => " class=\"float-left\"",
-                        _ => "",
-                    };
-
-                    let img = // Fetch media variants if media_id exists
-                        if let Ok(Some(media_id)) = ensured {
-                            match fetch_media_variants(pool, media_id).await {
-                                Ok(variants) if !variants.is_empty() => {
-                                    build_picture_tag(&new_src, alt, variants)
-                                }
-                                _ => {
-                                    format!("<img src=\"{new_src}\" alt=\"{alt}\" />")
-                                }
-                            }
-                        } else {
-                            format!("<img src=\"{new_src}\" alt=\"{alt}\" />")
-                        };
-
-                    ln = if caption.is_empty() {
-                        img.replace(" />", &format!("{al} />"))
-                            .replace("<picture>", &format!("<picture{al}>"))
-                    } else {
-                        format!("<figure{al}>{img}<figcaption>{caption}</figcaption></figure>")
-                    }
-                }
-            }
-
-            body_lines.push(ln);
-        } else {
-            body_lines.push(line.to_string());
-        }
+        body_lines.push(line.to_string());
     }
 
     let body = body_lines.join("\n").trim().to_string();
@@ -612,91 +514,49 @@ async fn replace_markdown_image(
     created_at: &DateTime<Utc>,
     user_id: i32,
 ) -> Option<String> {
-    let (image_start, image_close, link_open, link_close) = if let Some(start) = line.find("[![") {
-        let alt_start = start + 3;
-        let alt_end = line[alt_start..].find("](")? + alt_start;
-        let src_start = alt_end + 2;
-        let image_close = line[src_start..].find(")]")? + src_start + 1;
-        let link_open = line[image_close + 1..].find('(')? + image_close + 1;
-        let link_close = line[link_open + 1..].find(')')? + link_open + 1;
-        (start, image_close, Some(link_open), Some(link_close))
-    } else {
-        let start = line.find("![")?;
-        let alt_start = start + 2;
-        let alt_end = line[alt_start..].find("](")? + alt_start;
-        let src_start = alt_end + 2;
-        let image_close = line[src_start..].find(')')? + src_start;
-        (start, image_close, None, None)
-    };
+    let img_regex = &*IMAGE_REGEX;
 
-    let image = &line[image_start..=image_close];
-    let alt_start = image.find("![")? + 2;
-    let alt_end = image[alt_start..].find("](")? + alt_start;
-    let src_start = alt_end + 2;
-    let src_end = image[src_start..].rfind(')')? + src_start;
+    let mut result = line.to_string();
+    let mut offset = 0i32;
 
-    let alt = image[alt_start..alt_end].trim();
-    let src = image[src_start..src_end].trim();
+    // Find all image matches
+    for cap in img_regex.captures_iter(line) {
+        let full_match = cap.get(0)?;
+        let alt = cap.get(1).map_or("", |m| m.as_str());
+        let src = cap.get(2).map_or("", |m| m.as_str());
+        let title = cap.get(3).map(|m| m.as_str());
 
-    if src.is_empty() {
-        return None;
-    }
-
-    let ensured = ensure_media(pool, src, media_root, file_dir, created_at, user_id).await;
-    let new_src = match ensured {
-        Ok(Some(_media_id)) => {
-            let source = resolve_source_path(src, media_root, file_dir);
-            let filename = source.file_name().and_then(|n| n.to_str()).unwrap_or(src);
-            let (target_dir, _target_fs) = ensure_target_paths(created_at);
-            format!("{}/{}", target_dir, filename)
-        }
-        _ => src.to_string(),
-    };
-
-    let image_md = format!("![{alt}]({new_src})");
-    if let (Some(link_open), Some(link_close)) = (link_open, link_close) {
-        let url = line[link_open + 1..link_close].trim();
-        if url.is_empty() {
-            return None;
+        if src.is_empty() {
+            continue;
         }
 
-        return Some(format!(
-            "{}[{}]({}){}",
-            &line[..image_start],
-            image_md,
-            url,
-            &line[link_close + 1..]
-        ));
-    }
-
-    Some(format!(
-        "{}{}{}",
-        &line[..image_start],
-        image_md,
-        &line[image_close + 1..]
-    ))
-}
-
-fn is_bootstrap_table_tag(line: &str) -> bool {
-    let mut rest = line;
-
-    while let Some(start) = rest.find('<') {
-        let after_start = &rest[start + 1..];
-        let Some(end) = after_start.find('>') else {
-            return false;
+        // Process media and get new path
+        let ensured = ensure_media(pool, src, media_root, file_dir, created_at, user_id).await;
+        let new_src = match ensured {
+            Ok(Some(_media_id)) => {
+                let source = resolve_source_path(src, media_root, file_dir);
+                let filename = source.file_name().and_then(|n| n.to_str()).unwrap_or(src);
+                let (target_dir, _target_fs) = ensure_target_paths(created_at);
+                format!("{}/{}", target_dir, filename)
+            }
+            _ => src.to_string(),
         };
 
-        let inner = after_start[..end].trim();
-        let inner = inner.trim_start_matches('/').trim_start();
+        // Rebuild image markdown with new src and preserve title if present
+        let new_image = if let Some(title_str) = title {
+            format!(r#"![{alt}]({new_src} "{title_str}")"#)
+        } else {
+            format!("![{alt}]({new_src})")
+        };
 
-        if inner.starts_with("bootstrap-table") {
-            return true;
-        }
-
-        rest = &after_start[end + 1..];
+        // Replace in result string
+        let start = (full_match.start() as i32 + offset) as usize;
+        let end = (full_match.end() as i32 + offset) as usize;
+        result.replace_range(start..end, &new_image);
+        offset += new_image.len() as i32 - (full_match.end() - full_match.start()) as i32;
     }
 
-    false
+    if result == line { None } else { Some(result) }
 }
 
 fn extract_slug(url: &str) -> String {
@@ -730,18 +590,6 @@ fn slugify(s: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-")
-}
-
-async fn fetch_media_variants(
-    pool: &PgPool,
-    media_id: i32,
-) -> Result<Vec<(i32, i32, String)>, sqlx::Error> {
-    sqlx::query_as::<_, (i32, i32, String)>(
-        "SELECT width, height, filename FROM media_variants WHERE media_id = $1 ORDER BY width DESC",
-    )
-    .bind(media_id)
-    .fetch_all(pool)
-    .await
 }
 
 async fn lookup_or_create_category(

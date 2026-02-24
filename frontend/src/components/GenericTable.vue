@@ -14,7 +14,6 @@ dayjs.extend(localizedFormat)
 const route = useRoute()
 const store = useIndex()
 const { locale } = useI18n()
-const select = ref(false)
 const groupedColumns = ref<any[]>([])
 
 // Set dayjs locale based on i18n locale
@@ -108,7 +107,7 @@ function groupColumns(columns: any[]) {
 
 function selectAll() {
     for (const item of store.tableCols) {
-        item.check = select.value
+        item.check = store.selectAll
     }
 
     props.checkBoxChange()
@@ -166,7 +165,7 @@ function onChangeCheckbox() {
             <tr>
                 <th class="w-10">
                     <label>
-                        <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
+                        <input v-model="store.selectAll" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                     </label>
                 </th>
                 <th

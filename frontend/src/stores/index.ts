@@ -48,6 +48,7 @@ export const useIndex = defineStore('index', {
         progressShow: false,
         randomKey: 'aHcyWqp',
         loaded: false,
+        selectAll: false,
     }),
 
     getters: {},
@@ -298,6 +299,7 @@ export const useIndex = defineStore('index', {
             }
 
             await this.contentSelect()
+            this.selectAll = false
         },
     },
 })
