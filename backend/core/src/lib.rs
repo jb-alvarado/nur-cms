@@ -124,7 +124,7 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
 
     let locale_routes = Router::new()
         .route("/", get(locale_select).post(locale_insert))
-        .route("/{id}", delete(locale_delete));
+        .route("/{id}", put(locale_update).delete(locale_delete));
 
     let comment_routes = Router::new()
         .route("/", get(comments_select).post(comment_insert))

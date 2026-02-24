@@ -13,6 +13,7 @@ pub enum LocaleFields {
     #[default]
     Code,
     Name,
+    TsvDict,
 }
 
 impl StrCompare for LocaleFields {
@@ -21,6 +22,7 @@ impl StrCompare for LocaleFields {
             Self::ID => other == "id",
             Self::Code => other == "code",
             Self::Name => other == "name",
+            Self::TsvDict => other == "tsv_dict",
         }
     }
 }
@@ -33,6 +35,7 @@ impl FromStr for LocaleFields {
             "id" => Ok(Self::ID),
             "code" => Ok(Self::Code),
             "name" => Ok(Self::Name),
+            "tsv_dict" => Ok(Self::TsvDict),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -44,6 +47,7 @@ impl fmt::Display for LocaleFields {
             Self::ID => write!(f, "id"),
             Self::Code => write!(f, "code"),
             Self::Name => write!(f, "name"),
+            Self::TsvDict => write!(f, "tsv_dict"),
         }
     }
 }

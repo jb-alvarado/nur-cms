@@ -77,6 +77,13 @@ export default {
         name: 'Name',
         slug: 'Slug',
     },
+    locale: {
+        title: 'Locales',
+        code: 'Code',
+        name: 'Name',
+        tsvDict: 'TSV Dictionary',
+        selectTsvDict: 'Select TSV Dictionary',
+    },
     globalSettings: {
         title: 'Global Settings',
         jwtSecret: 'JWT Secret',
@@ -95,6 +102,8 @@ export default {
         deleteConfirm: 'Are you sure you want to delete {count} item(s)?',
         createTypeTitle: 'Create Content Type',
         editTypeTitle: 'Edit Content Type',
+        createLocaleTitle: 'Create Locale',
+        editLocaleTitle: 'Edit Locale',
         createMailTargetTitle: 'Create Mail Target',
         editMailTargetTitle: 'Edit Mail Target',
         createTemplate: 'Create Template',

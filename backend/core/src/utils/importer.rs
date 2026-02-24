@@ -176,14 +176,19 @@ async fn prompt_missing_options(pool: &PgPool, opts: &mut ImportOptions) -> Resu
         let query: QueryObj<LocaleFields> = QueryObj::default();
         let locales =
             handles::select_record::<LocaleFields, Locale>(pool, &Table::Locales, query).await?;
-        let locale_list: Vec<String> = locales.results.iter().map(|l| l.code.clone()).collect();
-        let locale_code = Select::new("Locale:", locale_list).prompt()?;
-        let locale = locales
-            .results
-            .iter()
-            .find(|l| l.code == locale_code)
-            .ok_or(NurError::NoContent)?;
-        opts.locale_id = Some(locale.id);
+
+        if locales.count == 1 {
+            opts.locale_id = Some(locales.results[0].id);
+        } else {
+            let locale_list: Vec<String> = locales.results.iter().map(|l| l.code.clone()).collect();
+            let locale_code = Select::new("Locale:", locale_list).prompt()?;
+            let locale = locales
+                .results
+                .iter()
+                .find(|l| l.code == locale_code)
+                .ok_or(NurError::NoContent)?;
+            opts.locale_id = Some(locale.id);
+        }
     }
 
     Ok(())
@@ -573,6 +578,7 @@ async fn extract_body_and_title(
 
                     ln = if caption.is_empty() {
                         img.replace(" />", &format!("{al} />"))
+                            .replace("<picture>", &format!("<picture{al}>"))
                     } else {
                         format!("<figure{al}>{img}<figcaption>{caption}</figcaption></figure>")
                     }

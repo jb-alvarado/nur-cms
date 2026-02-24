@@ -122,6 +122,14 @@ const selectedCategory = computed({
     },
 })
 
+function autoSelectSingleStoreLocale() {
+    if (contentId === 0 && !content.value.locale_id && store.locales.length === 1) {
+        content.value.locale_id = store.locales[0]?.id ?? 0
+    }
+}
+
+autoSelectSingleStoreLocale()
+
 if (contentId > 0) {
     selectContent()
 } else if (groupID > 0) {
@@ -156,6 +164,7 @@ if (contentId > 0) {
 
     setTimeout(() => {
         locales.value = store.locales
+        autoSelectSingleStoreLocale()
     }, 1000)
 }
 

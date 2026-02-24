@@ -78,6 +78,13 @@ export default {
         name: 'Name',
         slug: 'Slug',
     },
+    locale: {
+        title: 'Sprachen',
+        code: 'Code',
+        name: 'Name',
+        tsvDict: 'TSV Wörterbuch',
+        selectTsvDict: 'TSV Wörterbuch auswählen',
+    },
     globalSettings: {
         title: 'Globale Einstellungen',
         jwtSecret: 'JWT Geheimnis',
@@ -96,6 +103,8 @@ export default {
         deleteConfirm: 'Möchten Sie wirklich {count} Element(e) löschen?',
         createTypeTitle: 'Inhaltstyp erstellen',
         editTypeTitle: 'Inhaltstyp bearbeiten',
+        createLocaleTitle: 'Sprache erstellen',
+        editLocaleTitle: 'Sprache bearbeiten',
         createMailTargetTitle: 'Mail Ziel erstellen',
         editMailTargetTitle: 'Mail Ziel bearbeiten',
         createTemplate: 'Vorlage erstellen',

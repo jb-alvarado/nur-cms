@@ -2,6 +2,7 @@
 import { version } from '../../../package.json'
 
 import GlobalSettings from '@/components/config/GlobalSettings.vue'
+import ContentLocale from '@/components/config/ContentLocale.vue'
 import ContentType from '@/components/config/ContentType.vue'
 import MailTargets from '@/components/config/MailTargets.vue'
 import NodeTemplates from '@/components/config/NodeTemplates.vue'
@@ -18,6 +19,7 @@ import NodeTemplates from '@/components/config/NodeTemplates.vue'
 
     <div class="flex flex-wrap gap-4 py-4">
         <GlobalSettings />
+        <ContentLocale />
         <ContentType />
         <MailTargets />
         <NodeTemplates />
