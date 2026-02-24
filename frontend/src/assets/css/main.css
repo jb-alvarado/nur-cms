@@ -135,3 +135,25 @@ vue-multiselect
     @apply bg-base-100;
     margin-bottom: 0;
 }
+
+/*-----------------------------------------------------------------------------
+custom styles
+-----------------------------------------------------------------------------*/
+
+@media screen and (min-width: 600px) {
+    .float-left {
+        max-width: 350px;
+        float: left;
+        margin-top: 0.5rem;
+        margin-right: 2rem;
+        margin-bottom: 1rem;
+    }
+
+    .float-right {
+        max-width: 350px;
+        float: right;
+        margin-top: 0.5rem;
+        margin-left: 2rem;
+        margin-bottom: 1rem;
+    }
+}
