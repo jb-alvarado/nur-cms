@@ -12,7 +12,7 @@ use sqlx::Execute;
 use tracing::debug;
 
 use crate::db::{
-    fields::{ContentEntryFields as CF, ContentNodeFields as CN, Table},
+    fields::{ContentAuthorFields, ContentEntryFields as CF, ContentNodeFields as CN, Table},
     handles::core::update_record,
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::ContentEntrySerializer,
@@ -27,61 +27,57 @@ type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value
 fn tag_join(entry_alias: &str) -> String {
     format!(
         r#"LEFT JOIN LATERAL (
-        SELECT ARRAY_AGG(
-            (t.id, t.name, t.slug)
-        ) AS data
-        FROM content_tags t
-        JOIN content_entry_tags cet ON cet.tag_id = t.id
-        WHERE cet.entry_id = {}.id
-    ) AS tags ON TRUE "#,
-        entry_alias
+            SELECT COALESCE(
+                array_agg(ROW(t.id, t.name, t.slug)::tag_row ORDER BY t.name),
+                ARRAY[]::tag_row[]
+            ) AS data
+            FROM content_tags t
+            JOIN content_entry_tags cet ON cet.tag_id = t.id
+            WHERE cet.entry_id = {entry_alias}.id
+        ) AS tags ON TRUE "#
     )
 }
 
 fn media_join(entry_alias: &str) -> String {
-    format!(
+    let mut s = String::new();
+
+    s.push_str(
         r#"LEFT JOIN LATERAL (
-        SELECT json_build_object(
-            'alt', m.alt,
-            'path', m.path,
-            'filename', m.filename,
-            'variants', COALESCE(
-                (
-                    SELECT json_agg(
-                        json_build_object(
-                            'id', mv.id,
-                            'width', mv.width,
-                            'height', mv.height,
-                            'filename', mv.filename
-                        )
-                    )
-                    FROM media_variants mv
-                    WHERE mv.media_id = m.id
-                ),
-                '[]'
-            )
-        ) AS data
-        FROM media m
-        WHERE m.id = {}.media_id
-    ) AS media ON TRUE "#,
-        entry_alias
-    )
+            SELECT json_build_object(
+                'alt', m.alt,
+                'path', m.path,
+                'filename', m.filename,
+                'variants', COALESCE(mv.variants, '[]'::json)
+            ) AS data
+            FROM media m
+        "#,
+    );
+
+    s.push_str(&variants_lateral("m", "mv"));
+
+    s.push_str(&format!(
+        r#"WHERE m.id = {entry}.media_id
+        ) AS media ON TRUE "#,
+        entry = entry_alias
+    ));
+
+    s
 }
 
 fn group_join(entry_alias: &str) -> String {
     format!(
         r#"LEFT JOIN LATERAL (
-        SELECT jsonb_agg(
-            jsonb_build_object(
-                'id', ge.id,
-                'locale_id', ge.locale_id
-            )
-        ) AS data
-        FROM content_entries ge
-        WHERE ge.group_id = {}.group_id
-            AND ge.id != {}.id
-    ) AS group_members ON TRUE "#,
-        entry_alias, entry_alias
+            SELECT COALESCE(
+                jsonb_agg(
+                    jsonb_build_object('id', ge.id, 'locale_id', ge.locale_id)
+                ),
+                '[]'::jsonb
+            ) AS data
+            FROM content_entries ge
+            WHERE ge.group_id = {e}.group_id
+              AND ge.id != {e}.id
+        ) AS group_members ON TRUE "#,
+        e = entry_alias
     )
 }
 
@@ -95,12 +91,13 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
 
     where_chain.push_and_bind(
         Some("OR"),
-        "EXISTS (
-                SELECT 1
-                FROM content_entry_authors cea2
-                JOIN content_authors ca2 ON ca2.id = cea2.author_id
-                WHERE cea2.entry_id = ce.id
-                AND (ca2.first_name ILIKE CONCAT('%', ",
+        r#"EXISTS (
+            SELECT 1
+            FROM content_entry_authors cea2
+            JOIN content_authors ca2 ON ca2.id = cea2.author_id
+            WHERE cea2.entry_id = ce.id
+              AND (
+                  ca2.first_name ILIKE CONCAT('%', "#,
         search.clone(),
         Some(", '%') "),
     );
@@ -109,19 +106,36 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
         Some("OR"),
         "ca2.last_name ILIKE CONCAT('%', ",
         search.clone(),
-        Some(", '%'))"),
+        Some(", '%') )) )"),
     );
 
     where_chain.push_and_bind(
-            Some("OR"),
-            "EXISTS (
-                SELECT 1
-                FROM content_nodes cn2
-                WHERE cn2.entry_id = ce.id
-                AND cn2.text_vector @@ websearch_to_tsquery((SELECT tsv_dict::regconfig FROM locales WHERE id = ce.locale_id), ",
-            search,
-            Some("))))"),
-        );
+        Some("OR"),
+        r#"EXISTS (
+            SELECT 1
+            FROM content_nodes cn2
+            WHERE cn2.entry_id = ce.id
+              AND cn2.text_vector @@ websearch_to_tsquery(l.tsv_dict::regconfig, "#,
+        search,
+        Some("))"),
+    );
+}
+
+fn variants_lateral(media_alias: &str, variants_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
+            SELECT json_agg(
+                json_build_object(
+                    'id', mv.id,
+                    'width', mv.width,
+                    'height', mv.height,
+                    'filename', mv.filename
+                )
+            ) AS variants
+            FROM media_variants mv
+            WHERE mv.media_id = {media_alias}.id
+        ) AS {variants_alias} ON TRUE "#,
+    )
 }
 
 fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_joins: bool) -> String {
@@ -129,11 +143,12 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
     let needs_media = query_obj
         .fields
         .iter()
-        .any(|f| matches!(f, CF::Author(crate::db::fields::ContentAuthorFields::Media)));
+        .any(|f| matches!(f, CF::Author(ContentAuthorFields::Media)));
 
     for f in &query_obj.fields {
         match f {
-            CF::Author(crate::db::fields::ContentAuthorFields::Media) => {
+            CF::Author(ContentAuthorFields::Media) => {
+                // innerhalb match CF::Author(Media) => { ... }
                 fields.push(
                     r#"'media', CASE
                         WHEN ca2.media_id IS NOT NULL THEN (
@@ -142,23 +157,21 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
                                 'alt', m.alt,
                                 'path', m.path,
                                 'filename', m.filename,
-                                'variants', COALESCE(
-                                    (
-                                        SELECT json_agg(
-                                            json_build_object(
-                                                'id', mv.id,
-                                                'width', mv.width,
-                                                'height', mv.height,
-                                                'filename', mv.filename
-                                            )
-                                        )
-                                        FROM media_variants mv
-                                        WHERE mv.media_id = m.id
-                                    ),
-                                    '[]'
-                                )
+                                'variants', COALESCE(mv.variants, '[]'::json)
                             )
                             FROM media m
+                            LEFT JOIN LATERAL (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'id', mv.id,
+                                        'width', mv.width,
+                                        'height', mv.height,
+                                        'filename', mv.filename
+                                    )
+                                ) AS variants
+                                FROM media_variants mv
+                                WHERE mv.media_id = m.id
+                            ) mv ON TRUE
                             WHERE m.id = ca2.media_id
                         )
                         ELSE NULL
@@ -305,6 +318,7 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
 fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
     let mut fields = Vec::new();
     let mut null_check_fields = Vec::new();
+
     let needs_embeds = query_obj
         .fields
         .iter()
@@ -312,14 +326,8 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
 
     for f in &query_obj.fields {
         match *f {
-            CF::Node(CN::ID) => {
-                fields.push("'id', cn.id".to_string());
-                // id is NOT NULL, don't add to null_check
-            }
-            CF::Node(CN::OrderIndex) => {
-                fields.push("'order_index', cn.order_index".to_string());
-                // order_index is NOT NULL, don't add to null_check
-            }
+            CF::Node(CN::ID) => fields.push("'id', cn.id".to_string()),
+            CF::Node(CN::OrderIndex) => fields.push("'order_index', cn.order_index".to_string()),
             CF::Node(CN::Name) => {
                 fields.push("'name', cn.name".to_string());
                 null_check_fields.push("cn.name".to_string());
@@ -328,51 +336,41 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                 fields.push("'text', cn.text".to_string());
                 null_check_fields.push("cn.text".to_string());
             }
-            CF::Node(CN::Blocks) => {
-                if !query_obj.fields.contains(&CF::Node(CN::ID)) {
-                    fields.push("'id', cn.id".to_string());
-                }
-
-                if !query_obj.fields.contains(&CF::Node(CN::OrderIndex)) {
-                    fields.push("'order_index', cn.order_index".to_string());
-                }
-
-                if !query_obj.fields.contains(&CF::Node(CN::Data)) {
-                    fields.push("'data', cn.data".to_string());
-                }
-
-                if !query_obj.fields.contains(&CF::Node(CN::ParentID)) {
-                    fields.push("'parent_id', cn.parent_id".to_string());
-                }
-            }
             CF::Node(CN::Data) => {
                 fields.push("'data', cn.data".to_string());
                 null_check_fields.push("cn.data".to_string());
             }
             CF::Node(CN::Embeds) => {
-                fields.push("'embeds', COALESCE(embed_data.media, '[]')".to_string());
-                // embeds is always at least '[]', so it's never NULL
+                fields.push("'embeds', COALESCE(embed_data.media, '[]'::json)".to_string());
             }
             CF::Node(CN::Media) => {
                 fields.push(
                     r#"'media', CASE
-                    WHEN cn.media_id IS NOT NULL THEN json_build_object(
-                        'id', m.id,
-                        'alt', m.alt,
-                        'path', m.path,
-                        'filename', m.filename,
-                        'variants', COALESCE(
-                            (SELECT json_agg(json_build_object(
-                                'id', mv.id,
-                                'width', mv.width,
-                                'height', mv.height,
-                                'filename', mv.filename
-                            )) FROM media_variants mv WHERE mv.media_id = m.id),
-                            '[]'
+                        WHEN cn.media_id IS NOT NULL THEN (
+                            SELECT json_build_object(
+                                'id', m.id,
+                                'alt', m.alt,
+                                'path', m.path,
+                                'filename', m.filename,
+                                'variants', COALESCE(mv.variants, '[]'::json)
+                            )
+                            FROM media m
+                            LEFT JOIN LATERAL (
+                                SELECT json_agg(
+                                    json_build_object(
+                                        'id', mv.id,
+                                        'width', mv.width,
+                                        'height', mv.height,
+                                        'filename', mv.filename
+                                    )
+                                ) AS variants
+                                FROM media_variants mv
+                                WHERE mv.media_id = m.id
+                            ) mv ON TRUE
+                            WHERE m.id = cn.media_id
                         )
-                    )
-                    ELSE NULL
-                END"#
+                        ELSE NULL
+                    END"#
                         .to_string(),
                 );
                 null_check_fields.push("cn.media_id".to_string());
@@ -381,57 +379,66 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                 fields.push("'parent_id', cn.parent_id".to_string());
                 null_check_fields.push("cn.parent_id".to_string());
             }
+            CF::Node(CN::Blocks) => {
+                if !query_obj.fields.contains(&CF::Node(CN::ID)) {
+                    fields.push("'id', cn.id".to_string());
+                }
+                if !query_obj.fields.contains(&CF::Node(CN::OrderIndex)) {
+                    fields.push("'order_index', cn.order_index".to_string());
+                }
+                if !query_obj.fields.contains(&CF::Node(CN::Data)) {
+                    fields.push("'data', cn.data".to_string());
+                }
+                if !query_obj.fields.contains(&CF::Node(CN::ParentID)) {
+                    fields.push("'parent_id', cn.parent_id".to_string());
+                }
+            }
             _ => (),
         }
     }
 
     let mut from_clause = "FROM content_nodes cn".to_string();
 
-    if query_obj.fields.contains(&CF::Node(CN::Media)) {
-        from_clause.push_str(" LEFT JOIN media m ON m.id = cn.media_id");
-    }
-
     if needs_embeds {
         from_clause.push_str(
             r#"
-        LEFT JOIN LATERAL (
-            SELECT json_agg(
-                json_build_object(
-                    'id', m.id,
-                    'alt', m.alt,
-                    'filename', m.filename,
-                    'path', m.path,
-                    'type', m.type,
-                    'ast_line', cnm.ast_line,
-                    'start_offset', cnm.start_offset,
-                    'end_offset', cnm.end_offset,
-                    'variants', COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'id', mv.id,
-                                    'width', mv.width,
-                                    'height', mv.height,
-                                    'filename', mv.filename
-                                )
-                            )
-                            FROM media_variants mv
-                            WHERE mv.media_id = m.id
-                        ),
-                        '[]'
+            LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'id', m.id,
+                        'alt', m.alt,
+                        'filename', m.filename,
+                        'path', m.path,
+                        'type', m.type,
+                        'ast_line', cnm.ast_line,
+                        'start_offset', cnm.start_offset,
+                        'end_offset', cnm.end_offset,
+                        'variants', COALESCE(mv.variants, '[]'::json)
                     )
-                )
-            ) AS media
-            FROM content_node_media cnm
-            JOIN media m ON m.id = cnm.media_id
-            WHERE cnm.node_id = cn.id
-        ) AS embed_data ON TRUE"#,
+                ) AS media
+                FROM content_node_media cnm
+                JOIN media m ON m.id = cnm.media_id
+                LEFT JOIN LATERAL (
+                    SELECT json_agg(
+                        json_build_object(
+                            'id', mv.id,
+                            'width', mv.width,
+                            'height', mv.height,
+                            'filename', mv.filename
+                        )
+                    ) AS variants
+                    FROM media_variants mv
+                    WHERE mv.media_id = m.id
+                ) mv ON TRUE
+                WHERE cnm.node_id = cn.id
+            ) AS embed_data ON TRUE"#,
         );
     }
 
-    let sort = match query_obj.blocks_random {
-        true => "random()",
-        false => "cn.order_index",
+    let sort = if query_obj.blocks_random {
+        "random()"
+    } else {
+        "cn.order_index"
     };
 
     let limit = match query_obj.blocks_limit {
@@ -439,7 +446,6 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
         None => String::new(),
     };
 
-    // Build a condition that ensures at least one requested field is NOT NULL
     let null_check = if null_check_fields.is_empty() {
         String::new()
     } else {
@@ -447,7 +453,7 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
             " AND ({})",
             null_check_fields
                 .iter()
-                .map(|f| format!("{} IS NOT NULL", f))
+                .map(|f| format!("{f} IS NOT NULL"))
                 .collect::<Vec<_>>()
                 .join(" OR ")
         )
@@ -455,25 +461,21 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
 
     format!(
         r#"LEFT JOIN LATERAL (
-        SELECT jsonb_agg(node_json ORDER BY sort_key) AS nodes
-        FROM (
-            SELECT {} AS sort_key,
-                   jsonb_build_object(
-                       {}
-                   ) AS node_json
-            {}
-            WHERE cn.entry_id = {}.id{}
-            ORDER BY {}
-            {}
-        ) AS node_data
-    ) AS nodes ON TRUE "#,
-        sort,
-        fields.join(", "),
-        from_clause,
-        entry_alias,
-        null_check,
-        sort,
-        limit
+            SELECT jsonb_agg(node_json ORDER BY sort_key) AS nodes
+            FROM (
+                SELECT {sort} AS sort_key,
+                       jsonb_build_object({fields}) AS node_json
+                {from_clause}
+                WHERE cn.entry_id = {entry}.id{null_check}
+                {limit}
+            ) AS node_data
+        ) AS nodes ON TRUE "#,
+        sort = sort,
+        fields = fields.join(", "),
+        from_clause = from_clause,
+        entry = entry_alias,
+        null_check = null_check,
+        limit = limit
     )
 }
 
@@ -542,11 +544,16 @@ pub async fn select_content_entries(
     let page_ordering = ordering_with_alias("f");
     let outer_ordering = ordering_with_alias("p");
 
-    let mut qb: QueryBuilder<Postgres> =
-        QueryBuilder::new("WITH filtered AS ( SELECT ce.* FROM content_entries ce ");
+    let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+        "WITH filtered AS NOT MATERIALIZED ( SELECT ce.* FROM content_entries ce ",
+    );
 
     if query_obj.type_slug.is_some() {
         qb.push("JOIN content_types ct ON ct.id = ce.type_id ");
+    }
+
+    if query_obj.search.is_some() {
+        qb.push("JOIN locales l ON l.id = ce.locale_id ");
     }
 
     let mut where_chain = WhereBuilder::new(qb);
@@ -665,7 +672,7 @@ pub async fn select_content_entries(
                     continue;
                 }
             }
-            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
+            CF::Tags => sep.push(format!("tags.data AS {f}")),
             CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
             CF::CommentCount => sep.push(
@@ -675,13 +682,13 @@ pub async fn select_content_entries(
             CF::Node(_) => {
                 if add_node {
                     add_node = false;
-                    sep.push("COALESCE(nodes, '[]') AS nodes".to_string())
+                    sep.push("COALESCE(nodes, '[]'::jsonb) AS nodes".to_string())
                 } else {
                     continue;
                 }
             }
             CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
-            CF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
+            CF::Media => sep.push("media.data AS \"media\""),
             _ => sep.push(format!("p.{f}")),
         };
     }

@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE IF NOT EXISTS auth_roles (
     id SERIAL PRIMARY KEY,
     name VARCHAR(16) NOT NULL UNIQUE DEFAULT 'guest'
@@ -255,3 +257,14 @@ BEGIN
         EXECUTE FUNCTION content_node_tsv_update();
     END IF;
 END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tag_row') THEN
+    CREATE TYPE tag_row AS (
+      id   uuid,
+      name text,
+      slug text
+    );
+  END IF;
+END$$;
