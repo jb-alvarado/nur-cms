@@ -108,7 +108,6 @@ pub async fn comment_insert(
 ) -> Result<Json<i64>, NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
         content.user_id = Some(user.id);
-        content.status = Some("approved".to_string());
     } else {
         // require both name and email and ensure they're not empty strings
         if content.author_name.as_ref().is_none_or(String::is_empty)
@@ -144,6 +143,7 @@ pub async fn comment_insert(
             if content.author_email.is_some()
                 && content.author_name.is_some()
                 && CONFIG.read().await.mail_smtp.is_some()
+                && !details.has_any_authority(&[&Role::Admin, &Role::Author])
             {
                 notify(content).await?;
             }
@@ -151,7 +151,7 @@ pub async fn comment_insert(
             Ok(Json(id))
         }
         Err(e) => {
-            error!("Insert {e}");
+            error!("Insert Comment {e}");
 
             Err(NurError::InternalServerError)
         }

@@ -155,7 +155,7 @@ function onPageChange() {
     <div>
         <div class="flex">
             <h1 class="text-2xl grow">{{ store.routeType.toLocaleUpperCase() }}</h1>
-            <RouterLink :to="`${linkPrefix}/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">
+            <RouterLink v-if="store.routeType !== 'comment'" :to="`${linkPrefix}/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">
                 {{ $t('button.new') }}
             </RouterLink>
         </div>
