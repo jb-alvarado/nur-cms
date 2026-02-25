@@ -24,16 +24,23 @@ use crate::db::format_sql;
 
 type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value>);
 
-const TAG_JOIN: &str = r#"LEFT JOIN LATERAL (
+fn tag_join(entry_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
         SELECT ARRAY_AGG(
             (t.id, t.name, t.slug)
         ) AS data
         FROM content_tags t
         JOIN content_entry_tags cet ON cet.tag_id = t.id
-        WHERE cet.entry_id = ce.id
-    ) AS tags ON TRUE "#;
+        WHERE cet.entry_id = {}.id
+    ) AS tags ON TRUE "#,
+        entry_alias
+    )
+}
 
-const MEDIA_JOIN: &str = r#"LEFT JOIN LATERAL (
+fn media_join(entry_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
         SELECT json_build_object(
             'alt', m.alt,
             'path', m.path,
@@ -55,10 +62,15 @@ const MEDIA_JOIN: &str = r#"LEFT JOIN LATERAL (
             )
         ) AS data
         FROM media m
-        WHERE m.id = ce.media_id
-    ) AS media ON TRUE "#;
+        WHERE m.id = {}.media_id
+    ) AS media ON TRUE "#,
+        entry_alias
+    )
+}
 
-const GROUP_JOIN: &str = r#"LEFT JOIN LATERAL (
+fn group_join(entry_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
         SELECT jsonb_agg(
             jsonb_build_object(
                 'id', ge.id,
@@ -66,9 +78,12 @@ const GROUP_JOIN: &str = r#"LEFT JOIN LATERAL (
             )
         ) AS data
         FROM content_entries ge
-        WHERE ge.group_id = ce.group_id
-            AND ge.id != ce.id
-    ) AS group_members ON TRUE "#;
+        WHERE ge.group_id = {}.group_id
+            AND ge.id != {}.id
+    ) AS group_members ON TRUE "#,
+        entry_alias, entry_alias
+    )
+}
 
 fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
     where_chain.push_and_bind(
@@ -109,7 +124,7 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
         );
 }
 
-fn authors_join(query_obj: &QueryObj<CF>) -> String {
+fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_joins: bool) -> String {
     let mut fields = Vec::new();
     let needs_media = query_obj
         .fields
@@ -187,22 +202,26 @@ fn authors_join(query_obj: &QueryObj<CF>) -> String {
                 ca2.updated_at
             FROM content_authors ca2
             JOIN content_entry_authors cea2 ON cea2.author_id = ca2.id
-            WHERE cea2.entry_id = ce.id
+            WHERE cea2.entry_id = {}.id
         ) ca2
     ) AS authors ON TRUE "#,
             fields.join(", "),
-            media_id_select
+            media_id_select,
+            entry_alias
         ));
     }
 
-    join.push_str(
-        "LEFT JOIN content_entry_authors cea ON cea.entry_id = ce.id LEFT JOIN content_authors ca ON ca.id = cea.author_id ",
-    );
+    if include_filter_joins {
+        join.push_str(&format!(
+            "LEFT JOIN content_entry_authors cea ON cea.entry_id = {}.id LEFT JOIN content_authors ca ON ca.id = cea.author_id ",
+            entry_alias
+        ));
+    }
 
     join
 }
 
-fn category_join(query_obj: &QueryObj<CF>) -> String {
+fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
     let mut fields = Vec::new();
 
     for f in &query_obj.fields {
@@ -276,13 +295,14 @@ fn category_join(query_obj: &QueryObj<CF>) -> String {
             {}
         ) AS data
         FROM content_categories cc2
-        WHERE cc2.id = ce.category_id
+        WHERE cc2.id = {}.category_id
     ) AS cats ON TRUE "#,
-        fields.join(", ")
+        fields.join(", "),
+        entry_alias
     )
 }
 
-fn nodes_join(query_obj: &QueryObj<CF>) -> String {
+fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
     let mut fields = Vec::new();
     let mut null_check_fields = Vec::new();
     let needs_embeds = query_obj
@@ -442,7 +462,7 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
                        {}
                    ) AS node_json
             {}
-            WHERE cn.entry_id = ce.id{}
+            WHERE cn.entry_id = {}.id{}
             ORDER BY {}
             {}
         ) AS node_data
@@ -450,6 +470,7 @@ fn nodes_join(query_obj: &QueryObj<CF>) -> String {
         sort,
         fields.join(", "),
         from_clause,
+        entry_alias,
         null_check,
         sort,
         limit
@@ -460,98 +481,72 @@ pub async fn select_content_entries(
     pool: &PgPool,
     query_obj: &QueryObj<CF>,
 ) -> Result<RespondObj<ContentEntrySerializer>, NurError> {
-    let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
-    let mut sep = qb.separated(", ");
-    let mut add_author = true;
-    let mut add_category = true;
-    let mut add_node = true;
+    let ordering_with_alias = |entry_alias: &str| {
+        query_obj
+            .ordering
+            .split(',')
+            .filter_map(|part| {
+                let mut split = part.split_whitespace();
+                let field = split.next()?.trim();
+                let direction = split.next().unwrap_or("ASC").to_uppercase();
 
-    #[cfg(debug_assertions)]
-    let timer = std::time::Instant::now();
-
-    for f in &query_obj.fields {
-        match *f {
-            CF::Author(_) => {
-                if add_author {
-                    add_author = false;
-                     sep.push("COALESCE(authors.data, '[]') AS authors".to_string())
-                } else {
-                    continue;
+                if direction != "ASC" && direction != "DESC" {
+                    return None;
                 }
-            },
-            CF::Category(_) => {
-                if add_category {
-                    add_category = false;
-                    sep.push("COALESCE(cats.data, NULL) AS category".to_string())
-                } else {
-                    continue;
-                }
-            },
-            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
-            CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
-            CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
-            CF::CommentCount => sep.push(
-                "COALESCE((SELECT COUNT(*) FROM comments c WHERE c.entry_id = ce.id AND c.status = 'approved'), 0) AS comment_count"
-                    .to_string(),
-            ),
-            CF::Node(_) => {
-                if add_node {
-                    add_node = false;
-                    sep.push("COALESCE(nodes, '[]') AS nodes".to_string())
-                } else {
-                    continue;
-                }
-            }
-            CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
-            CF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
-            _ => sep.push(format!("ce.{f}")),
-        };
-    }
 
-    sep.push("count(*) OVER() AS total_count");
-    sep.push_unseparated(" ");
-    qb.push("FROM content_entries ce ");
+                let mapped = match field {
+                    "author" | "author.last_name" => Some(format!(
+                        "(SELECT MIN(ca.last_name) FROM content_entry_authors cea JOIN content_authors ca ON ca.id = cea.author_id WHERE cea.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "author.id" => Some(format!(
+                        "(SELECT MIN(ca.id) FROM content_entry_authors cea JOIN content_authors ca ON ca.id = cea.author_id WHERE cea.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "author.first_name" => Some(format!(
+                        "(SELECT MIN(ca.first_name) FROM content_entry_authors cea JOIN content_authors ca ON ca.id = cea.author_id WHERE cea.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "author.slug" => Some(format!(
+                        "(SELECT MIN(ca.slug) FROM content_entry_authors cea JOIN content_authors ca ON ca.id = cea.author_id WHERE cea.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "author.created_at" => Some(format!(
+                        "(SELECT MIN(ca.created_at) FROM content_entry_authors cea JOIN content_authors ca ON ca.id = cea.author_id WHERE cea.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "author.updated_at" => Some(format!(
+                        "(SELECT MIN(ca.updated_at) FROM content_entry_authors cea JOIN content_authors ca ON ca.id = cea.author_id WHERE cea.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "start_time" => Some(format!(
+                        "(SELECT cm.start_time FROM content_meta cm WHERE cm.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    "end_time" => Some(format!(
+                        "(SELECT cm.end_time FROM content_meta cm WHERE cm.entry_id = {}.id)",
+                        entry_alias
+                    )),
+                    _ if CF::iter().any(|f| f.to_string() == field) => {
+                        Some(format!("{entry_alias}.{field}"))
+                    }
+                    _ => None,
+                }?;
 
-    if query_obj.type_slug.is_some() || query_obj.fields.contains(&CF::Type) {
+                Some(format!("{mapped} {direction}"))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let page_ordering = ordering_with_alias("f");
+    let outer_ordering = ordering_with_alias("p");
+
+    let mut qb: QueryBuilder<Postgres> =
+        QueryBuilder::new("WITH filtered AS ( SELECT ce.* FROM content_entries ce ");
+
+    if query_obj.type_slug.is_some() {
         qb.push("JOIN content_types ct ON ct.id = ce.type_id ");
-    }
-
-    if query_obj.fields.iter().any(|f| matches!(f, CF::Author(_)))
-        || query_obj.author.is_some()
-        || query_obj.search.is_some()
-    {
-        qb.push(authors_join(query_obj));
-    }
-
-    if query_obj
-        .fields
-        .iter()
-        .any(|f| matches!(f, CF::Category(_)))
-    {
-        qb.push(category_join(query_obj));
-    }
-
-    if query_obj.fields.contains(&CF::Tags) {
-        qb.push(TAG_JOIN);
-    }
-
-    if query_obj.fields.contains(&CF::Meta)
-        || query_obj.start_time.is_some()
-        || query_obj.end_time.is_some()
-    {
-        qb.push("LEFT JOIN content_meta cm ON cm.entry_id = ce.id ");
-    }
-
-    if query_obj.fields.contains(&CF::Media) {
-        qb.push(MEDIA_JOIN);
-    }
-
-    if query_obj.fields.iter().any(|f| matches!(f, CF::Node(_))) {
-        qb.push(nodes_join(query_obj));
-    }
-
-    if query_obj.fields.contains(&CF::GroupMembers) {
-        qb.push(GROUP_JOIN);
     }
 
     let mut where_chain = WhereBuilder::new(qb);
@@ -598,7 +593,12 @@ pub async fn select_content_entries(
     }
 
     if let Some(id) = &query_obj.author {
-        where_chain.push_and_bind(None, "ca.id = ", id, None);
+        where_chain.push_and_bind(
+            None,
+            "EXISTS (SELECT 1 FROM content_entry_authors cea WHERE cea.entry_id = ce.id AND cea.author_id = ",
+            id,
+            Some(")"),
+        );
     }
 
     if let Some(id) = &query_obj.group_id {
@@ -606,57 +606,129 @@ pub async fn select_content_entries(
     }
 
     if let Some(start) = &query_obj.start_time {
-        where_chain.push_and_bind(None, "cm.start_time >= ", start, None);
+        where_chain.push_and_bind(
+            None,
+            "EXISTS (SELECT 1 FROM content_meta cm WHERE cm.entry_id = ce.id AND cm.start_time >= ",
+            start,
+            Some(")"),
+        );
     }
 
     if let Some(end) = &query_obj.end_time {
-        where_chain.push_and_bind(None, "cm.end_time <= ", end, None);
+        where_chain.push_and_bind(
+            None,
+            "EXISTS (SELECT 1 FROM content_meta cm WHERE cm.entry_id = ce.id AND cm.end_time <= ",
+            end,
+            Some(")"),
+        );
     }
 
     if let Some(search) = query_obj.search.clone() {
         search_content(&mut where_chain, search);
     }
 
-    // take builder back from where_chain
     qb = where_chain.into_inner();
 
-    let ordering = query_obj
-        .ordering
-        .split(',')
-        .filter_map(|part| {
-            let mut split = part.split_whitespace();
-            let field = split.next()?.trim();
-            let direction = split.next().unwrap_or("ASC").to_uppercase();
-
-            if direction != "ASC" && direction != "DESC" {
-                return None;
-            }
-
-            let mapped = match field {
-                "author" | "author.last_name" => Some("ca.last_name".to_string()),
-                "author.id" => Some("ca.id".to_string()),
-                "author.first_name" => Some("ca.first_name".to_string()),
-                "author.slug" => Some("ca.slug".to_string()),
-                "author.created_at" => Some("ca.created_at".to_string()),
-                "author.updated_at" => Some("ca.updated_at".to_string()),
-                "start_time" => Some("cm.start_time".to_string()),
-                "end_time" => Some("cm.end_time".to_string()),
-                _ if CF::iter().any(|f| f.to_string() == field) => Some(format!("ce.{field}")),
-                _ => None,
-            }?;
-
-            Some(format!("{mapped} {direction}"))
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    if !ordering.is_empty() {
-        qb.push(format!(" ORDER BY {}", ordering));
+    qb.push(" ), page AS ( SELECT f.* FROM filtered f");
+    if !page_ordering.is_empty() {
+        qb.push(format!(" ORDER BY {}", page_ordering));
     }
-
     qb.push(format!(
         " LIMIT {} OFFSET {}",
         query_obj.limit, query_obj.offset
     ));
+    qb.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+
+    let mut sep = qb.separated(", ");
+    let mut add_author = true;
+    let mut add_category = true;
+    let mut add_node = true;
+
+    #[cfg(debug_assertions)]
+    let timer = std::time::Instant::now();
+
+    for f in &query_obj.fields {
+        match *f {
+            CF::Author(_) => {
+                if add_author {
+                    add_author = false;
+                    sep.push("COALESCE(authors.data, '[]') AS authors".to_string())
+                } else {
+                    continue;
+                }
+            }
+            CF::Category(_) => {
+                if add_category {
+                    add_category = false;
+                    sep.push("COALESCE(cats.data, NULL) AS category".to_string())
+                } else {
+                    continue;
+                }
+            }
+            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
+            CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
+            CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
+            CF::CommentCount => sep.push(
+                "COALESCE((SELECT COUNT(*) FROM comments c WHERE c.entry_id = p.id AND c.status = 'approved'), 0) AS comment_count"
+                    .to_string(),
+            ),
+            CF::Node(_) => {
+                if add_node {
+                    add_node = false;
+                    sep.push("COALESCE(nodes, '[]') AS nodes".to_string())
+                } else {
+                    continue;
+                }
+            }
+            CF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
+            CF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
+            _ => sep.push(format!("p.{f}")),
+        };
+    }
+
+    sep.push("t.total_count");
+    sep.push_unseparated(" ");
+    qb.push("FROM page p CROSS JOIN total t ");
+
+    if query_obj.fields.contains(&CF::Type) {
+        qb.push("LEFT JOIN content_types ct ON ct.id = p.type_id ");
+    }
+
+    if query_obj.fields.iter().any(|f| matches!(f, CF::Author(_))) {
+        qb.push(authors_join(query_obj, "p", false));
+    }
+
+    if query_obj
+        .fields
+        .iter()
+        .any(|f| matches!(f, CF::Category(_)))
+    {
+        qb.push(category_join(query_obj, "p"));
+    }
+
+    if query_obj.fields.contains(&CF::Tags) {
+        qb.push(tag_join("p"));
+    }
+
+    if query_obj.fields.contains(&CF::Meta) {
+        qb.push("LEFT JOIN content_meta cm ON cm.entry_id = p.id ");
+    }
+
+    if query_obj.fields.contains(&CF::Media) {
+        qb.push(media_join("p"));
+    }
+
+    if query_obj.fields.iter().any(|f| matches!(f, CF::Node(_))) {
+        qb.push(nodes_join(query_obj, "p"));
+    }
+
+    if query_obj.fields.contains(&CF::GroupMembers) {
+        qb.push(group_join("p"));
+    }
+
+    if !outer_ordering.is_empty() {
+        qb.push(format!(" ORDER BY {}", outer_ordering));
+    }
 
     let query = qb.build_query_as::<ContentEntrySerializer>();
 
