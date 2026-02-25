@@ -106,7 +106,6 @@ def process_entries(data: list, access_token: dict):
         del d["slug"]
 
         try:
-            print(d)
             req = requests.post(
                 f"{API_URL}/api/comments",
                 json=d,
