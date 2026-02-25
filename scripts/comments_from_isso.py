@@ -118,7 +118,7 @@ def process_entries(data: list, access_token: dict):
             print(f"Comment insert failed: {d['slug']} | {d['author_name']}", file=sys.stderr)
             print(req.status_code, file=sys.stderr)
             print(req.text, file=sys.stderr)
-            raise
+            exit(1)
 
         if not req.content:
             print("Empty response body for comment insert", file=sys.stderr)
