@@ -12,7 +12,10 @@ use sqlx::Execute;
 use tracing::debug;
 
 use crate::db::{
-    fields::{ContentAuthorFields, ContentEntryFields as CF, ContentNodeFields as CN, Table},
+    fields::{
+        ContentAuthorFields, ContentCategoryFields, ContentEntryFields as CF,
+        ContentNodeFields as CN, Table,
+    },
     handles::core::update_record,
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::ContentEntrySerializer,
@@ -38,6 +41,29 @@ fn tag_join(entry_alias: &str) -> String {
     )
 }
 
+fn variants_lateral(media_alias: &str, variants_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
+            SELECT COALESCE(
+                json_agg(
+                    json_build_object(
+                        'id', mv.id,
+                        'width', mv.width,
+                        'height', mv.height,
+                        'filename', mv.filename
+                    )
+                    ORDER BY mv.id
+                ),
+                '[]'::json
+            ) AS variants
+            FROM media_variants mv
+            WHERE mv.media_id = {media_alias}.id
+        ) AS {variants_alias} ON TRUE "#,
+        media_alias = media_alias,
+        variants_alias = variants_alias
+    )
+}
+
 fn media_join(entry_alias: &str) -> String {
     let mut s = String::new();
 
@@ -47,7 +73,7 @@ fn media_join(entry_alias: &str) -> String {
                 'alt', m.alt,
                 'path', m.path,
                 'filename', m.filename,
-                'variants', COALESCE(mv.variants, '[]'::json)
+                'variants', mv.variants
             ) AS data
             FROM media m
         "#,
@@ -121,23 +147,6 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
     );
 }
 
-fn variants_lateral(media_alias: &str, variants_alias: &str) -> String {
-    format!(
-        r#"LEFT JOIN LATERAL (
-            SELECT json_agg(
-                json_build_object(
-                    'id', mv.id,
-                    'width', mv.width,
-                    'height', mv.height,
-                    'filename', mv.filename
-                )
-            ) AS variants
-            FROM media_variants mv
-            WHERE mv.media_id = {media_alias}.id
-        ) AS {variants_alias} ON TRUE "#,
-    )
-}
-
 fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_joins: bool) -> String {
     let mut fields = Vec::new();
     let needs_media = query_obj
@@ -148,39 +157,31 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
     for f in &query_obj.fields {
         match f {
             CF::Author(ContentAuthorFields::Media) => {
-                // innerhalb match CF::Author(Media) => { ... }
-                fields.push(
+                fields.push(format!(
                     r#"'media', CASE
-                        WHEN ca2.media_id IS NOT NULL THEN (
-                            SELECT json_build_object(
-                                'id', m.id,
-                                'alt', m.alt,
-                                'path', m.path,
-                                'filename', m.filename,
-                                'variants', COALESCE(mv.variants, '[]'::json)
-                            )
-                            FROM media m
-                            LEFT JOIN LATERAL (
-                                SELECT json_agg(
-                                    json_build_object(
-                                        'id', mv.id,
-                                        'width', mv.width,
-                                        'height', mv.height,
-                                        'filename', mv.filename
-                                    )
-                                ) AS variants
-                                FROM media_variants mv
-                                WHERE mv.media_id = m.id
-                            ) mv ON TRUE
-                            WHERE m.id = ca2.media_id
+                    WHEN ca2.media_id IS NOT NULL THEN (
+                        SELECT json_build_object(
+                            'id', m.id,
+                            'alt', m.alt,
+                            'path', m.path,
+                            'filename', m.filename,
+                            'variants', mv.variants
                         )
-                        ELSE NULL
-                    END"#
-                        .to_string(),
-                );
+                        FROM media m
+                        {}
+                        WHERE m.id = ca2.media_id
+                    )
+                    ELSE NULL
+                END"#,
+                    variants_lateral("m", "mv")
+                ));
             }
             CF::Author(author_field) => {
-                fields.push(format!("'{}', ca2.{}", author_field, author_field));
+                let field = format!("'{}', ca2.{}", author_field, author_field);
+
+                if !fields.contains(&field) {
+                    fields.push(field);
+                }
             }
             _ => (),
         }
@@ -239,40 +240,27 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
 
     for f in &query_obj.fields {
         match f {
-            CF::Category(crate::db::fields::ContentCategoryFields::Media) => {
-                fields.push(
+            CF::Category(ContentCategoryFields::Media) => {
+                fields.push(format!(
                     r#"'media', CASE
-                        WHEN cc2.media_id IS NOT NULL THEN (
-                            SELECT json_build_object(
-                                'id', m.id,
-                                'alt', m.alt,
-                                'path', m.path,
-                                'filename', m.filename,
-                                'variants', COALESCE(
-                                    (
-                                        SELECT json_agg(
-                                            json_build_object(
-                                                'id', mv.id,
-                                                'width', mv.width,
-                                                'height', mv.height,
-                                                'filename', mv.filename
-                                            )
-                                        )
-                                        FROM media_variants mv
-                                        WHERE mv.media_id = m.id
-                                    ),
-                                    '[]'
+                            WHEN cc2.media_id IS NOT NULL THEN (
+                                SELECT json_build_object(
+                                    'id', m.id,
+                                    'alt', m.alt,
+                                    'path', m.path,
+                                    'filename', m.filename,
+                                    'variants', mv.variants
                                 )
+                                FROM media m
+                                {}
+                                WHERE m.id = cc2.media_id
                             )
-                            FROM media m
-                            WHERE m.id = cc2.media_id
-                        )
-                        ELSE NULL
-                    END"#
-                        .to_string(),
-                );
+                            ELSE NULL
+                        END"#,
+                    variants_lateral("m", "mv")
+                ));
             }
-            CF::Category(crate::db::fields::ContentCategoryFields::GroupMembers) => {
+            CF::Category(ContentCategoryFields::GroupMembers) => {
                 fields.push(
                     r#"'group_members', COALESCE(
                         (
@@ -292,7 +280,11 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                 );
             }
             CF::Category(category_field) => {
-                fields.push(format!("'{}', cc2.{}", category_field, category_field));
+                let field = format!("'{}', cc2.{}", category_field, category_field);
+
+                if !fields.contains(&field) {
+                    fields.push(field);
+                }
             }
             _ => (),
         }
@@ -344,35 +336,24 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                 fields.push("'embeds', COALESCE(embed_data.media, '[]'::json)".to_string());
             }
             CF::Node(CN::Media) => {
-                fields.push(
+                fields.push(format!(
                     r#"'media', CASE
-                        WHEN cn.media_id IS NOT NULL THEN (
-                            SELECT json_build_object(
-                                'id', m.id,
-                                'alt', m.alt,
-                                'path', m.path,
-                                'filename', m.filename,
-                                'variants', COALESCE(mv.variants, '[]'::json)
+                            WHEN cn.media_id IS NOT NULL THEN (
+                                SELECT json_build_object(
+                                    'id', m.id,
+                                    'alt', m.alt,
+                                    'path', m.path,
+                                    'filename', m.filename,
+                                    'variants', mv.variants
+                                )
+                                FROM media m
+                                {}
+                                WHERE m.id = cn.media_id
                             )
-                            FROM media m
-                            LEFT JOIN LATERAL (
-                                SELECT json_agg(
-                                    json_build_object(
-                                        'id', mv.id,
-                                        'width', mv.width,
-                                        'height', mv.height,
-                                        'filename', mv.filename
-                                    )
-                                ) AS variants
-                                FROM media_variants mv
-                                WHERE mv.media_id = m.id
-                            ) mv ON TRUE
-                            WHERE m.id = cn.media_id
-                        )
-                        ELSE NULL
-                    END"#
-                        .to_string(),
-                );
+                            ELSE NULL
+                        END"#,
+                    variants_lateral("m", "mv")
+                ));
                 null_check_fields.push("cn.media_id".to_string());
             }
             CF::Node(CN::ParentID) => {
@@ -403,34 +384,32 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
         from_clause.push_str(
             r#"
             LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object(
-                        'id', m.id,
-                        'alt', m.alt,
-                        'filename', m.filename,
-                        'path', m.path,
-                        'type', m.type,
-                        'ast_line', cnm.ast_line,
-                        'start_offset', cnm.start_offset,
-                        'end_offset', cnm.end_offset,
-                        'variants', COALESCE(mv.variants, '[]'::json)
-                    )
+                SELECT COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', m.id,
+                            'alt', m.alt,
+                            'filename', m.filename,
+                            'path', m.path,
+                            'type', m.type,
+                            'ast_line', cnm.ast_line,
+                            'start_offset', cnm.start_offset,
+                            'end_offset', cnm.end_offset,
+                            'variants', mv.variants
+                        )
+                        ORDER BY cnm.ast_line, cnm.start_offset, cnm.end_offset
+                    ),
+                    '[]'::json
                 ) AS media
                 FROM content_node_media cnm
                 JOIN media m ON m.id = cnm.media_id
-                LEFT JOIN LATERAL (
-                    SELECT json_agg(
-                        json_build_object(
-                            'id', mv.id,
-                            'width', mv.width,
-                            'height', mv.height,
-                            'filename', mv.filename
-                        )
-                    ) AS variants
-                    FROM media_variants mv
-                    WHERE mv.media_id = m.id
-                ) mv ON TRUE
-                WHERE cnm.node_id = cn.id
+        "#,
+        );
+
+        from_clause.push_str(&variants_lateral("m", "mv"));
+
+        from_clause.push_str(
+            r#" WHERE cnm.node_id = cn.id
             ) AS embed_data ON TRUE"#,
         );
     }
@@ -476,6 +455,18 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
         entry = entry_alias,
         null_check = null_check,
         limit = limit
+    )
+}
+
+fn comment_count_join(entry_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS comment_count
+            FROM comments c
+            WHERE c.entry_id = {e}.id
+              AND c.status = 'approved'
+        ) AS cc ON TRUE "#,
+        e = entry_alias
     )
 }
 
@@ -644,7 +635,12 @@ pub async fn select_content_entries(
         " LIMIT {} OFFSET {}",
         query_obj.limit, query_obj.offset
     ));
-    qb.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+
+    if query_obj.search_slug.is_none() {
+        qb.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+    } else {
+        qb.push(" ) SELECT ");
+    }
 
     let mut sep = qb.separated(", ");
     let mut add_author = true;
@@ -659,7 +655,7 @@ pub async fn select_content_entries(
             CF::Author(_) => {
                 if add_author {
                     add_author = false;
-                    sep.push("COALESCE(authors.data, '[]') AS authors".to_string())
+                    sep.push("COALESCE(authors.data, '[]'::jsonb) AS authors".to_string())
                 } else {
                     continue;
                 }
@@ -672,13 +668,12 @@ pub async fn select_content_entries(
                     continue;
                 }
             }
-            CF::Tags => sep.push(format!("tags.data AS {f}")),
+            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::tag_row[]) AS {f}")),
             CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
-            CF::CommentCount => sep.push(
-                "COALESCE((SELECT COUNT(*) FROM comments c WHERE c.entry_id = p.id AND c.status = 'approved'), 0) AS comment_count"
-                    .to_string(),
-            ),
+            CF::CommentCount => {
+                sep.push("COALESCE(cc.comment_count, 0) AS comment_count".to_string())
+            }
             CF::Node(_) => {
                 if add_node {
                     add_node = false;
@@ -693,12 +688,20 @@ pub async fn select_content_entries(
         };
     }
 
-    sep.push("t.total_count");
-    sep.push_unseparated(" ");
-    qb.push("FROM page p CROSS JOIN total t ");
+    if query_obj.search_slug.is_none() {
+        sep.push("t.total_count");
+        sep.push_unseparated(" ");
+        qb.push("FROM page p CROSS JOIN total t ");
+    } else {
+        qb.push(" FROM page p ");
+    }
 
     if query_obj.fields.contains(&CF::Type) {
         qb.push("LEFT JOIN content_types ct ON ct.id = p.type_id ");
+    }
+
+    if query_obj.fields.contains(&CF::CommentCount) {
+        qb.push(comment_count_join("p"));
     }
 
     if query_obj.fields.iter().any(|f| matches!(f, CF::Author(_))) {

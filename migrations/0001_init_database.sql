@@ -262,7 +262,7 @@ DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tag_row') THEN
     CREATE TYPE tag_row AS (
-      id   uuid,
+      id   int,
       name text,
       slug text
     );
