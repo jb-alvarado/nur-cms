@@ -80,7 +80,7 @@ pub struct QueryObj<T> {
     pub search_status: Option<String>,
 
     #[serde(default)]
-    pub author: Option<i32>,
+    pub author: Option<String>,
 
     #[serde(default)]
     pub output_type: Option<OutputType>,
