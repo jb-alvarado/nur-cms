@@ -61,8 +61,8 @@ if (categoryId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id]
-                )
+                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
+                ),
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
         })
@@ -102,7 +102,7 @@ async function selectCategory() {
             locales.value = store.locales.filter((locale) => {
                 const isCurrentLocale = locale.id === category.value.locale_id
                 const hasGroupMember = category.value.group_members?.some(
-                    (member: GroupMember) => member.locale_id === locale.id
+                    (member: GroupMember) => member.locale_id === locale.id,
                 )
                 return isCurrentLocale || hasGroupMember
             })
@@ -136,6 +136,12 @@ async function selectMedia() {
         })
 }
 
+function removeMedia() {
+    category.value.media_id = null
+    category.value.media = null
+    media.value = undefined
+}
+
 function updateSlug() {
     category.value.slug = slugify(category.value.name ?? '')
 }
@@ -159,7 +165,7 @@ function contentDelete() {
                 } else {
                     store.msgAlert(
                         'success',
-                        t('common.deleteSuccess', { name: category.value.name ?? category.value.id })
+                        t('common.deleteSuccess', { name: category.value.name ?? category.value.id }),
                     )
 
                     router.push(`/category`)
@@ -175,7 +181,7 @@ async function save() {
     const payload = Object.fromEntries(
         Object.entries(category.value).filter(([key, value]) => {
             return !isEqual(value, categoryOriginal.value[key as keyof ContentCategory])
-        })
+        }),
     )
 
     if (Object.keys(payload).length === 0) {
@@ -322,14 +328,23 @@ function addMedia(m: Media) {
                 </div>
             </div>
 
-            <div class="flex gap-2 mt-2">
-                <img
-                    v-if="media"
-                    :src="mediaPath(media)"
-                    :alt="media?.alt ?? $t('button.media')"
-                    class="border border-base-content/30 max-h-26"
-                />
-                <button class="btn" @click="openMediaBrowser()">{{ $t('button.media') }}</button>
+            <div class="w-64 flex gap-1">
+                <div
+                    class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
+                >
+                    <img
+                        v-if="media"
+                        :src="mediaPath(media)"
+                        :alt="media?.alt ?? $t('button.media')"
+                        class="border border-base-content/30 max-h-26"
+                    />
+                </div>
+                <div class="join join-vertical">
+                    <button class="btn" @click="openMediaBrowser()">{{ $t('button.media') }}</button>
+                    <button class="btn p-2 join-item" @click="removeMedia()">
+                        <i class="bi bi-trash text-xl"></i>
+                    </button>
+                </div>
             </div>
         </div>
         <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="contentDelete">
