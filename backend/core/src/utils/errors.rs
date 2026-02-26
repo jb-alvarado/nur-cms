@@ -11,33 +11,43 @@ use tracing::error;
 
 #[derive(Debug, Display)]
 pub enum NurError {
+    // 500 Internal Server Error
     #[display("Internal Server Error")]
     InternalServerError,
 
+    // 400 Bad Request
     #[display("BadRequest: {_0}")]
     BadRequest(String),
 
+    // 409 Conflict
     #[display("Conflict: {_0}")]
     Conflict(String),
 
+    // 403 Forbidden
     #[display("Forbidden: {_0}")]
     Forbidden(String),
 
+    // 401 Unauthorized
     #[display("Unauthorized")]
     Unauthorized,
 
+    // 204 No Content
     #[display("NoContent")]
     NoContent,
 
+    // 422 Unprocessable Entity
     #[display("InvalidInput")]
     InvalidInput,
 
+    // 503 Service Unavailable
     #[display("ServiceUnavailable: {_0}")]
     ServiceUnavailable(String),
 
+    // 429 Too Many Requests
     #[display("InvalidInput")]
     ToManyRequests,
 
+    // 422 Unprocessable Entity
     #[display("UnprocessableEntity: {_0}")]
     UnprocessableEntity(String),
 }

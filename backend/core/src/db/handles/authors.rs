@@ -24,9 +24,7 @@ pub async fn select_content_author(
 
     for f in &query_obj.fields {
         match *f {
-            ContentAuthorFields::Media => {
-                separated.push("COALESCE(media.data, '{}'::json) AS \"media\"")
-            }
+            ContentAuthorFields::Media => separated.push("media.data AS \"media\""),
             ContentAuthorFields::MediaID => {
                 if !query_obj.fields.contains(&ContentAuthorFields::Media) {
                     separated.push(format!("ca.{f}"));

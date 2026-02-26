@@ -127,6 +127,12 @@ async function savePhoto() {
     }
 }
 
+function removeMedia() {
+    author.value.media_id = null
+    media.value = undefined
+}
+
+
 function contentDelete() {
     if (authorId > 0) {
         fetch(`/api/content/authors/${authorId}`, {
@@ -244,15 +250,22 @@ function addMedia(m: Media) {
                 </div>
             </div>
 
-            <div class="grow flex flex-col md:flex-row mt-2">
-                <div class="flex gap-2">
+             <div class="w-64 flex gap-1">
+                <div
+                    class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
+                >
                     <img
                         v-if="media"
                         :src="mediaPath(media)"
                         :alt="media?.alt ?? $t('button.media')"
                         class="border border-base-content/30 max-h-26"
                     />
+                </div>
+                <div class="join join-vertical">
                     <button class="btn" @click="openMediaBrowser()">{{ $t('button.media') }}</button>
+                    <button class="btn p-2 join-item" @click="removeMedia()">
+                        <i class="bi bi-trash text-xl"></i>
+                    </button>
                 </div>
             </div>
 
