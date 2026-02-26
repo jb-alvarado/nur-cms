@@ -132,7 +132,7 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
         Some("OR"),
         "ca2.last_name ILIKE CONCAT('%', ",
         search.clone(),
-        Some(", '%') )) )"),
+        Some(", '%') ))"),
     );
 
     where_chain.push_and_bind(
@@ -143,7 +143,7 @@ fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
             WHERE cn2.entry_id = ce.id
               AND cn2.text_vector @@ websearch_to_tsquery(l.tsv_dict::regconfig, "#,
         search,
-        Some("))"),
+        Some(")))"),
     );
 }
 

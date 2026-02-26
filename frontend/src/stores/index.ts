@@ -184,14 +184,10 @@ export const useIndex = defineStore('index', {
         },
 
         async searchItem() {
-            if (this.search.length > 2) {
-                await this.contentSelect(this.search)
-            } else if (this.search.length === 0) {
-                await this.contentSelect()
-            }
+            await this.contentSelect()
         },
 
-        async contentSelect(sr: string | null = null, u: string | null = null) {
+        async contentSelect(u: string | null = null) {
             const auth = useAuth()
             const fields = this.visibleRows
                 .map((r: any) => r.field)
@@ -219,8 +215,8 @@ export const useIndex = defineStore('index', {
                 ? u
                 : `/api/${this.suffix}?${type}fields=${fields}&limit=${this.limit}${offsetVar}&ordering=${this.ordering}`
 
-            if (sr) {
-                url = `${url}&search=${sr}`
+            if (this.search) {
+                url = `${url}&search=${this.search}`
             }
 
             await fetch(url, {

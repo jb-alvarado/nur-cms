@@ -2,7 +2,7 @@
 import { ref, computed, onBeforeMount, nextTick } from 'vue'
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router'
 import { useIndex } from '@/stores/index'
 
 import { useI18n } from 'vue-i18n'
@@ -24,6 +24,12 @@ const matchedType = store.types.find((type) => type.slug === store.routeType)?.i
 
 store.typeID = matchedType ?? 1
 store.ordering = 'id'
+
+onBeforeRouteUpdate((to, from) => {
+    if (from.path !== to.path) {
+        store.search = ''
+    }
+})
 
 const authorRows = computed(() => [
     { active: true, up: false, name: t('table.id'), field: 'id' },
@@ -98,7 +104,6 @@ onBeforeMount(() => {
         store.initContent('content/entries')
     }
 
-    store.search = ''
     store.contentSelect()
 })
 
@@ -149,13 +154,24 @@ function onPageChange() {
         store.contentSelect()
     })
 }
+
+function resetSearch() {
+    store.search = ''
+    store.contentSelect()
+}
+
+// TODO: Search result should be saved and recover when navigate to item and back.
 </script>
 
 <template>
     <div>
         <div class="flex">
             <h1 class="text-2xl grow">{{ store.routeType.toLocaleUpperCase() }}</h1>
-            <RouterLink v-if="store.routeType !== 'comment'" :to="`${linkPrefix}/${store.routeType}/0`" class="btn btn-sm btn-primary text-base">
+            <RouterLink
+                v-if="store.routeType !== 'comment'"
+                :to="`${linkPrefix}/${store.routeType}/0`"
+                class="btn btn-sm btn-primary text-base"
+            >
                 {{ $t('button.new') }}
             </RouterLink>
         </div>
@@ -170,6 +186,9 @@ function onPageChange() {
                         :placeholder="$t('common.search')"
                         @keyup="store.searchItem"
                     />
+                    <button v-if="store.search" @click="resetSearch()">
+                        <i class="bi bi-x-lg" />
+                    </button>
                 </label>
                 <div v-if="selectCount > 0">
                     <button v-if="store.routeType !== 'author'" class="btn join-item" @click="setStatus()">
