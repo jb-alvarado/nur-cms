@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 
 import { useAuth } from '@/stores/auth'
-import { useIndex } from './../stores/index';
+import { useIndex } from './../stores/index'
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -106,15 +106,13 @@ router.beforeEach(async (to, from, next) => {
     const store = useIndex()
     await auth.inspectToken()
 
-    if (to.path.startsWith('/author') && !from.path.startsWith('/author')) {
-        store.search = ''
-    } else if (to.path.startsWith('/category') && !from.path.startsWith('/category')) {
-        store.search = ''
-    } else if (to.path.startsWith('/content') && !from.path.startsWith('/content')) {
-        store.search = ''
-    } else if (to.path.startsWith('/comment') && !from.path.startsWith('/comment')) {
-        store.search = ''
-    } else if (to.path.startsWith('/media') && !from.path.startsWith('/media')) {
+    if (
+        (to.path.startsWith('/author') && !from.path.startsWith('/author')) ||
+        (to.path.startsWith('/category') && !from.path.startsWith('/category')) ||
+        (to.path.startsWith('/content') && !from.path.startsWith('/content')) ||
+        (to.path.startsWith('/comment') && !from.path.startsWith('/comment')) ||
+        (to.path.startsWith('/media') && !from.path.startsWith('/media'))
+    ) {
         store.search = ''
     }
 
