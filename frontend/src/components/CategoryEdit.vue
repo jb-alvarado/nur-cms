@@ -138,7 +138,6 @@ async function selectMedia() {
 
 function removeMedia() {
     category.value.media_id = null
-    category.value.media = null
     media.value = undefined
 }
 
@@ -228,8 +227,14 @@ function addMedia(m: Media) {
 
 <template>
     <div class="flex flex-col md:h-96 pb-6">
-        <div class="flex-none">
-            <h1 class="text-2xl h-8">{{ category?.name ?? '' }}</h1>
+        <div class="flex">
+            <h1 class="grow text-2xl h-8">{{ category?.name ?? '' }}</h1>
+             <button
+            class="btn btn-sm text-base"
+            @click="router.back()"
+        >
+            <i class="bi bi-chevron-left" />
+        </button>
         </div>
 
         <!-- Form + Editor Container -->
