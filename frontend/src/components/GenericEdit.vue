@@ -459,7 +459,7 @@ async function save() {
             await Promise.all([
                 ...deletedTags.map((tag) => deleteEntryTag(contentId, tag.id!)),
                 ...newTags.map((tag) => insertEntryTag(contentId, tag.id!)),
-                ...deletedAuthors.map((author) => deleteEntryAuthor(author.id!)),
+                ...deletedAuthors.map((author) => deleteEntryAuthor(contentId, author.id!)),
                 ...newAuthors.map((author) => insertEntryAuthor(contentId, author.id!)),
             ])
         } else {
@@ -621,8 +621,8 @@ async function insertEntryTag(entry: number, tag: number) {
         })
 }
 
-async function deleteEntryAuthor(author_id: number) {
-    await fetch(`/api/content/authors/${author_id}`, {
+async function deleteEntryAuthor(entry_id: number, author_id: number) {
+    await fetch(`/api/content/entries/${entry_id}/author/${author_id}`, {
         method: 'DELETE',
         headers: auth.authHeader,
     })

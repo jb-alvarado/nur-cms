@@ -773,7 +773,7 @@ pub async fn delete_author_from_entry(
     entry_id: i32,
     author_id: i32,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM content_entry_tags WHERE entry_id = $1 AND author_id = $2")
+    sqlx::query("DELETE FROM content_entry_authors WHERE entry_id = $1 AND author_id = $2")
         .bind(entry_id)
         .bind(author_id)
         .execute(pool)

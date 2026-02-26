@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 
 import { useAuth } from '@/stores/auth'
+import { useIndex } from './../stores/index';
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -100,9 +101,22 @@ const router = createRouter({
     ],
 })
 
-router.beforeEach(async (to, _from, next) => {
+router.beforeEach(async (to, from, next) => {
     const auth = useAuth()
+    const store = useIndex()
     await auth.inspectToken()
+
+    if (to.path.startsWith('/author') && !from.path.startsWith('/author')) {
+        store.search = ''
+    } else if (to.path.startsWith('/category') && !from.path.startsWith('/category')) {
+        store.search = ''
+    } else if (to.path.startsWith('/content') && !from.path.startsWith('/content')) {
+        store.search = ''
+    } else if (to.path.startsWith('/comment') && !from.path.startsWith('/comment')) {
+        store.search = ''
+    } else if (to.path.startsWith('/media') && !from.path.startsWith('/media')) {
+        store.search = ''
+    }
 
     const publicRoutes = new Set(['home', 'verification', '404'])
     const targetName = to.name?.toString() ?? ''
