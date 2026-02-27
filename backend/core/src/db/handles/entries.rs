@@ -591,7 +591,7 @@ pub async fn select_content_entries(
         where_chain.push_and_bind(None, "ce.status = ", status, None);
     }
 
-    if let Some(author) = &query_obj.author {
+    if let Some(slug) = &query_obj.author_slug {
         where_chain.push_and_bind(
             None,
             r#"EXISTS (
@@ -599,16 +599,9 @@ pub async fn select_content_entries(
                 FROM content_entry_authors cea
                 JOIN content_authors ca ON ca.id = cea.author_id
                 WHERE cea.entry_id = ce.id
-                  AND (ca.first_name ILIKE CONCAT('%', "#,
-            author.clone(),
-            Some(", '%')"),
-        );
-
-        where_chain.push_and_bind(
-            Some("OR"),
-            "ca.last_name ILIKE CONCAT('%', ",
-            author.clone(),
-            Some(", '%')))"),
+                  AND ca.slug = "#,
+            slug,
+            Some(")"),
         );
     }
 

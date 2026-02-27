@@ -52,6 +52,9 @@ pub struct QueryObj<T> {
     #[serde(default, rename = "tag")]
     pub tag_slug: Option<String>,
 
+    #[serde(default, rename = "author")]
+    pub author_slug: Option<String>,
+
     #[serde(default, rename = "category")]
     pub category_slug: Option<String>,
 
@@ -81,9 +84,6 @@ pub struct QueryObj<T> {
 
     #[serde(default, rename = "status")]
     pub search_status: Option<String>,
-
-    #[serde(default)]
-    pub author: Option<String>,
 
     #[serde(default)]
     pub output_type: Option<OutputType>,
@@ -125,6 +125,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             ordering: default_ordering(),
             type_slug: None,
             tag_slug: None,
+            author_slug: None,
             category_slug: None,
             type_id: None,
             media_type: Vec::new(),
@@ -135,7 +136,6 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             search_locale: None,
             search_slug: None,
             search_status: None,
-            author: None,
             output_type: None,
             group_id: None,
             start_time: None,
