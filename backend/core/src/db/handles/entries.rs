@@ -31,13 +31,14 @@ fn tag_join(entry_alias: &str) -> String {
     format!(
         r#"LEFT JOIN LATERAL (
             SELECT COALESCE(
-                array_agg(ROW(t.id, t.name, t.slug)::tag_row ORDER BY t.name),
-                ARRAY[]::tag_row[]
+                array_agg(ROW(t.id, t.name, t.slug) ORDER BY t.name),
+                ARRAY[]::record[]
             ) AS data
             FROM content_tags t
             JOIN content_entry_tags cet ON cet.tag_id = t.id
-            WHERE cet.entry_id = {entry_alias}.id
-        ) AS tags ON TRUE "#
+            WHERE cet.entry_id = {e}.id
+        ) AS tags ON TRUE "#,
+        e = entry_alias
     )
 }
 
@@ -680,7 +681,7 @@ pub async fn select_content_entries(
                     continue;
                 }
             }
-            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::tag_row[]) AS {f}")),
+            CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
             CF::CommentCount => {

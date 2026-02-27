@@ -257,14 +257,3 @@ BEGIN
         EXECUTE FUNCTION content_node_tsv_update();
     END IF;
 END $$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tag_row') THEN
-    CREATE TYPE tag_row AS (
-      id   int,
-      name text,
-      slug text
-    );
-  END IF;
-END$$;
