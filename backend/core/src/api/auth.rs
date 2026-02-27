@@ -7,7 +7,7 @@ use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Local, TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
-use rand::Rng;
+use rand::RngExt;
 use real::RealIp;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;

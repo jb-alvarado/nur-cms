@@ -1,4 +1,4 @@
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use sqlx::postgres::PgPool;
 
 #[cfg(debug_assertions)]
