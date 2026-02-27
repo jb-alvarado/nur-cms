@@ -612,6 +612,20 @@ pub async fn select_content_entries(
         );
     }
 
+    if let Some(slug) = &query_obj.tag_slug {
+        where_chain.push_and_bind(
+            None,
+            r#"EXISTS (
+                SELECT 1
+                FROM content_entry_tags cet
+                JOIN content_tags t ON t.id = cet.tag_id
+                WHERE cet.entry_id = ce.id
+                  AND t.slug = "#,
+            slug.clone(),
+            Some(")"),
+        );
+    }
+
     if let Some(id) = &query_obj.group_id {
         where_chain.push_and_bind(None, "ce.group_id = ", id, None);
     }
