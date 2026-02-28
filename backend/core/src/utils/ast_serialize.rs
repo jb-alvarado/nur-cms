@@ -194,6 +194,21 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
 
             Value::Object(node)
         }
+        Node::FootnoteReference(reference) => {
+            json!({
+                "type": "footnote_reference",
+                "identifier:": reference.identifier,
+                "label:": reference.label,
+            })
+        }
+        Node::FootnoteDefinition(definition) => {
+            json!({
+                "type": "footnote_definition",
+                "children": definition.children.iter().map(|child| to_structure_mdast(child, media)).collect::<Vec<_>>(),
+                "identifier": definition.identifier.clone(),
+                "label": definition.label.clone(),
+            })
+        }
         _ => {
             let node_type = node_type_name(ast);
             let is_paragraph = matches!(ast, Node::Paragraph(_));
