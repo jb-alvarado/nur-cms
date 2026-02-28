@@ -44,6 +44,10 @@ pub async fn select_auth_user(
         where_chain.push_and_bind(None, "u.id = ", id, None);
     }
 
+    if query_obj.last_login {
+        where_chain.push_and(None, "u.last_login IS NOT NULL");
+    }
+
     if let Some(after) = &query_obj.created_after {
         where_chain.push_and_bind(None, "u.created_at >= ", after, None);
     }

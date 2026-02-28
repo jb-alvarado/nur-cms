@@ -88,6 +88,9 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub output_type: Option<OutputType>,
 
+    #[serde(default)]
+    pub last_login: bool,
+
     #[ts(as = "Option<i32>")]
     #[serde(default)]
     pub group_id: Option<i64>,
@@ -137,6 +140,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             search_slug: None,
             search_status: None,
             output_type: None,
+            last_login: false,
             group_id: None,
             start_time: None,
             end_time: None,
@@ -418,6 +422,23 @@ impl<'a> WhereBuilder<'a> {
             builder,
             where_set: false,
         }
+    }
+
+    pub fn push_and(&mut self, operator: Option<&str>, condition: &str) {
+        if condition.is_empty() {
+            return;
+        }
+
+        let op = operator.unwrap_or(" AND");
+
+        if self.where_set {
+            self.builder.push(op);
+        } else {
+            self.builder.push(" WHERE");
+            self.where_set = true;
+        }
+
+        self.builder.push(format!(" {condition}"));
     }
 
     pub fn push_and_bind<T>(
