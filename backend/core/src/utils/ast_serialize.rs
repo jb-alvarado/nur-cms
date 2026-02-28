@@ -197,8 +197,8 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
         Node::FootnoteReference(reference) => {
             json!({
                 "type": "footnote_reference",
-                "identifier:": reference.identifier,
-                "label:": reference.label,
+                "identifier": reference.identifier,
+                "label": reference.label,
             })
         }
         Node::FootnoteDefinition(definition) => {
