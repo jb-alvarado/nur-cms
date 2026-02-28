@@ -327,6 +327,11 @@ fn truncate_text_at_word(text: &str, remaining: usize) -> String {
     result
 }
 
+// Truncates a single structure node in-place while consuming the remaining
+// character budget.
+//
+// Returns `true` when the node should be kept in the final structure and
+// `false` when it should be removed.
 fn truncate_structure_node(node: &mut Value, remaining: &mut usize) -> bool {
     match node {
         Value::Object(map) => {
@@ -415,6 +420,10 @@ fn truncate_structure_node(node: &mut Value, remaining: &mut usize) -> bool {
     }
 }
 
+// Applies truncation to the root structure with a global character limit.
+//
+// The function mutates `root` in-place and removes nodes that become empty
+// after truncation.
 pub fn truncate_structure_root(root: &mut Value, limit: usize) {
     if limit == 0 {
         if let Value::Array(arr) = root {
