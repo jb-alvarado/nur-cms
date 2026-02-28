@@ -28,7 +28,7 @@ watch(
 )
 
 async function selectLatestLogins() {
-    await fetch('/api/auth-user?last_login=true&fields=id,first_name,last_name,last_login&limit=5', {
+    await fetch('/api/auth-user?last_login=true&fields=id,first_name,last_name,last_login&ordering=-last_login&limit=5', {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
