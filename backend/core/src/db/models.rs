@@ -19,6 +19,7 @@ pub enum Role {
     User,
     #[default]
     Guest,
+    Custom(String),
 }
 
 impl Role {
@@ -35,8 +36,15 @@ impl FromStr for Role {
             "admin" => Ok(Self::Admin),
             "author" => Ok(Self::Author),
             "user" => Ok(Self::User),
-            _ => Ok(Self::Guest),
+            "guest" => Ok(Self::Guest),
+            custom => Ok(Self::Custom(custom.to_string())),
         }
+    }
+}
+
+impl From<String> for Role {
+    fn from(value: String) -> Self {
+        value.parse().unwrap_or(Self::Guest)
     }
 }
 
@@ -47,7 +55,26 @@ impl fmt::Display for Role {
             Self::Author => write!(f, "author"),
             Self::User => write!(f, "user"),
             Self::Guest => write!(f, "guest"),
+            Self::Custom(ref role) => write!(f, "{role}"),
         }
+    }
+}
+
+impl PartialEq<Role> for str {
+    fn eq(&self, other: &Role) -> bool {
+        match other {
+            Role::Admin => self.eq("admin"),
+            Role::Author => self.eq("author"),
+            Role::User => self.eq("user"),
+            Role::Guest => self.eq("guest"),
+            Role::Custom(role) => self.eq(role.as_str()),
+        }
+    }
+}
+
+impl PartialEq<Role> for String {
+    fn eq(&self, other: &Role) -> bool {
+        self.as_str() == other
     }
 }
 
@@ -89,12 +116,8 @@ pub struct AuthRole {
 
 impl FromRow<'_, PgRow> for AuthRole {
     fn from_row(row: &PgRow) -> sqlx::Result<Self> {
-        let role = match row.get("name") {
-            "admin" => Role::Admin,
-            "author" => Role::Author,
-            "user" => Role::User,
-            _ => Role::Guest,
-        };
+        let role_name: String = row.try_get("name").unwrap_or_default();
+        let role: Role = role_name.into();
 
         Ok(Self {
             id: row.try_get("id").unwrap_or_default(),

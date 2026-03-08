@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     env,
     sync::{Arc, LazyLock},
+    time::Duration,
 };
 
 use axum::{
@@ -69,9 +70,9 @@ pub async fn init_db() -> Result<PgPool, NurError> {
     let pool = PgPoolOptions::new()
         .min_connections(1)
         .max_connections(max_connections)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .idle_timeout(Some(std::time::Duration::from_secs(300)))
-        .max_lifetime(Some(std::time::Duration::from_secs(3600)))
+        .acquire_timeout(Duration::from_secs(10))
+        .idle_timeout(Some(Duration::from_secs(300)))
+        .max_lifetime(Some(Duration::from_secs(3600)))
         .connect(&database_url)
         .await?;
 
