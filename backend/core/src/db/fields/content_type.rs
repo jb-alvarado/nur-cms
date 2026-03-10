@@ -13,6 +13,7 @@ pub enum ContentTypeFields {
     #[default]
     Name,
     Slug,
+    OrderIndex,
 }
 
 impl StrCompare for ContentTypeFields {
@@ -21,6 +22,7 @@ impl StrCompare for ContentTypeFields {
             Self::ID => other == "id",
             Self::Name => other == "name",
             Self::Slug => other == "slug",
+            Self::OrderIndex => other == "order_index",
         }
     }
 }
@@ -33,6 +35,7 @@ impl FromStr for ContentTypeFields {
             "id" => Ok(Self::ID),
             "name" => Ok(Self::Name),
             "slug" => Ok(Self::Slug),
+            "order_index" => Ok(Self::OrderIndex),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -44,6 +47,7 @@ impl fmt::Display for ContentTypeFields {
             Self::ID => write!(f, "id"),
             Self::Name => write!(f, "name"),
             Self::Slug => write!(f, "slug"),
+            Self::OrderIndex => write!(f, "order_index"),
         }
     }
 }

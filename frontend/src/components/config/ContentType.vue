@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, useTemplateRef, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSortable } from '@vueuse/integrations/useSortable'
 import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
@@ -15,16 +16,19 @@ const store = useIndex()
 const types = ref<ContentTypeExt[]>([])
 const select = ref(false)
 const selectCount = computed(() => types.value.reduce((acc, item: any) => acc + (item.check ? 1 : 0), 0))
-const ordering = ref('id')
 const formType = ref<ContentTypeExt>({
     id: 0,
     name: '',
     slug: '',
+    order_index: 0,
 })
 
 const deleteModal = ref()
 const typeModal = ref()
+const typeEL = useTemplateRef('typeEL')
 const isEditing = ref(false)
+const isSavingOrder = ref(false)
+const hasPendingOrderSave = ref(false)
 
 const typeRows = computed(() => [
     { name: t('table.id'), field: 'id' },
@@ -32,8 +36,70 @@ const typeRows = computed(() => [
     { name: t('contentType.slug'), field: 'slug' },
 ])
 
+function reindexTypes() {
+    types.value.forEach((type, index) => {
+        type.order_index = index + 1
+    })
+}
+
+async function saveTypeOrder() {
+    if (isSavingOrder.value) {
+        hasPendingOrderSave.value = true
+        return
+    }
+
+    isSavingOrder.value = true
+
+    try {
+        do {
+            hasPendingOrderSave.value = false
+
+            const orderedTypes = types.value
+                .map((type, index) => ({ id: type.id, order_index: index + 1 }))
+                .filter((type) => type.id)
+
+            await Promise.all(
+                orderedTypes.map(async (type) => {
+                    const resp = await fetch(`/api/content/types/${type.id}`, {
+                        method: 'PUT',
+                        headers: {
+                            ...auth.authHeader,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ order_index: type.order_index }),
+                    })
+
+                    if (resp.status >= 400) {
+                        const msg = await errMsg(resp)
+                        throw new Error(msg)
+                    }
+                }),
+            )
+        } while (hasPendingOrderSave.value)
+    } catch (e) {
+        store.msgAlert('error', e instanceof Error ? e.message : String(e))
+    } finally {
+        isSavingOrder.value = false
+    }
+}
+
+useSortable(typeEL, types, {
+    handle: '.type-drag-handle',
+    draggable: '.type-row',
+    ghostClass: 'type-row-ghost',
+    chosenClass: 'type-row-chosen',
+    dragClass: 'type-row-drag',
+    onEnd: () => {
+        nextTick(async () => {
+            reindexTypes()
+            await saveTypeOrder()
+            store.selectTypes()
+        })
+    },
+} as any)
+
 async function typeSelect() {
-    await fetch(`/api/content/types?ordering=${ordering.value}`, {
+    await fetch('/api/content/types?ordering=order_index,id', {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -115,6 +181,7 @@ function deselect() {
 function saveType() {
     const url = isEditing.value ? `/api/content/types/${formType.value.id}` : `/api/content/types`
     const method = isEditing.value ? 'PUT' : 'Post'
+    const nextOrderIndex = types.value.reduce((max, type) => Math.max(max, Number(type.order_index) || 0), 0) + 1
 
     fetch(url, {
         method,
@@ -125,6 +192,7 @@ function saveType() {
         body: JSON.stringify({
             name: formType.value.name,
             slug: formType.value.slug,
+            ...(!isEditing.value ? { order_index: nextOrderIndex } : {}),
         }),
     })
         .then(async (resp) => {
@@ -149,7 +217,7 @@ function saveType() {
 </script>
 
 <template>
-    <div class="bg-base-200 p-2 max-w-96 border border-base-content/25 rounded-sm">
+    <div class="bg-base-200 p-2 border border-base-content/25 rounded-sm">
         <div class="flex">
             <div class="grow font-bold">{{ $t('contentType.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="openCreateModal()">{{ $t('button.new') }}</button>
@@ -166,28 +234,38 @@ function saveType() {
             </div>
         </div>
 
-        <div class="overflow-x-auto mt-4 max-h-96">
+        <div class="overflow-x-auto mt-4">
             <table class="table bg-base-300 table-pin-rows table-zebra [&_td]:py-2 rounded-sm">
                 <thead>
                     <tr>
                         <th class="w-10">
                             <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                         </th>
+
                         <th v-for="row in typeRows" :key="row.field" class="min-w-16">
                             {{ row.name }}
                         </th>
+                        <th>{{ $t('table.order') }}</th>
                         <th class="w-10"></th>
                     </tr>
                 </thead>
-                <tbody>
-                    <tr v-for="(col, i) in types" :key="i">
+                <tbody ref="typeEL">
+                    <tr
+                        v-for="(col, i) in types"
+                        :key="col.id || i"
+                        class="type-row type-drag-handle cursor-grab active:cursor-grabbing"
+                    >
                         <th>
                             <label>
                                 <input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" />
                             </label>
                         </th>
+
                         <td v-for="row in typeRows" :key="row.field">
                             {{ (col as any)[row.field] }}
+                        </td>
+                        <td class="text-center">
+                            {{ col.order_index }}
                         </td>
                         <td>
                             <button class="btn btn-sm p-1" @click="editType(col)">
@@ -221,12 +299,27 @@ function saveType() {
         </fieldset>
         <fieldset class="fieldset">
             <legend class="fieldset-legend">{{ $t('contentType.slug') }}</legend>
-            <input
-                v-model="formType.slug"
-                type="text"
-                class="input w-full"
-                :placeholder="$t('contentType.slug')"
-            />
+            <input v-model="formType.slug" type="text" class="input w-full" :placeholder="$t('contentType.slug')" />
         </fieldset>
     </GenericModal>
 </template>
+
+<style scoped>
+.type-row {
+    transition:
+        background-color 0.15s ease,
+        opacity 0.15s ease;
+}
+
+.type-row-chosen {
+    background-color: color-mix(in srgb, var(--color-base-300) 75%, var(--color-primary) 25%);
+}
+
+.type-row-ghost {
+    opacity: 0.45;
+}
+
+.type-row-drag {
+    opacity: 0.9;
+}
+</style>

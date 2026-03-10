@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { marked } from 'marked'
+import markedFootnote from 'marked-footnote'
 import { mediaPath } from '@/utils/helper'
 
 const renderer = {
@@ -40,7 +41,7 @@ const renderer = {
     },
 }
 
-marked.use({ renderer })
+marked.use({ renderer }).use(markedFootnote({ footnoteDivider: true, keepLabels: true, description: '' }))
 
 defineProps({
     nodes: {
@@ -104,7 +105,12 @@ defineProps({
                 </div>
                 <div v-for="(_, key) in node.data" :key="key" class="flex items-center gap-2 grow">
                     <label class="min-w-20">{{ key }}: </label>
-                    <input v-model="node.data[key]" type="text" class="input grow border border-base-content/10" disabled />
+                    <input
+                        v-model="node.data[key]"
+                        type="text"
+                        class="input grow border border-base-content/10"
+                        disabled
+                    />
                 </div>
             </div>
         </template>

@@ -28,13 +28,14 @@ const headings = [
 ]
 
 const editorButtons = [
-    { id: 0, icon: 'bi-type-bold', func: bold },
-    { id: 1, icon: 'bi-type-italic', func: italic },
-    { id: 2, icon: 'bi-type-underline', func: underline },
-    { id: 3, icon: 'bi-type-strikethrough', func: strikethrough },
-    { id: 4, icon: 'bi-link-45deg', func: openLinkModal },
-    { id: 5, icon: 'bi-image', func: openMediaBrowser },
-    { id: 6, icon: 'bi-quote', func: quote },
+    { id: 0, icon: 'bi-type-bold', title: t('editor.bold'), func: bold },
+    { id: 1, icon: 'bi-type-italic', title: t('editor.italic'), func: italic },
+    { id: 2, icon: 'bi-type-underline', title: t('editor.underline'), func: underline },
+    { id: 3, icon: 'bi-type-strikethrough', title: t('editor.strikethrough'), func: strikethrough },
+    { id: 4, icon: 'bi-link-45deg', title: t('editor.link'), func: openLinkModal },
+    { id: 5, icon: 'bi-image', title: t('editor.image'), func: openMediaBrowser },
+    { id: 6, icon: 'bi-quote', title: t('editor.quote'), func: quote },
+    { id: 7, icon: 'bi-table', title: t('editor.table'), func: table },
 ]
 
 const props = defineProps({
@@ -275,6 +276,36 @@ function quote() {
         textarea.focus()
     })
 }
+
+function table() {
+    const textarea = textareaRef.value
+    if (!textarea) return
+
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const value = textarea.value
+
+    const firstHeader = t('editor.tableHeader1')
+    const secondHeader = t('editor.tableHeader2')
+    const firstCell = t('editor.tableCell1')
+    const secondCell = t('editor.tableCell2')
+    const tableMarkdown = `| ${firstHeader} | ${secondHeader} |\n| --- | --- |\n| ${firstCell} | ${secondCell} |`
+
+    const prefix = start > 0 && value[start - 1] !== '\n' ? '\n' : ''
+    const suffix = end < value.length && value[end] !== '\n' ? '\n' : ''
+
+    lastBody.value = model.value ?? ''
+    lastPos.value = start
+
+    model.value = value.slice(0, start) + prefix + tableMarkdown + suffix + value.slice(end)
+
+    nextTick(() => {
+        const headerStart = start + prefix.length + 2
+        const headerEnd = headerStart + firstHeader.length
+        textarea.setSelectionRange(headerStart, headerEnd)
+        textarea.focus()
+    })
+}
 </script>
 <template>
     <div class="h-full flex flex-col">
@@ -282,7 +313,7 @@ function quote() {
             <select v-model="format" class="select max-w-40 join-item border-0" @change="heading">
                 <option v-for="head in headings" :key="head.value" :value="head.value">{{ head.name }}</option>
             </select>
-            <button v-for="eb in editorButtons" :key="eb.id" class="btn join-item leading-0" @click="eb.func">
+            <button v-for="eb in editorButtons" :key="eb.id" class="btn join-item leading-0" :title="eb.title" @click="eb.func">
                 <i class="bi" :class="eb.icon"></i>
             </button>
 
