@@ -159,8 +159,6 @@ function resetSearch() {
     store.search = ''
     store.contentSelect()
 }
-
-// TODO: Search result should be saved and recover when navigate to item and back.
 </script>
 
 <template>

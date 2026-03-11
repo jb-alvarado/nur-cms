@@ -1,3 +1,4 @@
+import { nextTick } from 'vue'
 import { defineStore } from 'pinia'
 import { useAuth } from '@/stores/auth'
 import { errMsg } from '@/utils/error'
@@ -184,7 +185,9 @@ export const useIndex = defineStore('index', {
         },
 
         async searchItem() {
-            await this.contentSelect()
+            nextTick(async () => {
+                await this.contentSelect()
+            })
         },
 
         async contentSelect(u: string | null = null) {
