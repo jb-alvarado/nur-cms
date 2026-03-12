@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
@@ -11,6 +11,7 @@ const auth = useAuth()
 const store = useIndex()
 
 const mediaModal = ref()
+const searchRef = ref()
 
 const medias = ref<Media[]>([])
 const apiURL = ref('/api/media')
@@ -45,6 +46,12 @@ defineProps({
             return {}
         },
     },
+})
+
+onMounted(() => {
+    setTimeout(() => {
+        searchRef.value.focus()
+    }, 300)
 })
 
 defineExpose({
@@ -100,6 +107,7 @@ async function selectMedia(u: string | null = null) {
                         <label class="input">
                             <i class="bi bi-search opacity-45"></i>
                             <input
+                                ref="searchRef"
                                 v-model="search"
                                 type="search"
                                 :placeholder="$t('common.search')"
