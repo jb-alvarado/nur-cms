@@ -20,35 +20,36 @@ pub async fn select_media(
     pool: &PgPool,
     query_obj: &QueryObj<MediaFields>,
 ) -> Result<RespondObj<MediaSerializer>, NurError> {
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
-    let mut sep = query_builder.separated(", ");
+    let ordering_with_alias = |alias: &str| {
+        query_obj
+            .ordering
+            .split(',')
+            .filter_map(|part| {
+                let mut split = part.split_whitespace();
+                let field = split.next()?.trim();
+                let direction = split.next().unwrap_or("ASC").to_uppercase();
 
-    for f in &query_obj.fields {
-        match *f {
-            MediaFields::MediaVariants => sep.push("COALESCE(variants.data, NULL) AS \"variants\""),
-            _ => sep.push(format!("m.{f}")),
-        };
-    }
+                if direction != "ASC" && direction != "DESC" {
+                    return None;
+                }
 
-    sep.push("count(*) OVER() AS total_count");
-    sep.push_unseparated(" ");
-    query_builder.push("FROM media m ");
-    if query_obj.fields.contains(&MediaFields::MediaVariants) {
-        query_builder.push(
-            r#"LEFT JOIN LATERAL (
-                SELECT json_agg(
-                    json_build_object(
-                        'id', mv.id,
-                        'width', mv.width,
-                        'height', mv.height,
-                        'filename', mv.filename
-                    )
-                ) AS data
-                FROM media_variants mv
-                WHERE mv.media_id = m.id
-            ) AS variants ON TRUE "#,
-        );
-    }
+                if MediaFields::iter()
+                    .any(|f| f.to_string() == field && !matches!(f, MediaFields::MediaVariants))
+                {
+                    Some(format!("{alias}.{field} {direction}"))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let page_ordering = ordering_with_alias("f");
+    let outer_ordering = ordering_with_alias("p");
+
+    let mut query_builder: QueryBuilder<Postgres> =
+        QueryBuilder::new("WITH filtered AS NOT MATERIALIZED ( SELECT m.* FROM media m ");
 
     let mut where_chain = WhereBuilder::new(query_builder);
 
@@ -74,30 +75,55 @@ pub async fn select_media(
         where_chain.push_and_bind(None, "m.type LIKE ANY(", array, Some(")"));
     }
 
-    // take builder back from where_chain
     query_builder = where_chain.into_inner();
 
-    let ordering = query_obj
-        .ordering
-        .split(',')
-        .filter_map(|item| {
-            let item = item.trim();
-            if MediaFields::iter().any(|f| item.contains(&f.to_string())) {
-                Some(format!("m.{item}"))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    if !ordering.is_empty() {
-        query_builder.push(format!(" ORDER BY {}", ordering));
+    query_builder.push(" ), page AS ( SELECT f.* FROM filtered f");
+
+    if !page_ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", page_ordering));
     }
 
     query_builder.push(format!(
         " LIMIT {} OFFSET {}",
         query_obj.limit, query_obj.offset
     ));
+
+    query_builder.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+
+    let mut sep = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        match *f {
+            MediaFields::MediaVariants => sep.push("COALESCE(variants.data, NULL) AS \"variants\""),
+            _ => sep.push(format!("p.{f}")),
+        };
+    }
+
+    sep.push("t.total_count");
+    sep.push_unseparated(" ");
+    query_builder.push("FROM page p CROSS JOIN total t ");
+
+    if query_obj.fields.contains(&MediaFields::MediaVariants) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'id', mv.id,
+                        'width', mv.width,
+                        'height', mv.height,
+                        'filename', mv.filename
+                    )
+                    ORDER BY mv.id
+                ) AS data
+                FROM media_variants mv
+                WHERE mv.media_id = p.id
+            ) AS variants ON TRUE "#,
+        );
+    }
+
+    if !outer_ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", outer_ordering));
+    }
 
     let query = query_builder.build_query_as::<MediaSerializer>();
 

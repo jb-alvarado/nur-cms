@@ -18,10 +18,10 @@ struct AstImageRef {
     end_offset: Option<i32>,
 }
 
-fn pop_media_mdast(node: &Node, media: &mut Vec<MediaSerializer>) -> Option<Value> {
+fn pop_media_mdast(node: &Node, media: &mut Vec<MediaSerializer>) -> Option<MediaSerializer> {
     let line: i32 = node.position()?.start.line.try_into().ok()?;
     let pos = media.iter().position(|m| m.ast_line == Some(line))?;
-    serde_json::to_value(media.remove(pos)).ok()
+    Some(media.remove(pos))
 }
 
 fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
@@ -154,45 +154,36 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
             })
         }
         Node::Image(image) => {
-            let image_title = image
-                .title
-                .as_ref()
-                .filter(|title| !title.trim().is_empty())
-                .cloned();
+            let mut node = json!({
+                "type": "image",
+            });
 
-            if let Some(mut media_node) = pop_media_mdast(ast, media)
-                && let Some(obj) = media_node.as_object_mut()
-            {
-                obj.insert("type".into(), Value::String("image".into()));
+            if let Some(title) = image.title.as_deref().filter(|t| !t.trim().is_empty()) {
+                node["title"] = title.into();
+            }
 
-                if let Some(title) = image_title.as_ref() {
-                    obj.insert("title".into(), Value::String(title.clone()));
+            if let Some(media_node) = pop_media_mdast(ast, media) {
+                let alt = if image.alt.trim().is_empty() {
+                    media_node.alt.unwrap_or_default()
+                } else {
+                    image.alt.clone()
+                };
+
+                node["alt"] = alt.into();
+                node["filename"] = media_node.filename.into();
+                node["path"] = media_node.path.into();
+
+                if let Ok(variants) = serde_json::to_value(media_node.variants) {
+                    node["variants"] = variants;
                 }
 
-                return media_node;
+                return node;
             }
 
-            if image.url.starts_with("http://") || image.url.starts_with("https://") {
-                let mut node = Map::new();
-                node.insert("type".into(), Value::String("image".into()));
-                node.insert("src".into(), Value::String(image.url.clone()));
-                node.insert("alt".into(), Value::String(image.alt.clone()));
+            node["alt"] = image.alt.clone().into();
+            node["src"] = image.url.clone().into();
 
-                if let Some(title) = image_title {
-                    node.insert("title".into(), Value::String(title));
-                }
-
-                return Value::Object(node);
-            }
-
-            let mut node = Map::new();
-            node.insert("type".into(), Value::String("image".into()));
-
-            if let Some(title) = image_title {
-                node.insert("title".into(), Value::String(title));
-            }
-
-            Value::Object(node)
+            node
         }
         Node::FootnoteReference(reference) => {
             json!({

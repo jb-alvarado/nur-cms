@@ -394,8 +394,6 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                             'path', m.path,
                             'type', m.type,
                             'ast_line', cnm.ast_line,
-                            'start_offset', cnm.start_offset,
-                            'end_offset', cnm.end_offset,
                             'variants', mv.variants
                         )
                         ORDER BY cnm.ast_line, cnm.start_offset, cnm.end_offset
