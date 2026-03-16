@@ -499,81 +499,7 @@ pub async fn select_content_entries(
     if let Some(search) = query_obj.search.clone() {
         qb.push("WITH search_input AS ( SELECT trim(");
         qb.push_bind(search);
-        qb.push(") AS q ), ");
-
-        qb.push(
-            r#"locale_queries AS (
-                SELECT
-                    l.id AS locale_id,
-                    websearch_to_tsquery(l.tsv_dict::regconfig, si.q) AS web_q,
-                    make_last_term_prefix_tsquery(l.tsv_dict::regconfig, si.q) AS prefix_q
-                FROM locales l
-                CROSS JOIN search_input si
-            ),
-            title_hits AS (
-                SELECT
-                    ce.id,
-                    CASE
-                        WHEN lower(trim(ce.title)) = lower(si.q) THEN 500
-                        WHEN lower(trim(ce.title)) LIKE lower(si.q) || '%' THEN 250
-                        WHEN ce.title ILIKE '%' || si.q || '%' THEN 100
-                        ELSE 0
-                    END AS title_score
-                FROM content_entries ce
-                CROSS JOIN search_input si
-                WHERE ce.title ILIKE '%' || si.q || '%'
-            ),
-            author_hits AS (
-                SELECT
-                    ce.id,
-                    50 AS author_score
-                FROM content_entries ce
-                JOIN content_entry_authors cea ON cea.entry_id = ce.id
-                JOIN content_authors ca ON ca.id = cea.author_id
-                CROSS JOIN search_input si
-                WHERE (
-                    ca.first_name ILIKE '%' || si.q || '%'
-                    OR ca.last_name ILIKE '%' || si.q || '%'
-                )
-                GROUP BY ce.id
-            ),
-            fulltext_hits AS (
-                SELECT
-                    ce.id,
-                    MAX(
-                        GREATEST(
-                            ts_rank(cn.text_vector, lq.web_q),
-                            COALESCE(ts_rank(cn.text_vector, lq.prefix_q), 0)
-                        )
-                    ) AS fulltext_rank
-                FROM content_entries ce
-                JOIN locale_queries lq ON lq.locale_id = ce.locale_id
-                JOIN content_nodes cn ON cn.entry_id = ce.id
-                WHERE (
-                    cn.text_vector @@ lq.web_q
-                    OR (
-                        lq.prefix_q IS NOT NULL
-                        AND cn.text_vector @@ lq.prefix_q
-                    )
-                )
-                GROUP BY ce.id
-            ),
-            filtered AS NOT MATERIALIZED (
-                SELECT
-                    ce.*,
-                    COALESCE(th.title_score, 0) AS title_score,
-                    COALESCE(ah.author_score, 0) AS author_score,
-                    COALESCE(fh.fulltext_rank, 0) AS fulltext_rank,
-                    (
-                        COALESCE(th.title_score, 0)
-                        + COALESCE(ah.author_score, 0)
-                        + COALESCE(fh.fulltext_rank, 0) * 25
-                    ) AS search_score
-                FROM content_entries ce
-                LEFT JOIN title_hits th ON th.id = ce.id
-                LEFT JOIN author_hits ah ON ah.id = ce.id
-                LEFT JOIN fulltext_hits fh ON fh.id = ce.id "#,
-        );
+        qb.push(") AS q ), base_entries AS ( SELECT ce.id, ce.title, ce.slug, ce.status, ce.created_at, ce.updated_at, ce.locale_id, ce.group_id, ce.type_id, ce.category_id, ce.media_id FROM content_entries ce ");
     } else {
         qb.push("WITH filtered AS NOT MATERIALIZED ( SELECT ce.* FROM content_entries ce ");
     }
@@ -675,14 +601,86 @@ pub async fn select_content_entries(
         );
     }
 
+    qb = where_chain.into_inner();
+
     if query_obj.search.is_some() {
-        where_chain.push_and(
-            None,
-            "(th.id IS NOT NULL OR ah.id IS NOT NULL OR fh.id IS NOT NULL)",
+        qb.push(
+            r#" ),
+            locale_queries AS (
+                SELECT
+                    l.id AS locale_id,
+                    phraseto_tsquery(l.tsv_dict::regconfig, si.q) AS phrase_q,
+                    make_phrase_prefix_tsquery(l.tsv_dict::regconfig, si.q) AS phrase_prefix_q,
+                    make_last_term_prefix_tsquery(l.tsv_dict::regconfig, si.q) AS prefix_q
+                FROM locales l
+                CROSS JOIN search_input si
+            ),
+            title_hits AS (
+                SELECT
+                    be.id,
+                    CASE
+                        WHEN lower(trim(be.title)) = lower(si.q) THEN 500
+                        WHEN lower(trim(be.title)) LIKE lower(si.q) || '%' THEN 250
+                        WHEN be.title ILIKE '%' || si.q || '%' THEN 100
+                        ELSE 0
+                    END AS title_score
+                FROM base_entries be
+                CROSS JOIN search_input si
+                WHERE be.title ILIKE '%' || si.q || '%'
+            ),
+            author_hits AS (
+                SELECT
+                    be.id,
+                    50 AS author_score
+                FROM base_entries be
+                JOIN content_entry_authors cea ON cea.entry_id = be.id
+                JOIN content_authors ca ON ca.id = cea.author_id
+                CROSS JOIN search_input si
+                WHERE (
+                    ca.first_name ILIKE '%' || si.q || '%'
+                    OR ca.last_name ILIKE '%' || si.q || '%'
+                )
+                GROUP BY be.id
+            ),
+            fulltext_hits AS (
+                SELECT
+                    be.id,
+                    MAX(COALESCE(ts_rank_cd(cn.text_vector, lq.phrase_q), 0)) AS phrase_rank,
+                    MAX(COALESCE(ts_rank_cd(cn.text_vector, lq.phrase_prefix_q), 0)) AS phrase_prefix_rank,
+                    MAX(COALESCE(ts_rank_cd(cn.text_vector, lq.prefix_q), 0)) AS prefix_rank
+                FROM base_entries be
+                JOIN locale_queries lq ON lq.locale_id = be.locale_id
+                JOIN content_nodes cn ON cn.entry_id = be.id
+                WHERE (
+                    cn.text_vector @@ lq.phrase_q
+                    OR (
+                        lq.phrase_prefix_q IS NOT NULL
+                        AND cn.text_vector @@ lq.phrase_prefix_q
+                    )
+                    OR (
+                        lq.prefix_q IS NOT NULL
+                        AND cn.text_vector @@ lq.prefix_q
+                    )
+                )
+                GROUP BY be.id
+            ),
+            filtered AS NOT MATERIALIZED (
+                SELECT
+                    be.*,
+                    (
+                        COALESCE(th.title_score, 0)
+                        + COALESCE(ah.author_score, 0)
+                        + COALESCE(fh.phrase_rank, 0) * 50
+                        + COALESCE(fh.phrase_prefix_rank, 0) * 25
+                        + COALESCE(fh.prefix_rank, 0) * 5
+                    ) AS search_score
+                FROM base_entries be
+                LEFT JOIN title_hits th ON th.id = be.id
+                LEFT JOIN author_hits ah ON ah.id = be.id
+                LEFT JOIN fulltext_hits fh ON fh.id = be.id
+                WHERE th.id IS NOT NULL OR ah.id IS NOT NULL OR fh.id IS NOT NULL"#,
         );
     }
-
-    qb = where_chain.into_inner();
 
     qb.push(" ), page AS ( SELECT f.* FROM filtered f");
     if query_obj.search.is_some() {
