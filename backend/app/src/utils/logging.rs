@@ -28,7 +28,7 @@ impl FormatTime for ChronoLocalTimer {
 pub fn init_tracing(level: Option<String>, timestamp: bool) {
     let filter = match level {
         Some(l) => EnvFilter::new(format!(
-            "sqlx=warn,tower_http=info,nur_core=debug,{l}={}",
+            "sqlx=warn,tower_http=info,nur_core=debug,{}={l}",
             env!("CARGO_CRATE_NAME")
         )),
         None => EnvFilter::new(format!(
