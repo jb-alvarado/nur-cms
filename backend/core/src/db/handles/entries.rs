@@ -108,46 +108,6 @@ fn group_join(entry_alias: &str) -> String {
     )
 }
 
-fn search_content(where_chain: &mut WhereBuilder<'_>, search: String) {
-    where_chain.push_and_bind(
-        None,
-        "(ce.title ILIKE CONCAT('%', ",
-        search.clone(),
-        Some(", '%')"),
-    );
-
-    where_chain.push_and_bind(
-        Some("OR"),
-        r#"EXISTS (
-            SELECT 1
-            FROM content_entry_authors cea2
-            JOIN content_authors ca2 ON ca2.id = cea2.author_id
-            WHERE cea2.entry_id = ce.id
-              AND (
-                  ca2.first_name ILIKE CONCAT('%', "#,
-        search.clone(),
-        Some(", '%') "),
-    );
-
-    where_chain.push_and_bind(
-        Some("OR"),
-        "ca2.last_name ILIKE CONCAT('%', ",
-        search.clone(),
-        Some(", '%') ))"),
-    );
-
-    where_chain.push_and_bind(
-        Some("OR"),
-        r#"EXISTS (
-            SELECT 1
-            FROM content_nodes cn2
-            WHERE cn2.entry_id = ce.id
-              AND cn2.text_vector @@ websearch_to_tsquery(l.tsv_dict::regconfig, "#,
-        search,
-        Some(")))"),
-    );
-}
-
 fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_joins: bool) -> String {
     let mut fields = Vec::new();
     let needs_media = query_obj
@@ -394,8 +354,6 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                             'path', m.path,
                             'type', m.type,
                             'ast_line', cnm.ast_line,
-                            'start_offset', cnm.start_offset,
-                            'end_offset', cnm.end_offset,
                             'variants', mv.variants
                         )
                         ORDER BY cnm.ast_line, cnm.start_offset, cnm.end_offset
@@ -536,16 +494,18 @@ pub async fn select_content_entries(
     let page_ordering = ordering_with_alias("f");
     let outer_ordering = ordering_with_alias("p");
 
-    let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-        "WITH filtered AS NOT MATERIALIZED ( SELECT ce.* FROM content_entries ce ",
-    );
+    let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("");
+
+    if let Some(search) = query_obj.search.clone() {
+        qb.push("WITH search_input AS ( SELECT trim(");
+        qb.push_bind(search);
+        qb.push(") AS q ), base_entries AS ( SELECT ce.id, ce.title, ce.slug, ce.status, ce.created_at, ce.updated_at, ce.locale_id, ce.group_id, ce.type_id, ce.category_id, ce.media_id FROM content_entries ce ");
+    } else {
+        qb.push("WITH filtered AS NOT MATERIALIZED ( SELECT ce.* FROM content_entries ce ");
+    }
 
     if query_obj.type_slug.is_some() {
         qb.push("JOIN content_types ct ON ct.id = ce.type_id ");
-    }
-
-    if query_obj.search.is_some() {
-        qb.push("JOIN locales l ON l.id = ce.locale_id ");
     }
 
     let mut where_chain = WhereBuilder::new(qb);
@@ -641,14 +601,95 @@ pub async fn select_content_entries(
         );
     }
 
-    if let Some(search) = query_obj.search.clone() {
-        search_content(&mut where_chain, search);
-    }
-
     qb = where_chain.into_inner();
 
+    if query_obj.search.is_some() {
+        qb.push(
+            r#" ),
+            locale_queries AS (
+                SELECT
+                    l.id AS locale_id,
+                    phraseto_tsquery(l.tsv_dict::regconfig, si.q) AS phrase_q,
+                    make_phrase_prefix_tsquery(l.tsv_dict::regconfig, si.q) AS phrase_prefix_q,
+                    make_last_term_prefix_tsquery(l.tsv_dict::regconfig, si.q) AS prefix_q
+                FROM locales l
+                CROSS JOIN search_input si
+            ),
+            title_hits AS (
+                SELECT
+                    be.id,
+                    CASE
+                        WHEN lower(trim(be.title)) = lower(si.q) THEN 500
+                        WHEN lower(trim(be.title)) LIKE lower(si.q) || '%' THEN 250
+                        WHEN be.title ILIKE '%' || si.q || '%' THEN 100
+                        ELSE 0
+                    END AS title_score
+                FROM base_entries be
+                CROSS JOIN search_input si
+                WHERE be.title ILIKE '%' || si.q || '%'
+            ),
+            author_hits AS (
+                SELECT
+                    be.id,
+                    50 AS author_score
+                FROM base_entries be
+                JOIN content_entry_authors cea ON cea.entry_id = be.id
+                JOIN content_authors ca ON ca.id = cea.author_id
+                CROSS JOIN search_input si
+                WHERE (
+                    ca.first_name ILIKE '%' || si.q || '%'
+                    OR ca.last_name ILIKE '%' || si.q || '%'
+                )
+                GROUP BY be.id
+            ),
+            fulltext_hits AS (
+                SELECT
+                    be.id,
+                    MAX(COALESCE(ts_rank_cd(cn.text_vector, lq.phrase_q), 0)) AS phrase_rank,
+                    MAX(COALESCE(ts_rank_cd(cn.text_vector, lq.phrase_prefix_q), 0)) AS phrase_prefix_rank,
+                    MAX(COALESCE(ts_rank_cd(cn.text_vector, lq.prefix_q), 0)) AS prefix_rank
+                FROM base_entries be
+                JOIN locale_queries lq ON lq.locale_id = be.locale_id
+                JOIN content_nodes cn ON cn.entry_id = be.id
+                WHERE (
+                    cn.text_vector @@ lq.phrase_q
+                    OR (
+                        lq.phrase_prefix_q IS NOT NULL
+                        AND cn.text_vector @@ lq.phrase_prefix_q
+                    )
+                    OR (
+                        lq.prefix_q IS NOT NULL
+                        AND cn.text_vector @@ lq.prefix_q
+                    )
+                )
+                GROUP BY be.id
+            ),
+            filtered AS NOT MATERIALIZED (
+                SELECT
+                    be.*,
+                    (
+                        COALESCE(th.title_score, 0)
+                        + COALESCE(ah.author_score, 0)
+                        + COALESCE(fh.phrase_rank, 0) * 50
+                        + COALESCE(fh.phrase_prefix_rank, 0) * 25
+                        + COALESCE(fh.prefix_rank, 0) * 5
+                    ) AS search_score
+                FROM base_entries be
+                LEFT JOIN title_hits th ON th.id = be.id
+                LEFT JOIN author_hits ah ON ah.id = be.id
+                LEFT JOIN fulltext_hits fh ON fh.id = be.id
+                WHERE th.id IS NOT NULL OR ah.id IS NOT NULL OR fh.id IS NOT NULL"#,
+        );
+    }
+
     qb.push(" ), page AS ( SELECT f.* FROM filtered f");
-    if !page_ordering.is_empty() {
+    if query_obj.search.is_some() {
+        if page_ordering.is_empty() {
+            qb.push(" ORDER BY f.search_score DESC, f.id DESC");
+        } else {
+            qb.push(format!(" ORDER BY f.search_score DESC, {}", page_ordering));
+        }
+    } else if !page_ordering.is_empty() {
         qb.push(format!(" ORDER BY {}", page_ordering));
     }
     qb.push(format!(
@@ -689,7 +730,7 @@ pub async fn select_content_entries(
                 }
             }
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
-            CF::Type => sep.push("(ct.id, ct.name, ct.slug) AS type".to_string()),
+            CF::Type => sep.push("(ct.id, ct.name, ct.slug, ct.order_index) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
             CF::CommentCount => {
                 sep.push("COALESCE(cc.comment_count, 0) AS comment_count".to_string())
@@ -756,7 +797,13 @@ pub async fn select_content_entries(
         qb.push(group_join("p"));
     }
 
-    if !outer_ordering.is_empty() {
+    if query_obj.search.is_some() {
+        if outer_ordering.is_empty() {
+            qb.push(" ORDER BY p.search_score DESC, p.id DESC");
+        } else {
+            qb.push(format!(" ORDER BY p.search_score DESC, {}", outer_ordering));
+        }
+    } else if !outer_ordering.is_empty() {
         qb.push(format!(" ORDER BY {}", outer_ordering));
     }
 

@@ -66,7 +66,6 @@ useHead({
                 <h1 class="font-bold text-5xl mt-5">NUR CMS</h1>
             </div>
         </div>
-        {{ lastUsers }}
         <div v-if="lastUsers.length > 0" class="absolute bg-base-200 z-10 top-5 right-2 p-3 rounded-md">
             <div class="font-bold text-lg mb-1">{{ t('home.lastLogins') }}</div>
             <div v-for="user in lastUsers" :key="user.id!">

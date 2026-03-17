@@ -172,7 +172,7 @@ export const useAuth = defineStore('auth', {
 
         async selectAuthUser() {
             const store = useIndex()
-            await fetch('/api/auth-user', {
+            await fetch(`/api/auth-user?id=${this.id}`, {
                 headers: this.authHeader,
             })
                 .then(async (resp) => {

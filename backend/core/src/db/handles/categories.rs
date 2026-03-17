@@ -20,68 +20,40 @@ pub async fn select_categories(
     pool: &PgPool,
     query_obj: &QueryObj<CCF>,
 ) -> Result<RespondObj<ContentCategorySerializer>, NurError> {
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
-    let mut sep = query_builder.separated(", ");
+    let ordering_with_alias = |alias: &str| {
+        query_obj
+            .ordering
+            .split(',')
+            .filter_map(|part| {
+                let mut split = part.split_whitespace();
+                let field = split.next()?.trim();
+                let direction = split.next().unwrap_or("ASC").to_uppercase();
 
-    for f in &query_obj.fields {
-        match *f {
-            CCF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
-            CCF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
-            _ => sep.push(format!("cc.{f}")),
-        };
-    }
+                if direction != "ASC" && direction != "DESC" {
+                    return None;
+                }
 
-    sep.push("count(*) OVER() AS total_count");
-    sep.push_unseparated(" ");
-    query_builder.push("FROM content_categories cc ");
+                if CCF::iter()
+                    .any(|f| f.to_string() == field && !matches!(f, CCF::Media | CCF::GroupMembers))
+                {
+                    Some(format!("{alias}.{field} {direction}"))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
 
-    if query_obj.fields.contains(&CCF::LocaleID) || query_obj.search_locale.is_some() {
+    let page_ordering = ordering_with_alias("f");
+    let outer_ordering = ordering_with_alias("p");
+
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+        "WITH filtered AS NOT MATERIALIZED ( SELECT cc.* FROM content_categories cc ",
+    );
+
+    if query_obj.search_locale.is_some() {
         query_builder.push("LEFT JOIN locales l ON l.id = cc.locale_id ");
-    }
-
-    if query_obj.fields.contains(&CCF::Media) {
-        query_builder.push(
-            r#"LEFT JOIN LATERAL (
-                SELECT json_build_object(
-                    'id', m.id,
-                    'alt', m.alt,
-                    'path', m.path,
-                    'variants', COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'id', mv.id,
-                                    'width', mv.width,
-                                    'height', mv.height,
-                                    'filename', mv.filename
-                                )
-                            )
-                            FROM media_variants mv
-                            WHERE mv.media_id = m.id
-                        ),
-                        '[]'
-                    )
-                ) AS data
-                FROM media m
-                WHERE m.id = cc.media_id
-            ) AS media ON TRUE "#,
-        );
-    }
-
-    if query_obj.fields.contains(&CCF::GroupMembers) {
-        query_builder.push(
-            r#"LEFT JOIN LATERAL (
-                SELECT jsonb_agg(
-                    jsonb_build_object(
-                        'id', ge.id,
-                        'locale_id', ge.locale_id
-                    )
-                ) AS data
-                FROM content_entries ge
-                WHERE ge.group_id = cc.group_id
-                  AND ge.id != cc.id
-            ) AS group_members ON TRUE "#,
-        );
     }
 
     let mut where_chain = WhereBuilder::new(query_builder);
@@ -115,30 +87,84 @@ pub async fn select_categories(
         );
     }
 
-    // take builder back from where_chain
     query_builder = where_chain.into_inner();
 
-    let ordering = query_obj
-        .ordering
-        .split(',')
-        .filter_map(|item| {
-            let item = item.trim();
-            if CCF::iter().any(|f| item.contains(&f.to_string())) {
-                Some(format!("cc.{item}"))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    if !ordering.is_empty() {
-        query_builder.push(format!(" ORDER BY {}", ordering));
+    query_builder.push(" ), page AS ( SELECT f.* FROM filtered f");
+
+    if !page_ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", page_ordering));
     }
 
     query_builder.push(format!(
         " LIMIT {} OFFSET {}",
         query_obj.limit, query_obj.offset
     ));
+
+    query_builder.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+
+    let mut sep = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        match *f {
+            CCF::Media => sep.push("COALESCE(media.data, NULL) AS \"media\""),
+            CCF::GroupMembers => sep.push(format!("COALESCE(group_members.data, '[]') AS {f}")),
+            _ => sep.push(format!("p.{f}")),
+        };
+    }
+
+    sep.push("t.total_count");
+    sep.push_unseparated(" ");
+    query_builder.push("FROM page p CROSS JOIN total t ");
+
+    if query_obj.fields.contains(&CCF::Media) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_build_object(
+                    'id', m.id,
+                    'alt', m.alt,
+                    'path', m.path,
+                    'variants', COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', mv.id,
+                                    'width', mv.width,
+                                    'height', mv.height,
+                                    'filename', mv.filename
+                                )
+                                ORDER BY mv.id
+                            )
+                            FROM media_variants mv
+                            WHERE mv.media_id = m.id
+                        ),
+                        '[]'
+                    )
+                ) AS data
+                FROM media m
+                WHERE m.id = p.media_id
+            ) AS media ON TRUE "#,
+        );
+    }
+
+    if query_obj.fields.contains(&CCF::GroupMembers) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT jsonb_agg(
+                    jsonb_build_object(
+                        'id', ge.id,
+                        'locale_id', ge.locale_id
+                    )
+                ) AS data
+                FROM content_entries ge
+                WHERE ge.group_id = p.group_id
+                  AND ge.id != p.id
+            ) AS group_members ON TRUE "#,
+        );
+    }
+
+    if !outer_ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", outer_ordering));
+    }
 
     let query = query_builder.build_query_as::<ContentCategorySerializer>();
 

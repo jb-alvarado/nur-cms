@@ -1,4 +1,5 @@
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
+use strum::IntoEnumIterator;
 
 #[cfg(debug_assertions)]
 use sqlx::Execute;
@@ -19,56 +20,37 @@ pub async fn select_content_author(
     pool: &PgPool,
     query_obj: QueryObj<ContentAuthorFields>,
 ) -> Result<RespondObj<AuthorSerializer>, NurError> {
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new("SELECT ");
-    let mut separated = query_builder.separated(", ");
+    let ordering_with_alias = |alias: &str| {
+        query_obj
+            .ordering
+            .split(',')
+            .filter_map(|part| {
+                let mut split = part.split_whitespace();
+                let column = split.next()?.trim();
+                let direction = split.next().unwrap_or("ASC").to_uppercase();
 
-    for f in &query_obj.fields {
-        match *f {
-            ContentAuthorFields::Media => separated.push("media.data AS \"media\""),
-            ContentAuthorFields::MediaID => {
-                if !query_obj.fields.contains(&ContentAuthorFields::Media) {
-                    separated.push(format!("ca.{f}"));
+                if direction != "ASC" && direction != "DESC" {
+                    return None;
                 }
-                continue;
-            }
-            _ => separated.push(format!("ca.{f}")),
-        };
-    }
 
-    separated.push("count(*) OVER() AS total_count");
+                if ContentAuthorFields::iter()
+                    .any(|f| f.to_string() == column && !matches!(f, ContentAuthorFields::Media))
+                {
+                    Some(format!("{alias}.{column} {direction}"))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
 
-    separated.push_unseparated(" ");
-    query_builder.push("FROM content_authors ca ");
+    let page_ordering = ordering_with_alias("f");
+    let outer_ordering = ordering_with_alias("p");
 
-    if query_obj.fields.contains(&ContentAuthorFields::Media) {
-        query_builder.push(
-            r#"LEFT JOIN LATERAL (
-                SELECT json_build_object(
-                    'id', m.id,
-                    'alt', m.alt,
-                    'path', m.path,
-                    'filename', m.filename,
-                    'variants', COALESCE(
-                        (
-                            SELECT json_agg(
-                                json_build_object(
-                                    'id', mv.id,
-                                    'width', mv.width,
-                                    'height', mv.height,
-                                    'filename', mv.filename
-                                )
-                            )
-                            FROM media_variants mv
-                            WHERE mv.media_id = m.id
-                        ),
-                        '[]'
-                    )
-                ) AS data
-                FROM media m
-                WHERE m.id = ca.media_id
-            ) AS media ON TRUE "#,
-        );
-    }
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+        "WITH filtered AS NOT MATERIALIZED ( SELECT ca.* FROM content_authors ca ",
+    );
 
     let mut where_chain = WhereBuilder::new(query_builder);
 
@@ -102,33 +84,72 @@ pub async fn select_content_author(
 
     query_builder = where_chain.into_inner();
 
-    let ordering: Vec<String> = query_obj
-        .ordering
-        .split(',')
-        .filter_map(|part| {
-            let mut split = part.split_whitespace();
-            let column = split.next()?;
-            let direction = split.next().unwrap_or("ASC").to_uppercase();
+    query_builder.push(" ), page AS ( SELECT f.* FROM filtered f");
 
-            if query_obj.fields.iter().any(|f| f.to_string() == column)
-                && (direction == "ASC" || direction == "DESC")
-            {
-                Some(format!("{column} {direction}"))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if !ordering.is_empty() {
-        query_builder.push(" ORDER BY ");
-        query_builder.push(ordering.join(", "));
+    if !page_ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", page_ordering));
     }
 
     query_builder.push(format!(
         " LIMIT {} OFFSET {}",
         query_obj.limit, query_obj.offset
     ));
+
+    query_builder.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+
+    let mut separated = query_builder.separated(", ");
+
+    for f in &query_obj.fields {
+        match *f {
+            ContentAuthorFields::Media => separated.push("media.data AS \"media\""),
+            ContentAuthorFields::MediaID => {
+                if !query_obj.fields.contains(&ContentAuthorFields::Media) {
+                    separated.push(format!("p.{f}"));
+                }
+                continue;
+            }
+            _ => separated.push(format!("p.{f}")),
+        };
+    }
+
+    separated.push("t.total_count");
+    separated.push_unseparated(" ");
+    query_builder.push("FROM page p CROSS JOIN total t ");
+
+    if query_obj.fields.contains(&ContentAuthorFields::Media) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_build_object(
+                    'id', m.id,
+                    'alt', m.alt,
+                    'path', m.path,
+                    'filename', m.filename,
+                    'variants', COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', mv.id,
+                                    'width', mv.width,
+                                    'height', mv.height,
+                                    'filename', mv.filename
+                                )
+                                ORDER BY mv.id
+                            )
+                            FROM media_variants mv
+                            WHERE mv.media_id = m.id
+                        ),
+                        '[]'
+                    )
+                ) AS data
+                FROM media m
+                WHERE m.id = p.media_id
+            ) AS media ON TRUE "#,
+        );
+    }
+
+    if !outer_ordering.is_empty() {
+        query_builder.push(format!(" ORDER BY {}", outer_ordering));
+    }
 
     let query = query_builder.build_query_as::<AuthorSerializer>();
 

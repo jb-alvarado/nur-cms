@@ -187,7 +187,7 @@ fn default_limit() -> i64 {
 }
 
 fn default_ordering() -> String {
-    "created_at ASC".to_string()
+    "created_at DESC".to_string()
 }
 
 /// Trait for providing default fields

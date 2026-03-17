@@ -36,6 +36,7 @@ pub struct AuthUserSerializer {
     pub updated_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_login: Option<DateTime<Utc>>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -92,6 +93,7 @@ pub struct AuthorSerializer {
     pub media_id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<MediaSerializer>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -217,6 +219,7 @@ pub struct ContentEntrySerializer {
     pub group_members: Vec<GroupMemberSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment_count: Option<i64>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -398,6 +401,7 @@ pub struct ContentCategorySerializer {
     pub media: Option<MediaSerializer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_members: Vec<GroupMemberSerializer>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -445,6 +449,7 @@ pub struct ContentTagSerializer {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -489,6 +494,10 @@ pub struct MediaSerializer {
     pub id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing, skip_deserializing)]
+    pub src: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -512,6 +521,7 @@ pub struct MediaSerializer {
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<MediaVariantSerializer>,
+    #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
 }
@@ -527,6 +537,8 @@ impl FromRow<'_, PgRow> for MediaSerializer {
         Ok(Self {
             id: row.try_get("id").ok(),
             alt: row.try_get("alt").ok(),
+            title: None,
+            src: None,
             filename: row.try_get("filename").ok(),
             path: row.try_get("path").ok(),
             r#type: row.try_get("type").ok(),
