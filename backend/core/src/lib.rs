@@ -12,7 +12,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 pub use sqlx::postgres::{PgPool, PgPoolOptions};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast::Sender};
 use tracing::{error, warn};
 
 pub mod api;
@@ -37,7 +37,7 @@ use crate::{
 };
 
 type AuthRouter = Router<(PgPool, Args)>;
-type ApiRouter = Router<(PgPool, tokio::sync::broadcast::Sender<String>)>;
+type ApiRouter = Router<(PgPool, Sender<String>)>;
 
 // Small helper to parse env vars with a typed default.
 fn env_parse_or<T>(key: &str, default: T) -> T
