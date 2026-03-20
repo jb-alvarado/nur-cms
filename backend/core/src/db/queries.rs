@@ -14,20 +14,6 @@ const DEFAULT_LIMIT: i64 = 50;
 
 static RE_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"offset=\d+").unwrap());
 
-/// Response object:
-/// - gives total amount of items
-/// - if there is more then limit restricted, provide a link for the next request
-/// - if possible, provide a previous link
-/// - gives the actual result
-#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
-#[ts(export, export_to = "query.d.ts")]
-pub struct RespondObj<T> {
-    pub count: i64,
-    pub next: Option<String>,
-    pub previous: Option<String>,
-    pub results: Vec<T>,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "query.d.ts")]
 pub struct QueryObj<T> {
@@ -321,6 +307,20 @@ fn remove_first_char(value: &str) -> &str {
     let mut chars = value.chars();
     chars.next();
     chars.as_str()
+}
+
+/// Response object:
+/// - gives total amount of items
+/// - if there is more then limit restricted, provide a link for the next request
+/// - if possible, provide a previous link
+/// - gives the actual result
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "query.d.ts")]
+pub struct RespondObj<T> {
+    pub count: i64,
+    pub next: Option<String>,
+    pub previous: Option<String>,
+    pub results: Vec<T>,
 }
 
 /// Create Response Object
