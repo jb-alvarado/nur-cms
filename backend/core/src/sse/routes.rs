@@ -4,13 +4,15 @@ use async_stream::stream;
 use axum::{
     Extension, Json,
     extract::{Query, State},
-    response::sse::{Event, KeepAlive, Sse},
+    response::{
+        IntoResponse,
+        sse::{Event, KeepAlive, Sse},
+    },
 };
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use real::RealIp;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
-use tokio_stream::Stream;
 
 use crate::{
     AuthUserMeta,
@@ -63,17 +65,23 @@ pub async fn sse_handler(
     real_ip: RealIp,
     State((tx, data)): State<(Sender<String>, SseAuthState)>,
     Query(user): Query<User>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, NurError> {
+) -> Result<impl IntoResponse, NurError> {
     let mut uuids = data.uuids.lock().await;
     let ip_address = real_ip.ip().to_string();
     check_uuid(&mut uuids, user.uuid.as_str(), &ip_address)?;
 
     let mut rx = tx.subscribe();
 
-    Ok(Sse::new(stream! {
+    let s = stream! {
         while let Ok(msg) = rx.recv().await {
-            yield Ok(Event::default().data::<String>(msg));
+            let event: Result<Event, Infallible> = Ok(Event::default().data(msg));
+            yield event;
         }
-    })
-    .keep_alive(KeepAlive::default()))
+    };
+
+    let mut resp = Sse::new(s).keep_alive(KeepAlive::default()).into_response();
+    resp.headers_mut()
+        .insert("X-Accel-Buffering", "no".parse().unwrap());
+
+    Ok(resp)
 }

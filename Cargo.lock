@@ -2401,7 +2401,6 @@ dependencies = [
  "strum",
  "strum_macros",
  "tokio",
- "tokio-stream",
  "tracing",
  "ts-rs",
  "uuid",
@@ -4019,7 +4018,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
