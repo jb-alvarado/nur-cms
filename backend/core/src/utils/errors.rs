@@ -35,6 +35,10 @@ pub enum NurError {
     #[display("NoContent")]
     NoContent,
 
+    // 404 No Content
+    #[display("NotFound")]
+    NotFound,
+
     // 422 Unprocessable Entity
     #[display("InvalidInput")]
     InvalidInput,
@@ -64,6 +68,7 @@ impl IntoResponse for NurError {
             Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             Self::NoContent => (StatusCode::NO_CONTENT, "No Content".to_string()),
+            Self::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             Self::InvalidInput => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "Invalid Input".to_string(),
@@ -77,6 +82,10 @@ impl IntoResponse for NurError {
         };
 
         if status == StatusCode::NO_CONTENT {
+            return ().into_response();
+        }
+
+        if status == StatusCode::NOT_FOUND {
             return ().into_response();
         }
 

@@ -1,13 +1,8 @@
-use std::{collections::HashSet, net::SocketAddr, sync::Arc, time::Instant};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router,
-    body::Body,
-    http::{
-        Request, Response,
-        header::{CONTENT_LENGTH, REFERER, USER_AGENT},
-    },
-    middleware::{self, Next},
+    middleware::{self},
     routing::{get, post},
 };
 use clap::Parser;
@@ -22,7 +17,7 @@ use tokio::{
 };
 use tower::ServiceBuilder;
 use tower_http::services::ServeDir;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error};
 
 #[cfg(not(debug_assertions))]
 mod serve;
@@ -42,63 +37,13 @@ use nur_core::{
     utils::{cmd_args::add_user, errors::NurError, importer},
 };
 
-use utils::{extend_args::AppArgs, logging::init_tracing};
+use utils::{
+    extend_args::AppArgs,
+    logging::{init_tracing, log_middleware},
+};
 
 #[cfg(not(debug_assertions))]
 use serve::routes::admin_ui_routes;
-
-async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
-    let start = Instant::now();
-
-    let m = req.method().clone();
-    let uri = req.uri().clone();
-    let v = req.version();
-
-    let ip = req
-        .extensions()
-        .get::<real::RealIp>()
-        .map(|ip| ip.0.to_string())
-        .unwrap_or_else(|| "-".into());
-
-    let r = req
-        .headers()
-        .get(REFERER)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-")
-        .to_string();
-
-    let a = req
-        .headers()
-        .get(USER_AGENT)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-")
-        .to_string();
-
-    let res = next.run(req).await;
-
-    let status = res.status().as_u16();
-    let size = res
-        .headers()
-        .get(CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-");
-
-    let l = start.elapsed().as_secs_f64();
-
-    match status {
-        500..=599 => {
-            error!(r#"{ip} "{m} {uri} {v:?}" {status} {size} "{r}" "{a}" {l:.6}"#);
-        }
-        401 | 403 | 429 => {
-            warn!(r#"{ip} "{m} {uri} {v:?}" {status} {size} "{r}" "{a}" {l:.6}"#);
-        }
-        _ => {
-            info!(r#"{ip} "{m} {uri} {v:?}" {status} {size} "{r}" "{a}" {l:.6}"#);
-        }
-    }
-
-    res
-}
 
 #[tokio::main]
 async fn main() -> Result<(), NurError> {

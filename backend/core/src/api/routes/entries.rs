@@ -127,6 +127,10 @@ pub async fn entry_select(
         params.fields.push(CEF::Node(CNF::Embeds));
     }
 
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        params.search_status = Some("published".to_string());
+    }
+
     let character_limit = params.character_limit;
 
     if output == OutputType::AST {
@@ -208,7 +212,7 @@ pub async fn entry_select(
         return Ok(Json(content));
     }
 
-    Err(NurError::NoContent)
+    Err(NurError::NotFound)
 }
 
 pub async fn entry_insert(
