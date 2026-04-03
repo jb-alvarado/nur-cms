@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
-
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { cloneDeep, isEqual } from 'lodash-es'
+import { cloneDeep } from 'es-toolkit/object'
+import { isEqual } from 'es-toolkit/predicate'
 import Multiselect from 'vue-multiselect'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
@@ -14,10 +14,10 @@ import { slugify } from '@/utils/slugify.js'
 
 import GenericBlock from './GenericBlock.vue'
 import GenericModal from './GenericModal.vue'
-import BlockModal from './BlockModal.vue'
-import MarkdownRender from './MarkdownRender.vue'
-import MediaBrowser from './MediaBrowser.vue'
-import TextEditor from './TextEditor.vue'
+import BlockModal from '@/components/BlockModal.vue'
+import MarkdownRender from '@/components/MarkdownRender.vue'
+import MediaBrowser from '@/components/media/MediaBrowser.vue'
+import TextEditor from '@/components/TextEditor.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -36,6 +36,10 @@ store.typeID = matchedType ?? 1
 const deleteModal = ref()
 const mediaModal = ref()
 const blockModal = ref()
+const editorEndRef = ref<HTMLElement | null>(null)
+const mediaTarget = ref<{ type: 'main' | 'node' | 'block'; nodeIndex?: number; blockIndex?: number }>({
+    type: 'main',
+})
 const dropValueRaw = ref('')
 const dropValue = computed({
     get: () => dropValueRaw.value,
@@ -305,6 +309,17 @@ const openDeleteModal = () => {
 }
 
 const openMediaBrowser = () => {
+    mediaTarget.value = { type: 'main' }
+    mediaModal.value.showModal()
+}
+
+const openNodeMediaBrowser = (nodeIndex: number) => {
+    mediaTarget.value = { type: 'node', nodeIndex }
+    mediaModal.value.showModal()
+}
+
+const openBlockMediaBrowser = (nodeIndex: number, blockIndex: number) => {
+    mediaTarget.value = { type: 'block', nodeIndex, blockIndex }
     mediaModal.value.showModal()
 }
 
@@ -313,17 +328,26 @@ const openBlockModal = (index: number) => {
     blockModal.value.showModal()
 }
 
+async function scrollEditorToEnd() {
+    await nextTick()
+    editorEndRef.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+}
+
 function addTextNode() {
     content.value.nodes?.push({
         order_index: (content.value.nodes?.length ?? 0) + 1,
         text: '',
     })
+
+    scrollEditorToEnd()
 }
 
 function addBlocksNode() {
     content.value.nodes?.push({
         blocks: [],
     })
+
+    scrollEditorToEnd()
 }
 
 function sortBlocks(index: number) {
@@ -370,6 +394,7 @@ function addDataNode(item: { name: null | string, media: null | Media; data: Rec
     }
 
     currentNodeIndex.value = -1
+    scrollEditorToEnd()
 }
 
 function deleteNode(index: number, blockIndex: number | null = null) {
@@ -445,11 +470,28 @@ async function save() {
         }
     }
 
-    // Remove media from blocks
-    if (payload.blocks) {
-        payload.blocks = payload.blocks.map((item: any) => {
-            delete item.media
-            return item
+    // Remove media objects from nodes before save (keep media_id)
+    if (payload.nodes) {
+        payload.nodes = payload.nodes.map((node: any) => {
+            if (node && typeof node === 'object') {
+                if ('blocks' in node && Array.isArray(node.blocks)) {
+                    node.blocks = node.blocks.map((block: any) => {
+                        if (block && typeof block === 'object') {
+                            if (!block.media_id && block.media?.id) {
+                                block.media_id = block.media.id
+                            }
+                            delete block.media
+                        }
+                        return block
+                    })
+                } else {
+                    if (!node.media_id && node.media?.id) {
+                        node.media_id = node.media.id
+                    }
+                    delete node.media
+                }
+            }
+            return node
         })
     }
 
@@ -493,7 +535,7 @@ async function save() {
                     ...newAuthors.map((author) => insertEntryAuthor(newId, author.id!)),
                 ])
 
-                router.push(`${rootPath}/${newId}`)
+                router.push(rootPath)
                 return
             }
         }
@@ -530,8 +572,28 @@ function deleteContent() {
 }
 
 function addMedia(m: Media) {
-    content.value.media_id = m.id
-    media.value = m
+    if (mediaTarget.value.type === 'node') {
+        const node = content.value.nodes?.[mediaTarget.value.nodeIndex ?? -1] as ContentNodeSerializer | undefined
+        if (node) {
+            node.media_id = m.id
+            node.media = m
+        }
+    } else if (mediaTarget.value.type === 'block') {
+        const node = content.value.nodes?.[mediaTarget.value.nodeIndex ?? -1] as
+            | { blocks: Array<ContentNodeSerializer> }
+            | undefined
+        const block = node?.blocks?.[mediaTarget.value.blockIndex ?? -1]
+
+        if (block) {
+            block.media_id = m.id
+            block.media = m
+        }
+    } else {
+        content.value.media_id = m.id
+        media.value = m
+    }
+
+    mediaTarget.value = { type: 'main' }
 
     mediaModal.value.close()
 }
@@ -861,17 +923,23 @@ async function insertEntryAuthor(entry: number, author: number) {
                     <TextEditor
                         v-if="!('blocks' in node) && !('data' in node)"
                         v-model="node.text"
+                        class="min-h-60"
                         :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
                     />
                     <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
                         <div class="w-10">
                             <img
-                                v-if="node.media_id"
+                                v-if="node.media"
                                 :src="mediaPath(node.media!)"
-                                :atl="node.media?.alt"
-                                class="object-cover w-10 h-10"
+                                :alt="node.media?.alt ?? undefined"
+                                class="object-cover w-10 h-10 cursor-pointer"
+                                @click="openNodeMediaBrowser(i)"
                             />
-                            <div v-else class="bg-base-content/30 w-full h-10"></div>
+                            <div
+                                v-else
+                                class="bg-base-content/30 w-full h-10 cursor-pointer"
+                                @click="openNodeMediaBrowser(i)"
+                            ></div>
                         </div>
                         <GenericBlock v-model:block="node.data" class="grow" />
                         <button class="btn leading-0 w-10" @click="deleteNode(i)">
@@ -913,10 +981,15 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     <img
                                         v-if="block.media"
                                         :src="mediaPath(block.media!)"
-                                        :atl="block.media?.alt"
-                                        class="object-cover w-10 h-10"
+                                        :alt="block.media?.alt ?? undefined"
+                                        class="object-cover w-10 h-10 cursor-pointer"
+                                        @click="openBlockMediaBrowser(i, bi)"
                                     />
-                                    <div v-else class="bg-base-content/30 w-full h-10"></div>
+                                    <div
+                                        v-else
+                                        class="bg-base-content/30 w-full h-10 cursor-pointer"
+                                        @click="openBlockMediaBrowser(i, bi)"
+                                    ></div>
                                 </div>
                                 <GenericBlock v-model:block="block.data" class="grow" />
                                 <input
@@ -955,6 +1028,8 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </button>
                     </div>
                 </div>
+
+                <div ref="editorEndRef"></div>
             </div>
         </div>
 

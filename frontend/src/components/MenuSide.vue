@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import { locales as appLocales } from '@/i18n.ts'
+import { locales as appLocales } from '@/i18n'
 
 import SseHandler from './SseHandler.vue'
 
@@ -72,7 +72,7 @@ function setLanguage(code: string) {
 <template>
     <div class="w-38 h-full bg-base-300 flex flex-col">
         <div class="flex justify-center">
-            <RouterLink class="text-2xl font-bold" to="/">{{ $t('app.title') }}</RouterLink>
+            <RouterLink class="text-xl font-bold" to="/">{{ $t('app.title') }}</RouterLink>
         </div>
         <div class="flex flex-col justify-center items-center mt-4">
             <div class="join join-vertical mb-2">

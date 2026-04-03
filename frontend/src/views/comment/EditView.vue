@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useIndex } from '@/stores/index'
-import CommentEdit from '@/components/CommentEdit.vue'
+import EditComment from '@/components/edit/EditComment.vue'
 
 const store = useIndex()
 </script>
 <template>
-    <CommentEdit v-if="store.loaded" />
+    <EditComment v-if="store.loaded" />
 </template>

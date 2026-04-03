@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { cloneDeep, isEqual } from 'lodash-es'
+import { cloneDeep } from 'es-toolkit/object'
+import { isEqual } from 'es-toolkit/predicate'
 import { useI18n } from 'vue-i18n'
 import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'

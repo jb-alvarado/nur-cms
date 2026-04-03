@@ -6,10 +6,10 @@ import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router'
 import { useIndex } from '@/stores/index'
 
 import { useI18n } from 'vue-i18n'
-import GenericFilter from '@/components/GenericFilter.vue'
-import GenericModal from '@/components/GenericModal.vue'
-import GenericPagination from '@/components/GenericPagination.vue'
-import GenericTable from '@/components/GenericTable.vue'
+import GenericFilter from '@/components/generic/GenericFilter.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
+import GenericPagination from '@/components/generic/GenericPagination.vue'
+import GenericTable from '@/components/generic/GenericTable.vue'
 
 dayjs.extend(localizedFormat)
 

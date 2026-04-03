@@ -6,11 +6,11 @@ import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { formatBytes, shortID, mediaPath } from '@/utils/helper'
 
-import FileUpload from '@/components/FileUpload.vue'
-import GenericModal from '@/components/GenericModal.vue'
-import GenericPagination from '@/components/GenericPagination.vue'
-import GenericProgress from '@/components/GenericProgress.vue'
-import MediaEdit from '@/components/MediaEdit.vue'
+import FileUpload from '@/components/media/FileUpload.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
+import GenericPagination from '@/components/generic/GenericPagination.vue'
+import GenericProgress from '@/components/generic/GenericProgress.vue'
+import EditMedia from '@/components/edit/EditMedia.vue'
 
 const auth = useAuth()
 const store = useIndex()
@@ -311,7 +311,7 @@ function resetUpload() {
         </GenericModal>
 
         <GenericModal ref="editModal" :key="editID" :title="$t('media.editTitle')" width="2xl" :ok-action="runUpdate">
-            <MediaEdit ref="updater" :id="editID" />
+            <EditMedia ref="updater" :id="editID" />
         </GenericModal>
     </div>
 </template>

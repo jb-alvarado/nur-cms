@@ -5,7 +5,7 @@ import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { formatBytes, mediaPath } from '@/utils/helper'
 
-import GenericPagination from '@/components/GenericPagination.vue'
+import GenericPagination from '@/components/generic/GenericPagination.vue'
 
 const auth = useAuth()
 const store = useIndex()

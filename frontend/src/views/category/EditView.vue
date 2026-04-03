@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useIndex } from '@/stores/index'
-import CategoryEdit from '@/components/CategoryEdit.vue'
+import EditCategory from '@/components/edit/EditCategory.vue'
 
 const store = useIndex()
 </script>
 <template>
-    <CategoryEdit v-if="store.loaded" />
+    <EditCategory v-if="store.loaded" />
 </template>

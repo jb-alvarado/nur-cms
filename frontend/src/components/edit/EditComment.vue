@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { cloneDeep, isEqual } from 'lodash-es'
+import { cloneDeep } from 'es-toolkit/object'
+import { isEqual } from 'es-toolkit/predicate'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { closeDropdown } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
 
-import GenericModal from './GenericModal.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
 const auth = useAuth()

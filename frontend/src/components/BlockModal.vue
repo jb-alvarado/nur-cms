@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { cloneDeep } from 'lodash-es'
+import { cloneDeep } from 'es-toolkit/object'
 import { mediaPath } from '@/utils/helper'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 
-import GenericModal from './GenericModal.vue'
-import MediaBrowser from './MediaBrowser.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
+import MediaBrowser from '@/components/media/MediaBrowser.vue'
 
 const auth = useAuth()
 const store = useIndex()

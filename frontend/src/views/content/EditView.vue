@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useIndex } from '@/stores/index'
-import GenericEdit from '@/components/GenericEdit.vue'
+import GenericEdit from '@/components/generic/GenericEdit.vue'
 
 const store = useIndex()
 

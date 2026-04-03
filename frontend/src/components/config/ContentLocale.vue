@@ -5,7 +5,7 @@ import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 
-import GenericModal from '../GenericModal.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
 const auth = useAuth()

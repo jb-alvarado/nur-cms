@@ -7,7 +7,7 @@ import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { slugify } from '@/utils/slugify.js'
 
-import GenericModal from '../GenericModal.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
 const auth = useAuth()

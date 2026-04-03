@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { cloneDeep, isEqual } from 'lodash-es'
+import { cloneDeep } from 'es-toolkit/object'
+import { isEqual } from 'es-toolkit/predicate'
 import { useAuth } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
@@ -9,8 +10,8 @@ import { closeDropdown, mediaPath } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
 import { slugify } from '@/utils/slugify.js'
 
-import GenericModal from '@/components/GenericModal.vue'
-import MediaBrowser from '@/components/MediaBrowser.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
+import MediaBrowser from '@/components/media/MediaBrowser.vue'
 
 const { t } = useI18n()
 const auth = useAuth()

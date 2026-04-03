@@ -3,8 +3,8 @@ import { type ModelRef, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 
-import GenericModal from '@/components/GenericModal.vue'
-import MediaBrowser from '@/components/MediaBrowser.vue'
+import GenericModal from '@/components/generic/GenericModal.vue'
+import MediaBrowser from '@/components/media/MediaBrowser.vue'
 
 const { t } = useI18n()
 const model: ModelRef<string | undefined> = defineModel()
@@ -308,7 +308,7 @@ function table() {
 }
 </script>
 <template>
-    <div class="h-full flex flex-col">
+    <div class="flex flex-col">
         <div class="join border-t border-s border-e border-base-content/25 rounded-t bg-base-200 mt-2 flex-none">
             <select v-model="format" class="select max-w-40 join-item border-0" @change="heading">
                 <option v-for="head in headings" :key="head.value" :value="head.value">{{ head.name }}</option>
@@ -329,12 +329,12 @@ function table() {
             </div>
         </div>
 
-        <!-- Textarea fills rest -->
-        <div class="flex-1 flex">
+        <!-- Textarea grows naturally so resized height pushes following content -->
+        <div>
             <textarea
                 ref="textareaRef"
                 v-model="model"
-                class="textarea w-full h-full rounded-t-none focus:outline-0! focus:border-base-content/60"
+                class="textarea w-full min-h-50 rounded-t-none focus:outline-0! focus:border-base-content/60 resize-y"
                 @keydown="keyHandler"
                 @click="textPosition"
             ></textarea>
