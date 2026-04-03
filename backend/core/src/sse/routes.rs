@@ -73,6 +73,10 @@ pub async fn sse_handler(
     let mut rx = tx.subscribe();
 
     let s = stream! {
+        let initial_event: Result<Event, Infallible> =
+            Ok(Event::default().event("ping"));
+        yield initial_event;
+
         while let Ok(msg) = rx.recv().await {
             let event: Result<Event, Infallible> = Ok(Event::default().data(msg));
             yield event;
