@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -279,52 +279,67 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
                 let nodes_vec =
                     serde_json::from_value::<Vec<ContentNodeSerializer>>(v).unwrap_or_default();
 
-                // Build a map of node_id -> children
-                let mut children_map: HashMap<i64, Vec<ContentNodeSerializer>> = HashMap::new();
-                let mut parent_nodes: HashMap<i64, ContentNodeSerializer> = HashMap::new();
-                let mut single_nodes: Vec<ContentNodeSerializer> = Vec::new();
+                enum TopLevelNode {
+                    Parent(ContentNodeSerializer),
+                    Single(ContentNodeSerializer),
+                }
+
+                // Keep original order from the DB and only use maps for lookup.
+                let mut children_nodes: Vec<(i64, ContentNodeSerializer)> = Vec::new();
+                let mut top_level_nodes: Vec<TopLevelNode> = Vec::new();
 
                 for node in nodes_vec {
                     if let Some(parent_id) = node.parent_id {
-                        // This node has a parent - add it to children_map
-                        children_map.entry(parent_id as i64).or_default().push(node);
-                    } else if let Some(node_id) = node.id {
-                        // This node has no parent - it might be a parent itself or a single
-                        parent_nodes.insert(node_id, node);
+                        children_nodes.push((parent_id as i64, node));
+                    } else if node.id.is_some() {
+                        top_level_nodes.push(TopLevelNode::Parent(node));
                     } else {
-                        // Node without id and without parent - treat as single
-                        single_nodes.push(node);
+                        top_level_nodes.push(TopLevelNode::Single(node));
                     }
                 }
 
-                // Convert to NodeSerializer
+                let parent_ids: HashSet<i64> = top_level_nodes
+                    .iter()
+                    .filter_map(|node| match node {
+                        TopLevelNode::Parent(parent) => parent.id,
+                        TopLevelNode::Single(_) => None,
+                    })
+                    .collect();
+
+                let mut children_map: HashMap<i64, Vec<ContentNodeSerializer>> = HashMap::new();
+                let mut orphan_children: Vec<ContentNodeSerializer> = Vec::new();
+
+                for (parent_id, node) in children_nodes {
+                    if parent_ids.contains(&parent_id) {
+                        children_map.entry(parent_id).or_default().push(node);
+                    } else {
+                        orphan_children.push(node);
+                    }
+                }
+
                 let mut result = Vec::new();
 
-                // Process parent nodes
-                for (node_id, parent_node) in parent_nodes {
-                    if let Some(children) = children_map.remove(&node_id) {
-                        // This node has children - create a Block with parent + children
-                        let mut block = vec![parent_node];
-                        block.extend(children);
-                        result.push(NodeSerializer::Blocks(block));
-                    } else {
-                        // This node has no children - it's a Single
-                        result.push(NodeSerializer::Single(Box::new(parent_node)));
-                    }
-                }
-
-                // Add any single nodes without id
-                for node in single_nodes {
-                    result.push(NodeSerializer::Single(Box::new(node)));
-                }
-
-                // Handle orphaned children (nodes with parent_id but no parent found)
-                if !children_map.is_empty() {
-                    for (_, children) in children_map {
-                        for child in children {
-                            result.push(NodeSerializer::Single(Box::new(child)));
+                for node in top_level_nodes {
+                    match node {
+                        TopLevelNode::Parent(parent_node) => {
+                            if let Some(node_id) = parent_node.id {
+                                if let Some(children) = children_map.remove(&node_id) {
+                                    let mut block = vec![parent_node];
+                                    block.extend(children);
+                                    result.push(NodeSerializer::Blocks(block));
+                                } else {
+                                    result.push(NodeSerializer::Single(Box::new(parent_node)));
+                                }
+                            }
+                        }
+                        TopLevelNode::Single(single_node) => {
+                            result.push(NodeSerializer::Single(Box::new(single_node)));
                         }
                     }
+                }
+
+                for child in orphan_children {
+                    result.push(NodeSerializer::Single(Box::new(child)));
                 }
 
                 result
