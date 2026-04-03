@@ -1006,6 +1006,11 @@ pub async fn sync_entry_nodes(
                         .bind(entry_id)
                         .execute(pool)
                         .await?;
+
+                        // Set parent_id if this is the first node in the block
+                        if parent_id.is_none() {
+                            parent_id = Some(id);
+                        }
                     }
                     None => {
                         // Insert new node
