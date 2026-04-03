@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::LazyLock};
 
 use chrono::prelude::*;
 use regex::Regex;
+use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::{Postgres, QueryBuilder};
 use strum::IntoEnumIterator;
@@ -48,7 +49,7 @@ pub struct QueryObj<T> {
     pub type_id: Option<i32>,
 
     #[serde(default, deserialize_with = "split_string_to_vec")]
-    pub media_type: Vec<String>,
+    pub media_type: Option<Vec<String>>,
 
     #[serde(default)]
     pub entry_id: Option<i32>,
@@ -70,6 +71,9 @@ pub struct QueryObj<T> {
 
     #[serde(default, rename = "status")]
     pub search_status: Option<String>,
+
+    #[serde(default, deserialize_with = "split_string_to_vec")]
+    pub exclude_types: Option<Vec<i32>>,
 
     #[serde(default)]
     pub output_type: Option<OutputType>,
@@ -117,7 +121,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             author_slug: None,
             category_slug: None,
             type_id: None,
-            media_type: Vec::new(),
+            media_type: None,
             entry_id: None,
             character_limit: None,
             search: None,
@@ -125,6 +129,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             search_locale: None,
             search_slug: None,
             search_status: None,
+            exclude_types: None,
             output_type: None,
             last_login: false,
             group_id: None,
@@ -267,17 +272,28 @@ where
     Ok(l)
 }
 
-pub fn split_string_to_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+pub fn split_string_to_vec<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
 where
     D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: std::fmt::Display,
 {
-    let s: String = Deserialize::deserialize(deserializer)?;
+    let s: Option<String> = Deserialize::deserialize(deserializer)?;
+
+    let Some(s) = s else {
+        return Ok(None);
+    };
+
     let l = s
         .split(',')
-        .map(|s| s.trim().to_string())
-        .collect::<Vec<String>>();
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            T::from_str(s).map_err(|err| D::Error::custom(format!("failed to parse '{s}': {err}")))
+        })
+        .collect::<Result<Vec<T>, D::Error>>()?;
 
-    Ok(l)
+    if l.is_empty() { Ok(None) } else { Ok(Some(l)) }
 }
 
 pub fn generic_ordering<'de, D>(deserializer: D) -> Result<String, D::Error>

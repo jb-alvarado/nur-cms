@@ -534,6 +534,15 @@ pub async fn select_content_entries(
         where_chain.push_and_bind(None, "ce.type_id = ", id, None);
     }
 
+    if let Some(excluded_types) = &query_obj.exclude_types {
+        where_chain.push_and_bind(
+            None,
+            "NOT (ce.type_id = ANY(",
+            excluded_types.clone(),
+            Some("::int4[]))"),
+        );
+    }
+
     if let Some(slug) = &query_obj.search_slug {
         where_chain.push_and_bind(None, "ce.slug = ", slug, None);
     }
