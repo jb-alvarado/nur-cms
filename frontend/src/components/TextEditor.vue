@@ -308,12 +308,18 @@ function table() {
 }
 </script>
 <template>
-    <div class="flex flex-col">
+    <div class="h-full flex flex-col">
         <div class="join border-t border-s border-e border-base-content/25 rounded-t bg-base-200 mt-2 flex-none">
             <select v-model="format" class="select max-w-40 join-item border-0" @change="heading">
                 <option v-for="head in headings" :key="head.value" :value="head.value">{{ head.name }}</option>
             </select>
-            <button v-for="eb in editorButtons" :key="eb.id" class="btn join-item leading-0" :title="eb.title" @click="eb.func">
+            <button
+                v-for="eb in editorButtons"
+                :key="eb.id"
+                class="btn join-item leading-0"
+                :title="eb.title"
+                @click="eb.func"
+            >
                 <i class="bi" :class="eb.icon"></i>
             </button>
 
@@ -330,15 +336,13 @@ function table() {
         </div>
 
         <!-- Textarea grows naturally so resized height pushes following content -->
-        <div>
-            <textarea
-                ref="textareaRef"
-                v-model="model"
-                class="textarea w-full min-h-50 rounded-t-none focus:outline-0! focus:border-base-content/60 resize-y"
-                @keydown="keyHandler"
-                @click="textPosition"
-            ></textarea>
-        </div>
+        <textarea
+            ref="textareaRef"
+            v-model="model"
+            class="textarea w-full h-full min-h-50 rounded-t-none focus:outline-0! focus:border-base-content/60"
+            @keydown="keyHandler"
+            @click="textPosition"
+        ></textarea>
 
         <GenericModal ref="linkModal" :title="$t('dialog.linkTitle')" :cancel-action="clearLink" :ok-action="addLink">
             <fieldset class="fieldset">
