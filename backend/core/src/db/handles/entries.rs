@@ -556,6 +556,15 @@ pub async fn select_content_entries(
         );
     }
 
+    if let Some(locale_code) = &query_obj.locale_code {
+        where_chain.push_and_bind(
+            None,
+            "EXISTS (SELECT 1 FROM locales l WHERE l.id = ce.locale_id AND l.code = ",
+            locale_code,
+            Some(")"),
+        );
+    }
+
     if let Some(status) = &query_obj.search_status {
         where_chain.push_and_bind(None, "ce.status = ", status, None);
     }

@@ -45,6 +45,9 @@ pub struct QueryObj<T> {
     #[serde(default, alias = "category")]
     pub category_slug: Option<String>,
 
+    #[serde(default, alias = "locale")]
+    pub locale_code: Option<String>,
+
     #[serde(default)]
     pub type_id: Option<i32>,
 
@@ -120,6 +123,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             tag_slug: None,
             author_slug: None,
             category_slug: None,
+            locale_code: None,
             type_id: None,
             media_type: None,
             entry_id: None,
