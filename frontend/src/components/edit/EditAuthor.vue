@@ -204,7 +204,7 @@ function addMedia(m: Media) {
 </script>
 
 <template>
-    <div class="flex flex-col md:h-96 pb-6">
+    <div class="flex flex-col h-full pb-6">
         <div class="flex-none">
             <h1 class="text-2xl h-8">{{ author?.first_name ?? '' }} {{ author?.last_name ?? '' }}</h1>
         </div>
