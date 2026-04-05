@@ -152,6 +152,7 @@ if (contentId > 0) {
             return resp.json()
         })
         .then((response: RespondObj) => {
+            addTextNode()
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
@@ -204,6 +205,7 @@ function selectContent() {
 
                 if (!content.value.nodes) {
                     content.value.nodes = []
+                    addTextNode()
                 }
 
                 contentOriginal.value = cloneDeep(content.value)
