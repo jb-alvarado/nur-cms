@@ -719,10 +719,11 @@ fn resolve_source_path(
     }
 
     // If it's under PUBLIC_UPLOADS, interpret relative to STORAGE
-    if t.starts_with(PUBLIC_UPLOADS) {
-        let rel = t.trim_start_matches(PUBLIC_UPLOADS).trim_start_matches('/');
-        return PathBuf::from(STORAGE.as_str()).join(rel);
-    }
+    // This have side effects and need evaluation
+    // if t.starts_with(PUBLIC_UPLOADS) {
+    //     let rel = t.trim_start_matches(PUBLIC_UPLOADS).trim_start_matches('/');
+    //     return PathBuf::from(STORAGE.as_str()).join(rel);
+    // }
 
     let thumb = thumbnail_path
         .trim_start_matches('/')
