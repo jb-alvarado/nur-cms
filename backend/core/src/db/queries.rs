@@ -33,16 +33,16 @@ pub struct QueryObj<T> {
     #[serde(default = "default_ordering", deserialize_with = "generic_ordering")]
     pub ordering: String,
 
-    #[serde(default, rename = "type")]
+    #[serde(default, alias = "type")]
     pub type_slug: Option<String>,
 
-    #[serde(default, rename = "tag")]
+    #[serde(default, alias = "tag")]
     pub tag_slug: Option<String>,
 
-    #[serde(default, rename = "author")]
+    #[serde(default, alias = "author")]
     pub author_slug: Option<String>,
 
-    #[serde(default, rename = "category")]
+    #[serde(default, alias = "category")]
     pub category_slug: Option<String>,
 
     #[serde(default)]
