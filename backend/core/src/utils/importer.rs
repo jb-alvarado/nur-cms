@@ -71,7 +71,13 @@ struct Frontmatter {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
+    slug: Option<String>,
+    #[serde(default)]
     date: Option<String>,
+    #[serde(default, alias = "createdAt")]
+    created_at: Option<String>,
+    #[serde(default, alias = "updatedAt")]
+    updated_at: Option<String>,
     #[serde(default)]
     draft: Option<bool>,
     #[serde(default)]
@@ -291,15 +297,24 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     )
     .await?;
 
+    let mut updated_at = created_at;
+
     let ast = markdown::to_mdast(&body, &markdown::ParseOptions::default())?;
 
     let (title, slug, status) = if let Some(ref fm) = frontmatter {
         let title = fm.title.clone().unwrap_or_else(|| fallback_title.clone());
-        let slug = fm
-            .url
-            .as_ref()
-            .map(|u| extract_slug(u))
-            .unwrap_or_else(|| slugify(&title));
+        let slug = match &fm.slug {
+            Some(sl) => sl.clone(),
+            None => fm
+                .url
+                .as_ref()
+                .map(|u| extract_slug(u))
+                .unwrap_or_else(|| slugify(&title)),
+        };
+
+        if let Some(u) = &fm.updated_at {
+            updated_at = u.parse::<DateTime<Utc>>().unwrap_or(updated_at);
+        }
         let status = if fm.draft.unwrap_or(false) {
             "draft"
         } else {
@@ -329,6 +344,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
             .created_by
             .ok_or(NurError::BadRequest("Missing created_by".into()))?,
         created_at: Some(created_at),
+        updated_at: Some(updated_at),
         ..Default::default()
     };
 
@@ -452,11 +468,18 @@ async fn extract_body_and_title(
                     }
                 }
 
-                created_at = frontmatter
+                created_at = match frontmatter
                     .as_ref()
-                    .and_then(|f| f.date.as_ref())
-                    .and_then(|d| d.parse::<DateTime<Utc>>().ok())
-                    .unwrap_or(Utc::now());
+                    .and_then(|f| f.created_at.as_ref())
+                    .and_then(|c| c.parse::<DateTime<Utc>>().ok())
+                {
+                    Some(created_at) => created_at,
+                    None => frontmatter
+                        .as_ref()
+                        .and_then(|f| f.date.as_ref())
+                        .and_then(|d| d.parse::<DateTime<Utc>>().ok())
+                        .unwrap_or(Utc::now()),
+                };
 
                 frontmatter_raw.clear();
                 frontmatter_parsed = true;
