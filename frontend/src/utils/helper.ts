@@ -49,3 +49,25 @@ export function mediaPath(media: Media): string {
     }
     return `${media.path}/${media.filename}`
 }
+
+export function iconFrom(type: string | null | undefined): string {
+    const t = (type || '').toLowerCase()
+    switch (true) {
+        case t.includes('zip'):
+            return 'bi-file-earmark-zip'
+        case t.includes('pdf'):
+            return 'bi-file-earmark-pdf'
+        case t.includes('audio'):
+            return 'bi-file-earmark-music'
+        case t.includes('video'):
+            return 'bi-file-earmark-play'
+        case t.includes('text'):
+            return 'bi-file-earmark-text'
+        case t.includes('powerpoint'):
+            return 'bi-file-earmark-ppt'
+        case t.includes('word'):
+            return 'bi-file-earmark-word'
+        default:
+            return 'bi-file-earmark'
+    }
+}

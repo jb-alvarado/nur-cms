@@ -4,7 +4,7 @@ import dayjs from 'dayjs'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
-import { formatBytes, shortID, mediaPath } from '@/utils/helper'
+import { formatBytes, shortID, mediaPath, iconFrom } from '@/utils/helper'
 
 import FileUpload from '@/components/media/FileUpload.vue'
 import GenericModal from '@/components/generic/GenericModal.vue'
@@ -124,28 +124,6 @@ async function contentMedia() {
 
 function onPageChange(/*payload: any*/) {
     selectMedia()
-}
-
-function iconFrom(type: string | null | undefined) {
-    const t = (type || '').toLowerCase()
-    switch (true) {
-        case t.includes('zip'):
-            return 'bi-file-earmark-zip'
-        case t.includes('pdf'):
-            return 'bi-file-earmark-pdf'
-        case t.includes('audio'):
-            return 'bi-file-earmark-music'
-        case t.includes('video'):
-            return 'bi-file-earmark-play'
-        case t.includes('text'):
-            return 'bi-file-earmark-text'
-        case t.includes('powerpoint'):
-            return 'bi-file-earmark-ppt'
-        case t.includes('word'):
-            return 'bi-file-earmark-word'
-        default:
-            return 'bi-file-earmark'
-    }
 }
 
 function extension(input: string | null | undefined) {

@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
-import { formatBytes, mediaPath } from '@/utils/helper'
+import { formatBytes, mediaPath, iconFrom } from '@/utils/helper'
 
 import GenericPagination from '@/components/generic/GenericPagination.vue'
 
@@ -136,10 +136,12 @@ async function selectMedia(u: string | null = null) {
                     >
                         <figure class="relative bg-checker h-39">
                             <img
+                                v-if="media.type?.includes('image/')"
                                 :src="mediaPath(media)"
                                 :alt="media.alt ?? media.filename ?? ''"
                                 class="w-full h-full object-contain rounded-t"
                             />
+                            <i v-else class="bi text-8xl" :class="iconFrom(media.type)"></i>
                             <span
                                 class="bg-black/60 text-white/80 hyphens-auto rounded-xs font-bold absolute z-2 left-0 bottom-0 px-1.5 py-0.5 me-1 break-all"
                             >
