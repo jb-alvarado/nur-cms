@@ -830,7 +830,11 @@ pub async fn select_content_entries(
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(query.sql()));
 
-    let data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
+    let mut data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
+
+    if query_obj.search_slug.is_some() && data.len() == 1 {
+        data[0].total_count = Some(1);
+    }
 
     #[cfg(debug_assertions)]
     debug!(
