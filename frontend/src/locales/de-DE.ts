@@ -47,6 +47,9 @@ export default {
         data: 'Block',
         newBlock: 'Neuer Block',
         removeBlock: 'Block entfernen',
+        pasteStructure: 'Struktur einfügen',
+        pasteStructureHint: 'Struktur mit Strg/Ctrl + V einfügen',
+        copyStructureToClipboard: 'Struktur in die Zwischenablage kopieren',
         name: 'Name',
         fields: 'Felder',
     },
@@ -140,7 +143,7 @@ export default {
         tableCell2: 'Zelle 2',
     },
     app: {
-        title: 'NUR CMS',
+        title: 'Projekt7 CMS',
     },
     media: {
         alt: 'Alt',

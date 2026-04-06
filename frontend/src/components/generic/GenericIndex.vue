@@ -61,6 +61,7 @@ const eventRows = computed(() => [
     { active: true, up: false, name: t('table.startTime'), field: 'start_time' },
     { active: false, up: false, name: t('table.endTime'), field: 'end_time' },
     { active: false, up: false, name: t('table.language'), field: 'locale_id' },
+    { active: false, up: false, name: t('table.groupId'), field: 'group_id' },
 ])
 
 const defaultEntryRows = computed(() => [

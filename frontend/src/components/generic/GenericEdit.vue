@@ -3,6 +3,7 @@ import { ref, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { useClipboard } from '@vueuse/core'
 import { cloneDeep } from 'es-toolkit/object'
 import { isEqual } from 'es-toolkit/predicate'
 import Multiselect from 'vue-multiselect'
@@ -60,7 +61,7 @@ const dropValue = computed({
 
                 currentNodeIndex.value = -1
             } else {
-                addDataNode({name: null,  media: null, data: json })
+                addDataNode({ name: null, media: null, data: json })
             }
 
             dropValueRaw.value = ''
@@ -69,6 +70,17 @@ const dropValue = computed({
         }
     },
 })
+
+function handleEmptyStatePaste(event: ClipboardEvent) {
+    const pasted = event.clipboardData?.getData('text')
+    if (!pasted) return
+
+    event.preventDefault()
+
+    const json = JSON.parse(pasted)
+    content.value.nodes = json
+}
+
 const content = ref({
     id: 0,
     group_id: groupID,
@@ -83,6 +95,12 @@ const content = ref({
     meta: {},
 } as Content)
 const contentOriginal = ref(cloneDeep(content))
+
+const { copy, copied, isSupported } = useClipboard()
+
+function copyStructure() {
+    copy(JSON.stringify(content.value.nodes))
+}
 
 contentOriginal.value.group_id = 0
 const media = ref<Media | null>(null)
@@ -367,7 +385,7 @@ function sortBlocks(index: number) {
     }
 }
 
-function addDataNode(item: { name: null | string, media: null | Media; data: Record<string, any> }) {
+function addDataNode(item: { name: null | string; media: null | Media; data: Record<string, any> }) {
     if (!content.value.nodes) {
         content.value.nodes = []
     }
@@ -921,114 +939,146 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                 <!-- Nodes -->
 
-                <template v-for="(node, i) in content.nodes" :key="i">
-                    <TextEditor
-                        v-if="!('blocks' in node) && !('data' in node)"
-                        v-model="node.text"
-                        class="min-h-60"
-                        :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
-                    />
-                    <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
-                        <div class="w-10">
-                            <img
-                                v-if="node.media"
-                                :src="mediaPath(node.media!)"
-                                :alt="node.media?.alt ?? undefined"
-                                class="object-cover w-10 h-10 cursor-pointer"
-                                @click="openNodeMediaBrowser(i)"
-                            />
-                            <div
-                                v-else
-                                class="bg-base-content/30 w-full h-10 cursor-pointer"
-                                @click="openNodeMediaBrowser(i)"
-                            ></div>
+                <template v-if="content.nodes && content.nodes.length > 0">
+                    <template v-for="(node, i) in content.nodes" :key="i">
+                        <TextEditor
+                            v-if="!('blocks' in node) && !('data' in node)"
+                            v-model="node.text"
+                            class="min-h-60"
+                            :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
+                        />
+                        <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
+                            <div class="w-10">
+                                <img
+                                    v-if="node.media"
+                                    :src="mediaPath(node.media!)"
+                                    :alt="node.media?.alt ?? undefined"
+                                    class="object-cover w-10 h-10 cursor-pointer"
+                                    @click="openNodeMediaBrowser(i)"
+                                />
+                                <div
+                                    v-else
+                                    class="bg-base-content/30 w-full h-10 cursor-pointer"
+                                    @click="openNodeMediaBrowser(i)"
+                                ></div>
+                            </div>
+                            <GenericBlock v-model:block="node.data" class="grow" />
+                            <button class="btn leading-0 w-10" @click="deleteNode(i)">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
                         </div>
-                        <GenericBlock v-model:block="node.data" class="grow" />
-                        <button class="btn leading-0 w-10" @click="deleteNode(i)">
-                            <i class="bi bi-x-lg"></i>
-                        </button>
-                    </div>
-                    <div v-else-if="'blocks' in node">
-                        <div class="flex mt-4 items-center">
-                            <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
-                            <div class="grow flex justify-end">
-                                <div class="join">
-                                    <button
-                                        class="btn btn-sm"
-                                        :title="$t('common.newBlock')"
-                                        @click="openBlockModal(i)"
-                                    >
-                                        <i class="bi bi-plus-lg scale-130"></i>
-                                    </button>
-                                    <button class="btn btn-sm" :title="$t('common.removeBlock')" @click="deleteNode(i)">
+                        <div v-else-if="'blocks' in node">
+                            <div class="flex mt-4 items-center">
+                                <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
+                                <div class="grow flex justify-end">
+                                    <div class="join">
+                                        <button
+                                            class="btn btn-sm"
+                                            :title="$t('common.newBlock')"
+                                            @click="openBlockModal(i)"
+                                        >
+                                            <i class="bi bi-plus-lg scale-130"></i>
+                                        </button>
+                                        <button
+                                            class="btn btn-sm"
+                                            :title="$t('common.removeBlock')"
+                                            @click="deleteNode(i)"
+                                        >
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="node.blocks.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
+                                <input
+                                    v-model="dropValue"
+                                    class="w-full h-full focus:outline-0 text-base-content/10 cursor-default"
+                                    @focus="currentNodeIndex = i"
+                                />
+                            </div>
+                            <div v-else class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
+                                <div
+                                    v-for="(block, bi) in node.blocks"
+                                    :key="block.id ?? bi"
+                                    class="bg-base-200 rounded p-2 flex gap-1"
+                                >
+                                    <div class="w-10">
+                                        <img
+                                            v-if="block.media"
+                                            :src="mediaPath(block.media!)"
+                                            :alt="block.media?.alt ?? undefined"
+                                            class="object-cover w-10 h-10 cursor-pointer"
+                                            @click="openBlockMediaBrowser(i, bi)"
+                                        />
+                                        <div
+                                            v-else
+                                            class="bg-base-content/30 w-full h-10 cursor-pointer"
+                                            @click="openBlockMediaBrowser(i, bi)"
+                                        ></div>
+                                    </div>
+                                    <GenericBlock v-model:block="block.data" class="grow" />
+                                    <input
+                                        v-model="block.order_index"
+                                        type="number"
+                                        class="input w-15"
+                                        @change="sortBlocks(i)"
+                                    />
+                                    <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
                                         <i class="bi bi-x-lg"></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
-                        <div v-if="node.blocks.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
-                            <input
-                                v-model="dropValue"
-                                class="w-full h-full focus:outline-0 text-base-content/10 cursor-default"
-                                @focus="currentNodeIndex = i"
-                            />
-                        </div>
-                        <div v-else class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
-                            <div
-                                v-for="(block, bi) in node.blocks"
-                                :key="block.id ?? bi"
-                                class="bg-base-200 rounded p-2 flex gap-1"
-                            >
-                                <div class="w-10">
-                                    <img
-                                        v-if="block.media"
-                                        :src="mediaPath(block.media!)"
-                                        :alt="block.media?.alt ?? undefined"
-                                        class="object-cover w-10 h-10 cursor-pointer"
-                                        @click="openBlockMediaBrowser(i, bi)"
-                                    />
-                                    <div
-                                        v-else
-                                        class="bg-base-content/30 w-full h-10 cursor-pointer"
-                                        @click="openBlockMediaBrowser(i, bi)"
-                                    ></div>
-                                </div>
-                                <GenericBlock v-model:block="block.data" class="grow" />
-                                <input
-                                    v-model="block.order_index"
-                                    type="number"
-                                    class="input w-15"
-                                    @change="sortBlocks(i)"
-                                />
-                                <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
-                                    <i class="bi bi-x-lg"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    </template>
                 </template>
+                <div v-else class="w-full h-54 pt-4">
+                    <div
+                        class="bg-base-200 w-full h-full rounded flex flex-col justify-center items-center gap-2 text-base-content/60"
+                        tabindex="0"
+                        @paste="handleEmptyStatePaste"
+                    >
+                        <i class="bi bi-upload text-9xl text-base-100"></i>
+                        <p class="text-sm text-base-content/30">{{ $t('common.pasteStructureHint') }}</p>
+                    </div>
+                </div>
 
                 <div v-if="templateCount > 0" class="flex justify-center mt-2">
-                    <div class="join">
-                        <button
-                            class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
-                            @click="addTextNode()"
-                        >
-                            {{ $t('common.text') }}
-                        </button>
-                        <button
-                            class="btn btn-sm btn-outline border-base-content/30 join-item"
-                            @click="openBlockModal(-1)"
-                        >
-                            {{ $t('common.data') }}
-                        </button>
-                        <button
-                            class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
-                            @click="addBlocksNode()"
-                        >
-                            {{ $t('common.blocks') }}
-                        </button>
+                    <div class="grow flex justify-center">
+                        <div class="join">
+                            <button
+                                class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
+                                @click="addTextNode()"
+                            >
+                                {{ $t('common.text') }}
+                            </button>
+                            <button
+                                class="btn btn-sm btn-outline border-base-content/30 join-item"
+                                @click="openBlockModal(-1)"
+                            >
+                                {{ $t('common.data') }}
+                            </button>
+                            <button
+                                class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
+                                @click="addBlocksNode()"
+                            >
+                                {{ $t('common.blocks') }}
+                            </button>
+                        </div>
                     </div>
+
+                    <template v-if="isSupported">
+                        <button v-if="copied" class="btn btn-sm btn-disabled">
+                            <i class="bi bi-clipboard-check"></i>
+                        </button>
+                        <button
+                            v-else
+                            class="btn btn-sm"
+                            :title="$t('common.copyStructureToClipboard')"
+                            @click="copyStructure"
+                        >
+                            <i class="bi bi-copy"></i>
+                        </button>
+                    </template>
                 </div>
 
                 <div ref="editorEndRef"></div>

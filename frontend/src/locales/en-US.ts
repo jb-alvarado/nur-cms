@@ -46,6 +46,9 @@ export default {
         data: 'Block',
         newBlock: 'New Block',
         removeBlock: 'Remove Block',
+        pasteStructure: 'Paste Structure',
+        pasteStructureHint: 'Paste structure with Ctrl + V',
+        copyStructureToClipboard: 'Copy structure to clipboard',
         name: 'Name',
         fields: 'Fields',
     },
@@ -139,7 +142,7 @@ export default {
         tableCell2: 'Cell 2',
     },
     app: {
-        title: 'NUR CMS',
+        title: 'Projekt7 CMS',
     },
     media: {
         upload: 'Upload',
