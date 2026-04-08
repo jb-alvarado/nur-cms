@@ -62,7 +62,7 @@ useHead({
     <div class="relative w-full h-full">
         <div class="w-full h-full flex items-center justify-center">
             <div class="text-center opacity-30">
-                <img src="/logo.svg" class="w-96 min-w-40" alt="Logo" />
+                <div id="homeLogo" class="w-96 min-w-52 h-96 min-h-52" />
                 <h1 class="font-bold text-5xl mt-5">NUR CMS</h1>
             </div>
         </div>
