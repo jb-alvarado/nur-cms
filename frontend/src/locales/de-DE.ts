@@ -143,7 +143,7 @@ export default {
         tableCell2: 'Zelle 2',
     },
     app: {
-        title: 'Projekt7 CMS',
+        title: __FRONTEND_NAME__,
     },
     media: {
         alt: 'Alt',

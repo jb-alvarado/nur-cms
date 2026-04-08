@@ -15,6 +15,7 @@ dayjs.extend(localizedFormat)
 const { t, locale } = useI18n()
 const store = useIndex()
 const auth = useAuth()
+const frontendName = __FRONTEND_NAME__
 
 const lastUsers = ref<AuthUser[]>([])
 
@@ -63,7 +64,7 @@ useHead({
         <div class="w-full h-full flex items-center justify-center">
             <div class="text-center opacity-30">
                 <div id="homeLogo" class="w-96 min-w-52 h-96 min-h-52" />
-                <h1 class="font-bold text-5xl mt-5">NUR CMS</h1>
+                <h1 class="font-bold text-5xl mt-5">{{ frontendName }}</h1>
             </div>
         </div>
         <div v-if="lastUsers.length > 0" class="absolute bg-base-200 z-10 top-5 right-2 p-3 rounded-md">

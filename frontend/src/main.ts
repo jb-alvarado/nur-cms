@@ -8,17 +8,20 @@ import i18nInstance from './i18n.ts'
 import App from './App.vue'
 import router from './router'
 
+const frontendName = __FRONTEND_NAME__
 const app = createApp(App)
 
 const head = createHead({
     init: [
         {
-            title: 'NUR CMS',
-            titleTemplate: '%s | NUR CMS',
+            title: frontendName,
+            titleTemplate: `%s | ${frontendName}`,
             htmlAttrs: { lang: 'en' },
         },
     ],
 })
+
+document.title = frontendName
 
 app.use(i18nInstance)
 app.use(head)

@@ -142,7 +142,7 @@ export default {
         tableCell2: 'Cell 2',
     },
     app: {
-        title: 'Projekt7 CMS',
+        title: __FRONTEND_NAME__,
     },
     media: {
         upload: 'Upload',
