@@ -101,7 +101,7 @@ const router = createRouter({
     ],
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, from) => {
     const auth = useAuth()
     const store = useIndex()
     await auth.inspectToken()
@@ -120,9 +120,9 @@ router.beforeEach(async (to, from, next) => {
     const targetName = to.name?.toString() ?? ''
 
     if (!auth.isLogin && !publicRoutes.has(targetName)) {
-        next('/')
+        return '/'
     } else {
-        next()
+        return
     }
 })
 
