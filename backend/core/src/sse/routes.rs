@@ -38,7 +38,12 @@ pub async fn generate_uuid(
     details: AuthDetails<Role>,
     State(data): State<SseAuthState>,
 ) -> Result<Json<User>, NurError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+    if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User])
+        || details
+            .authorities
+            .iter()
+            .any(|role| matches!(role, Role::Custom(_)))
+    {
         let mut uuids = data.uuids.lock().await;
         let ip_address = real_ip.ip().to_string();
         let user_id = if user_meta.id > 0 {
