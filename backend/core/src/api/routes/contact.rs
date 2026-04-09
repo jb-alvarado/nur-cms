@@ -13,6 +13,7 @@ use tracing::error;
 use ts_rs::TS;
 
 use crate::{
+    api::request::ApiJson,
     db::{
         fields::{MailTargetFields, Table},
         handles,
@@ -29,6 +30,7 @@ use crate::{
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
 pub struct Contact {
     pub email: String,
+    pub subject: Option<String>,
     pub name: String,
     pub text: String,
 }
@@ -122,7 +124,7 @@ pub async fn mailer(
     real_ip: RealIp,
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(target): Path<String>,
-    Json(contact): Json<Contact>,
+    ApiJson(contact): ApiJson<Contact>,
 ) -> Result<(), NurError> {
     let norm_email = validate_email_address(contact.email).await?;
     let result = evaluate_text(&contact.text, None);
@@ -143,7 +145,7 @@ pub async fn mailer(
             "Name: {}\nMail: {}\n------------------------------------\n\n{}",
             contact.name, norm_email, contact.text
         );
-        let msg = Msg::new(norm_email, contact.name, None, text, target);
+        let msg = Msg::new(norm_email, contact.name, contact.subject, text, target);
 
         message(msg).await?;
 
