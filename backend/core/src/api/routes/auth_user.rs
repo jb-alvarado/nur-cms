@@ -52,7 +52,14 @@ pub async fn auth_user_select(
 ) -> Result<Json<RespondObj<AuthUserSerializer>>, NurError> {
     params.path = original_uri.path().into();
 
-    if details.has_any_authority(&[&Role::Author]) {
+    if details.has_any_authority(&[&Role::Admin]) {
+        params.query = original_uri.query().unwrap_or("").into();
+    } else if details.has_any_authority(&[&Role::Author, &Role::User])
+        || details
+            .authorities
+            .iter()
+            .any(|role| matches!(role, Role::Custom(_)))
+    {
         params.fields = vec![
             AuthUserFields::Email,
             AuthUserFields::FirstName,
@@ -60,8 +67,6 @@ pub async fn auth_user_select(
             AuthUserFields::Username,
         ];
         params.query = format!("id={}", user.id);
-    } else if details.has_any_authority(&[&Role::Admin]) {
-        params.query = original_uri.query().unwrap_or("").into();
     } else {
         return Err(NurError::Forbidden(
             "You do not have permission to access this resource.".into(),

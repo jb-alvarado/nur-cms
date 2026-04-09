@@ -12,7 +12,7 @@ use crate::db::{
 };
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", from = "String", into = "String")]
 pub enum Role {
     Admin,
     Author,
@@ -20,6 +20,12 @@ pub enum Role {
     #[default]
     Guest,
     Custom(String),
+}
+
+impl From<Role> for String {
+    fn from(value: Role) -> Self {
+        value.to_string()
+    }
 }
 
 impl Role {
