@@ -173,12 +173,13 @@ pub async fn login(
                     });
 
                     let text = mail_body(&verification_code);
+                    let app_name = std::env::var("FRONTEND_NAME").unwrap_or("NUR CMS".to_string());
 
                     let target = MailTarget::new(email, true);
                     let msg = Msg::new(
                         config.mail_user.unwrap(),
-                        "NUR CMS".to_string(),
-                        Some(format!("Your NUR CMS code is: {verification_code}")),
+                        app_name.clone(),
+                        Some(format!("Your {app_name} code is: {verification_code}")),
                         text,
                         target,
                     );
