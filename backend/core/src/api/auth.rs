@@ -172,8 +172,8 @@ pub async fn login(
                         info!("Verification code for {username_cleanup} expired and removed");
                     });
 
-                    let text = mail_body(&verification_code);
                     let app_name = std::env::var("FRONTEND_NAME").unwrap_or("NUR CMS".to_string());
+                    let text = mail_body(&verification_code, &app_name);
 
                     let target = MailTarget::new(email, true);
                     let msg = Msg::new(
@@ -409,7 +409,7 @@ pub async fn refresh(
     }
 }
 
-fn mail_body(verification_code: &str) -> String {
+fn mail_body(verification_code: &str, add_name: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
     <html lang="en">
@@ -421,11 +421,11 @@ fn mail_body(verification_code: &str) -> String {
         <div style="padding: 2px 15px;">
             <div>
                 <h2>Your verification code</h2>
-                <p>Enter this code in the <b>NUR CMS</b> verification step to finish signing in:</p>
+                <p>Enter this code in the <b>{add_name}</b> verification step to finish signing in:</p>
                 <p style="padding: 5px; font-size: 20px; font-weight: bold;">{verification_code}</p>
                 <p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p>
                 <div>
-                    This message was sent automatically by <b>NUR CMS</b>.
+                    This message was sent automatically by <b>{add_name}</b>.
                 </div>
             </div>
         </div>
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn mail_body_includes_code_and_branding() {
         let code = "1234567";
-        let body = mail_body(code);
+        let body = mail_body(code, "NUR CMS");
 
         assert!(body.contains(code));
         assert!(body.contains("NUR CMS"));
@@ -496,7 +496,7 @@ mod tests {
         let codes = vec!["1234567", "9999999", "0000000"];
 
         for code in codes {
-            let body = mail_body(code);
+            let body = mail_body(code, "NUR CMS");
             assert!(body.contains(code), "Code {} should be in mail body", code);
         }
     }

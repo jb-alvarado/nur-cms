@@ -24,6 +24,11 @@ fn map_method(m: Method) -> HttpMethod {
     }
 }
 
+/// Applies request rate limiting based on client IP, path and HTTP method.
+///
+/// Authenticated users with a positive id bypass this check. Unauthenticated
+/// requests are allowed only if `lazy_limit` permits the request; otherwise a
+/// `TooManyRequests` error is returned.
 pub async fn rate_limit(req: Request<Body>, next: Next) -> Result<Response<Body>, NurError> {
     let ip_ext = match req.extensions().get::<RealIp>() {
         Some(ip) => ip,

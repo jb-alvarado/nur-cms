@@ -48,7 +48,7 @@ pub enum NurError {
     ServiceUnavailable(String),
 
     // 429 Too Many Requests
-    #[display("InvalidInput")]
+    #[display("ToManyRequests")]
     ToManyRequests,
 
     // 422 Unprocessable Entity
