@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
 import { useIndex } from '@/stores/index'
 
-const route = useRoute()
 const store = useIndex()
 
 defineProps({
@@ -24,7 +22,7 @@ defineProps({
                     (r) =>
                         r.field !== 'locale_id' &&
                         r.field !== 'group_id' &&
-                        (route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                        (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
                 )"
                 :key="row.field"
             >
@@ -33,7 +31,7 @@ defineProps({
                         v-model="row.check"
                         type="checkbox"
                         class="checkbox checkbox-sm"
-                        @change="store.activeFields"
+                        @change="store.activeFields()"
                         :disabled="row.field === 'id'"
                     />
                     {{ row.name }}

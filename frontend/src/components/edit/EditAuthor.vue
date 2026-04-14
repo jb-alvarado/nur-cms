@@ -19,6 +19,7 @@ const auth = useAuth()
 const store = useIndex()
 const route = useRoute()
 const router = useRouter()
+
 const deleteModal = ref()
 const mediaModal = ref()
 const authorId = Number(route.params.id ?? 0)
@@ -34,10 +35,6 @@ const authorOriginal = ref(cloneDeep(author))
 const imageFile = ref()
 const media = ref<Media>()
 const needsSave = computed(() => !isEqual(author.value, authorOriginal.value))
-
-store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? String(route.name)
-const matchedType = store.types.find((type) => type.slug === store.routeType)?.id
-store.typeID = matchedType ?? 1
 
 if (authorId > 0) {
     getAuthor()
@@ -133,7 +130,6 @@ function removeMedia() {
     media.value = undefined
 }
 
-
 function contentDelete() {
     if (authorId > 0) {
         fetch(`/api/content/authors/${authorId}`, {
@@ -162,7 +158,7 @@ async function save() {
     const payload = Object.fromEntries(
         Object.entries(author.value).filter(([key, value]) => {
             return !isEqual(value, authorOriginal.value[key as keyof ContentAuthor])
-        })
+        }),
     )
 
     if (Object.keys(payload).length === 0) {
@@ -187,7 +183,7 @@ async function save() {
 
             if (authorId === 0) {
                 await store.selectAuthors()
-                router.push(`/author/${await resp.text()}`)
+                router.push('/author')
             }
         })
         .catch((e) => {
@@ -205,8 +201,11 @@ function addMedia(m: Media) {
 
 <template>
     <div class="flex flex-col h-full pb-6">
-        <div class="flex-none">
-            <h1 class="text-2xl h-8">{{ author?.first_name ?? '' }} {{ author?.last_name ?? '' }}</h1>
+        <div class="flex">
+            <h1 class="grow text-2xl h-8">{{ author?.first_name ?? '' }} {{ author?.last_name ?? '' }}</h1>
+            <button class="btn btn-sm text-base" @click="router.back()">
+                <i class="bi bi-chevron-left" />
+            </button>
         </div>
 
         <!-- Form + Editor Container -->
@@ -246,12 +245,16 @@ function addMedia(m: Media) {
                 </div>
 
                 <div class="join md:mt-7">
-                    <button class="btn text-warning join-item" @click="openDeleteModal()">{{ $t('common.delete') }}</button>
-                    <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">{{ $t('user.save') }}</button>
+                    <button class="btn text-warning join-item" @click="openDeleteModal()">
+                        {{ $t('common.delete') }}
+                    </button>
+                    <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
+                        {{ $t('user.save') }}
+                    </button>
                 </div>
             </div>
 
-             <div class="w-64 flex gap-1">
+            <div class="w-64 flex gap-1">
                 <div
                     class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
                 >

@@ -27,12 +27,8 @@ const auth = useAuth()
 const store = useIndex()
 
 const rootPath = route.path.replace(/\/[0-9/]+$/g, '')
-
 const contentId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
-store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? String(route.name)
-const matchedType = store.types.find((type) => type.slug === store.routeType)?.id
-store.typeID = matchedType ?? 1
 
 const deleteModal = ref()
 const mediaModal = ref()
@@ -156,7 +152,7 @@ if (contentId > 0) {
     selectContent()
 } else if (groupID > 0) {
     fetch(
-        `/api/content/entries?type_id=${store.typeID}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
+        `/api/content/entries?type_slug=${store.routeType}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
         {
             headers: auth.authHeader,
         },
@@ -195,7 +191,7 @@ selectCategories()
 selectTags()
 
 function selectContent() {
-    fetch(`/api/content/entries?type_id=${store.typeID}&id=${contentId}&output_type=markdown`, {
+    fetch(`/api/content/entries?type_slug=${store.routeType}&id=${contentId}&output_type=markdown`, {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -525,7 +521,7 @@ async function save() {
                 ...newAuthors.map((author) => insertEntryAuthor(contentId, author.id!)),
             ])
         } else {
-            payload.type_id = store.typeID
+            payload.type_id = store.types.find((t) => t.slug === store.routeType)?.id
         }
 
         // Save entry if there are payload changes
@@ -749,353 +745,375 @@ async function insertEntryAuthor(entry: number, author: number) {
 </script>
 
 <template>
-    <div class="flex gap-2 h-full">
-        <div class="flex flex-col h-full pb-6">
-            <div class="flex-none">
-                <h1 class="text-2xl h-8">{{ content?.title ?? '' }}</h1>
-            </div>
+    <div class="flex flex-col h-full pb-6">
+        <div class="flex">
+            <h1 class="grow text-2xl h-8">{{ content?.title ?? '' }}</h1>
+            <button class="btn btn-sm text-base" @click="router.back()">
+                <i class="bi bi-chevron-left" />
+            </button>
+        </div>
 
-            <!-- Form + Editor Container -->
-            <div
-                v-if="content"
-                class="flex flex-col flex-1 max-w-5xl bg-base-300 px-4 pt-1 mt-4 rounded"
-                :class="templateCount > 0 ? 'pb-2' : 'pb-4'"
-            >
-                <!-- Form inputs -->
-                <div class="flex flex-wrap-reverse gap-4">
-                    <div class="grow flex flex-col md:flex-row gap-2">
-                        <fieldset class="fieldset w-64">
-                            <legend class="fieldset-legend">{{ $t('table.title') }}</legend>
-                            <input
-                                v-model="content.title"
-                                type="text"
-                                class="input"
-                                name="title"
-                                :placeholder="$t('table.title')"
-                                @input="updateSlug()"
-                            />
-                        </fieldset>
-
-                        <fieldset class="fieldset w-64">
-                            <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
-                            <input v-model="content.slug" type="text" class="input" :placeholder="$t('article.slug')" />
-                        </fieldset>
-                    </div>
-
-                    <div class="mt-3 md:mt-8 flex gap-2 flex-none">
-                        <div class="join">
-                            <details v-if="content.id === 0" class="dropdown">
-                                <summary class="btn join-item" @blur="closeDropdown">
-                                    {{
-                                        store.locales.find((l) => l.id === content.locale_id)?.name ||
-                                        $t('common.language')
-                                    }}
-                                </summary>
-                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
-                                    <li v-for="l in locales" :key="l.id">
-                                        <a @click="content.locale_id = l.id">{{ l.name }}</a>
-                                    </li>
-                                </ul>
-                            </details>
-
-                            <details v-if="(content.id ?? 0) > 0" class="dropdown">
-                                <summary class="btn join-item" @blur="closeDropdown">
-                                    {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
-                                </summary>
-                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
-                                    <li v-for="l in locales" :key="l.id">
-                                        <RouterLink :to="memberLink(l.id!)">{{ l.name }}</RouterLink>
-                                    </li>
-                                </ul>
-                            </details>
-
-                            <RouterLink
-                                :to="`${rootPath}/0/${content.group_id}`"
-                                class="btn join-item px-2"
-                                :title="$t('common.addLanguage')"
-                            >
-                                <i class="bi bi-plus-lg"></i>
-                            </RouterLink>
-
-                            <details class="dropdown">
-                                <summary
-                                    class="btn join-item"
-                                    :class="{
-                                        'text-success': content.status === 'published',
-                                        'text-base-content/50': content.status === 'archived',
-                                    }"
-                                    @blur="closeDropdown"
-                                >
-                                    {{ content.status }}
-                                </summary>
-                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-2 shadow-sm">
-                                    <li
-                                        v-for="s in status"
-                                        :key="s"
-                                        :class="{
-                                            'text-base-content/50': content.status !== s,
-                                        }"
-                                    >
-                                        <a @click="content.status = s">{{ s }}</a>
-                                    </li>
-                                </ul>
-                            </details>
-                        </div>
-
-                        <div class="join">
-                            <button class="btn text-warning join-item" @click="openDeleteModal()">
-                                {{ $t('common.delete') }}
-                            </button>
-                            <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
-                                {{ $t('user.save') }}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex flex-col md:flex-row gap-2 mt-2">
-                    <div class="w-64 flex gap-1">
-                        <div
-                            class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
-                        >
-                            <img
-                                v-if="media"
-                                :src="mediaPath(media)"
-                                :alt="media?.alt ?? $t('button.media')"
-                                class="w-full h-full object-contain"
-                            />
-                        </div>
-                        <div class="join join-vertical">
-                            <button class="btn p-2 join-item" @click="openMediaBrowser()">
-                                <i class="bi bi-card-image text-xl"></i>
-                            </button>
-                            <button class="btn p-2 join-item" @click="removeMedia()">
-                                <i class="bi bi-trash text-xl"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="grow flex flex-col gap-2">
-                        <div class="flex flex-wrap w-full gap-2">
-                            <fieldset class="fieldset py-0 grow min-w-64">
-                                <legend class="fieldset-legend pt-0">{{ $t('article.authors') }}</legend>
-                                <Multiselect
-                                    v-model="selectedAuthorsFormatted"
-                                    track-by="id"
-                                    label="displayName"
-                                    :placeholder="$t('article.selectAuthor')"
-                                    :options="authorsFormatted"
-                                    aria-label="pick a author"
-                                    :multiple="true"
-                                >
-                                </Multiselect>
+        <div class="flex gap-2 h-full">
+            <div class="flex flex-col h-full pb-6">
+                <!-- Form + Editor Container -->
+                <div
+                    v-if="content"
+                    class="flex flex-col flex-1 max-w-5xl bg-base-300 px-4 pt-1 mt-4 rounded"
+                    :class="templateCount > 0 ? 'pb-2' : 'pb-4'"
+                >
+                    <!-- Form inputs -->
+                    <div class="flex flex-wrap-reverse gap-4">
+                        <div class="grow flex flex-col md:flex-row gap-2">
+                            <fieldset class="fieldset w-64">
+                                <legend class="fieldset-legend">{{ $t('table.title') }}</legend>
+                                <input
+                                    v-model="content.title"
+                                    type="text"
+                                    class="input"
+                                    name="title"
+                                    :placeholder="$t('table.title')"
+                                    @input="updateSlug()"
+                                />
                             </fieldset>
-                            <fieldset class="fieldset py-0 grow min-w-46">
-                                <legend class="fieldset-legend pt-0">{{ $t('article.category') }}</legend>
+
+                            <fieldset class="fieldset w-64">
+                                <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
+                                <input
+                                    v-model="content.slug"
+                                    type="text"
+                                    class="input"
+                                    :placeholder="$t('article.slug')"
+                                />
+                            </fieldset>
+                        </div>
+
+                        <div class="mt-3 md:mt-8 flex gap-2 flex-none">
+                            <div class="join">
+                                <details v-if="content.id === 0" class="dropdown">
+                                    <summary class="btn join-item" @blur="closeDropdown">
+                                        {{
+                                            store.locales.find((l) => l.id === content.locale_id)?.name ||
+                                            $t('common.language')
+                                        }}
+                                    </summary>
+                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                                        <li v-for="l in locales" :key="l.id">
+                                            <a @click="content.locale_id = l.id">{{ l.name }}</a>
+                                        </li>
+                                    </ul>
+                                </details>
+
+                                <details v-if="(content.id ?? 0) > 0" class="dropdown">
+                                    <summary class="btn join-item" @blur="closeDropdown">
+                                        {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
+                                    </summary>
+                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                                        <li v-for="l in locales" :key="l.id">
+                                            <RouterLink :to="memberLink(l.id!)">{{ l.name }}</RouterLink>
+                                        </li>
+                                    </ul>
+                                </details>
+
+                                <RouterLink
+                                    :to="`${rootPath}/0/${content.group_id}`"
+                                    class="btn join-item px-2"
+                                    :title="$t('common.addLanguage')"
+                                >
+                                    <i class="bi bi-plus-lg"></i>
+                                </RouterLink>
+
+                                <details class="dropdown">
+                                    <summary
+                                        class="btn join-item"
+                                        :class="{
+                                            'text-success': content.status === 'published',
+                                            'text-base-content/50': content.status === 'archived',
+                                        }"
+                                        @blur="closeDropdown"
+                                    >
+                                        {{ content.status }}
+                                    </summary>
+                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-2 shadow-sm">
+                                        <li
+                                            v-for="s in status"
+                                            :key="s"
+                                            :class="{
+                                                'text-base-content/50': content.status !== s,
+                                            }"
+                                        >
+                                            <a @click="content.status = s">{{ s }}</a>
+                                        </li>
+                                    </ul>
+                                </details>
+                            </div>
+
+                            <div class="join">
+                                <button class="btn text-warning join-item" @click="openDeleteModal()">
+                                    {{ $t('common.delete') }}
+                                </button>
+                                <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
+                                    {{ $t('user.save') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col md:flex-row gap-2 mt-2">
+                        <div class="w-64 flex gap-1">
+                            <div
+                                class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
+                            >
+                                <img
+                                    v-if="media"
+                                    :src="mediaPath(media)"
+                                    :alt="media?.alt ?? $t('button.media')"
+                                    class="w-full h-full object-contain"
+                                />
+                            </div>
+                            <div class="join join-vertical">
+                                <button class="btn p-2 join-item" @click="openMediaBrowser()">
+                                    <i class="bi bi-card-image text-xl"></i>
+                                </button>
+                                <button class="btn p-2 join-item" @click="removeMedia()">
+                                    <i class="bi bi-trash text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grow flex flex-col gap-2">
+                            <div class="flex flex-wrap w-full gap-2">
+                                <fieldset class="fieldset py-0 grow min-w-64">
+                                    <legend class="fieldset-legend pt-0">{{ $t('article.authors') }}</legend>
+                                    <Multiselect
+                                        v-model="selectedAuthorsFormatted"
+                                        track-by="id"
+                                        label="displayName"
+                                        :placeholder="$t('article.selectAuthor')"
+                                        :options="authorsFormatted"
+                                        aria-label="pick a author"
+                                        :multiple="true"
+                                    >
+                                    </Multiselect>
+                                </fieldset>
+                                <fieldset class="fieldset py-0 grow min-w-46">
+                                    <legend class="fieldset-legend pt-0">{{ $t('article.category') }}</legend>
+                                    <Multiselect
+                                        v-model="selectedCategory"
+                                        track-by="id"
+                                        label="name"
+                                        :placeholder="$t('article.selectCategory')"
+                                        :options="categories"
+                                        aria-label="pick a category"
+                                        @remove="removeCategory()"
+                                    >
+                                    </Multiselect>
+                                </fieldset>
+                            </div>
+
+                            <fieldset class="fieldset py-0">
+                                <legend class="fieldset-legend pt-0">{{ $t('article.tags') }}</legend>
                                 <Multiselect
-                                    v-model="selectedCategory"
+                                    v-model="content.tags"
                                     track-by="id"
                                     label="name"
-                                    :placeholder="$t('article.selectCategory')"
-                                    :options="categories"
-                                    aria-label="pick a category"
-                                    @remove="removeCategory()"
+                                    :placeholder="$t('article.selectTag')"
+                                    :options="tags"
+                                    aria-label="pick a tag"
+                                    :multiple="true"
+                                    :taggable="true"
+                                    @tag="insertTag"
                                 >
                                 </Multiselect>
                             </fieldset>
-                        </div>
 
-                        <fieldset class="fieldset py-0">
-                            <legend class="fieldset-legend pt-0">{{ $t('article.tags') }}</legend>
-                            <Multiselect
-                                v-model="content.tags"
-                                track-by="id"
-                                label="name"
-                                :placeholder="$t('article.selectTag')"
-                                :options="tags"
-                                aria-label="pick a tag"
-                                :multiple="true"
-                                :taggable="true"
-                                @tag="insertTag"
+                            <div
+                                v-if="content.meta?.start_time || store.routeType === 'event'"
+                                class="flex flex-wrap gap-2"
                             >
-                            </Multiselect>
-                        </fieldset>
-
-                        <div
-                            v-if="content.meta?.start_time || store.routeType === 'event'"
-                            class="flex flex-wrap gap-2"
-                        >
-                            <fieldset class="flex-1 fieldset py-0 min-w-50">
-                                <legend class="fieldset-legend pt-0">{{ $t('common.start') }}</legend>
-                                <input v-model="content.meta!.start_time" type="datetime-local" class="input w-full" />
-                            </fieldset>
-                            <fieldset class="flex-1 fieldset py-0 min-w-50">
-                                <legend class="fieldset-legend pt-0">{{ $t('common.end') }}</legend>
-                                <input v-model="content.meta!.end_time" type="datetime-local" class="input w-full" />
-                            </fieldset>
+                                <fieldset class="flex-1 fieldset py-0 min-w-50">
+                                    <legend class="fieldset-legend pt-0">{{ $t('common.start') }}</legend>
+                                    <input
+                                        v-model="content.meta!.start_time"
+                                        type="datetime-local"
+                                        class="input w-full"
+                                    />
+                                </fieldset>
+                                <fieldset class="flex-1 fieldset py-0 min-w-50">
+                                    <legend class="fieldset-legend pt-0">{{ $t('common.end') }}</legend>
+                                    <input
+                                        v-model="content.meta!.end_time"
+                                        type="datetime-local"
+                                        class="input w-full"
+                                    />
+                                </fieldset>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Nodes -->
+                    <!-- Nodes -->
 
-                <template v-if="content.nodes && content.nodes.length > 0">
-                    <template v-for="(node, i) in content.nodes" :key="i">
-                        <TextEditor
-                            v-if="!('blocks' in node) && !('data' in node)"
-                            v-model="node.text"
-                            class="min-h-60"
-                            :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
-                        />
-                        <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
-                            <div class="w-10">
-                                <img
-                                    v-if="node.media"
-                                    :src="mediaPath(node.media!)"
-                                    :alt="node.media?.alt ?? undefined"
-                                    class="object-cover w-10 h-10 cursor-pointer"
-                                    @click="openNodeMediaBrowser(i)"
-                                />
-                                <div
-                                    v-else
-                                    class="bg-base-content/30 w-full h-10 cursor-pointer"
-                                    @click="openNodeMediaBrowser(i)"
-                                ></div>
+                    <template v-if="content.nodes && content.nodes.length > 0">
+                        <template v-for="(node, i) in content.nodes" :key="i">
+                            <TextEditor
+                                v-if="!('blocks' in node) && !('data' in node)"
+                                v-model="node.text"
+                                class="min-h-60"
+                                :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
+                            />
+                            <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
+                                <div class="w-10">
+                                    <img
+                                        v-if="node.media"
+                                        :src="mediaPath(node.media!)"
+                                        :alt="node.media?.alt ?? undefined"
+                                        class="object-cover w-10 h-10 cursor-pointer"
+                                        @click="openNodeMediaBrowser(i)"
+                                    />
+                                    <div
+                                        v-else
+                                        class="bg-base-content/30 w-full h-10 cursor-pointer"
+                                        @click="openNodeMediaBrowser(i)"
+                                    ></div>
+                                </div>
+                                <GenericBlock v-model:block="node.data" class="grow" />
+                                <button class="btn leading-0 w-10" @click="deleteNode(i)">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
                             </div>
-                            <GenericBlock v-model:block="node.data" class="grow" />
-                            <button class="btn leading-0 w-10" @click="deleteNode(i)">
-                                <i class="bi bi-x-lg"></i>
-                            </button>
-                        </div>
-                        <div v-else-if="'blocks' in node">
-                            <div class="flex mt-4 items-center">
-                                <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
-                                <div class="grow flex justify-end">
-                                    <div class="join">
-                                        <button
-                                            class="btn btn-sm"
-                                            :title="$t('common.newBlock')"
-                                            @click="openBlockModal(i)"
-                                        >
-                                            <i class="bi bi-plus-lg scale-130"></i>
-                                        </button>
-                                        <button
-                                            class="btn btn-sm"
-                                            :title="$t('common.removeBlock')"
-                                            @click="deleteNode(i)"
-                                        >
+                            <div v-else-if="'blocks' in node">
+                                <div class="flex mt-4 items-center">
+                                    <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
+                                    <div class="grow flex justify-end">
+                                        <div class="join">
+                                            <button
+                                                class="btn btn-sm"
+                                                :title="$t('common.newBlock')"
+                                                @click="openBlockModal(i)"
+                                            >
+                                                <i class="bi bi-plus-lg scale-130"></i>
+                                            </button>
+                                            <button
+                                                class="btn btn-sm"
+                                                :title="$t('common.removeBlock')"
+                                                @click="deleteNode(i)"
+                                            >
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="node.blocks.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
+                                    <input
+                                        v-model="dropValue"
+                                        class="w-full h-full focus:outline-0 text-base-content/10 cursor-default"
+                                        @focus="currentNodeIndex = i"
+                                    />
+                                </div>
+                                <div v-else class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
+                                    <div
+                                        v-for="(block, bi) in node.blocks"
+                                        :key="block.id ?? bi"
+                                        class="bg-base-200 rounded p-2 flex gap-1"
+                                    >
+                                        <div class="w-10">
+                                            <img
+                                                v-if="block.media"
+                                                :src="mediaPath(block.media!)"
+                                                :alt="block.media?.alt ?? undefined"
+                                                class="object-cover w-10 h-10 cursor-pointer"
+                                                @click="openBlockMediaBrowser(i, bi)"
+                                            />
+                                            <div
+                                                v-else
+                                                class="bg-base-content/30 w-full h-10 cursor-pointer"
+                                                @click="openBlockMediaBrowser(i, bi)"
+                                            ></div>
+                                        </div>
+                                        <GenericBlock v-model:block="block.data" class="grow" />
+                                        <input
+                                            v-model="block.order_index"
+                                            type="number"
+                                            class="input w-15"
+                                            @change="sortBlocks(i)"
+                                        />
+                                        <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
                                             <i class="bi bi-x-lg"></i>
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            <div v-if="node.blocks.length === 0" class="bg-base-200 w-full min-h-6 mt-2">
-                                <input
-                                    v-model="dropValue"
-                                    class="w-full h-full focus:outline-0 text-base-content/10 cursor-default"
-                                    @focus="currentNodeIndex = i"
-                                />
-                            </div>
-                            <div v-else class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
-                                <div
-                                    v-for="(block, bi) in node.blocks"
-                                    :key="block.id ?? bi"
-                                    class="bg-base-200 rounded p-2 flex gap-1"
-                                >
-                                    <div class="w-10">
-                                        <img
-                                            v-if="block.media"
-                                            :src="mediaPath(block.media!)"
-                                            :alt="block.media?.alt ?? undefined"
-                                            class="object-cover w-10 h-10 cursor-pointer"
-                                            @click="openBlockMediaBrowser(i, bi)"
-                                        />
-                                        <div
-                                            v-else
-                                            class="bg-base-content/30 w-full h-10 cursor-pointer"
-                                            @click="openBlockMediaBrowser(i, bi)"
-                                        ></div>
-                                    </div>
-                                    <GenericBlock v-model:block="block.data" class="grow" />
-                                    <input
-                                        v-model="block.order_index"
-                                        type="number"
-                                        class="input w-15"
-                                        @change="sortBlocks(i)"
-                                    />
-                                    <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
-                                        <i class="bi bi-x-lg"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        </template>
                     </template>
-                </template>
-                <div v-else class="w-full h-54 pt-4">
-                    <div
-                        class="bg-base-200 w-full h-full rounded flex flex-col justify-center items-center gap-2 text-base-content/60"
-                        tabindex="0"
-                        @paste="handleEmptyStatePaste"
-                    >
-                        <i class="bi bi-upload text-9xl text-base-100"></i>
-                        <p class="text-sm text-base-content/30">{{ $t('common.pasteStructureHint') }}</p>
-                    </div>
-                </div>
-
-                <div v-if="templateCount > 0" class="flex justify-center mt-2">
-                    <div class="grow flex justify-center">
-                        <div class="join">
-                            <button
-                                class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
-                                @click="addTextNode()"
-                            >
-                                {{ $t('common.text') }}
-                            </button>
-                            <button
-                                class="btn btn-sm btn-outline border-base-content/30 join-item"
-                                @click="openBlockModal(-1)"
-                            >
-                                {{ $t('common.data') }}
-                            </button>
-                            <button
-                                class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
-                                @click="addBlocksNode()"
-                            >
-                                {{ $t('common.blocks') }}
-                            </button>
-                        </div>
-                    </div>
-
-                    <template v-if="isSupported">
-                        <button v-if="copied" class="btn btn-sm btn-disabled">
-                            <i class="bi bi-clipboard-check"></i>
-                        </button>
-                        <button
-                            v-else
-                            class="btn btn-sm"
-                            :title="$t('common.copyStructureToClipboard')"
-                            @click="copyStructure"
+                    <div v-else class="w-full h-54 pt-4">
+                        <div
+                            class="bg-base-200 w-full h-full rounded flex flex-col justify-center items-center gap-2 text-base-content/60"
+                            tabindex="0"
+                            @paste="handleEmptyStatePaste"
                         >
-                            <i class="bi bi-copy"></i>
-                        </button>
-                    </template>
+                            <i class="bi bi-upload text-9xl text-base-100"></i>
+                            <p class="text-sm text-base-content/30">{{ $t('common.pasteStructureHint') }}</p>
+                        </div>
+                    </div>
+
+                    <div v-if="templateCount > 0" class="flex justify-center mt-2">
+                        <div class="grow flex justify-center">
+                            <div class="join">
+                                <button
+                                    class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
+                                    @click="addTextNode()"
+                                >
+                                    {{ $t('common.text') }}
+                                </button>
+                                <button
+                                    class="btn btn-sm btn-outline border-base-content/30 join-item"
+                                    @click="openBlockModal(-1)"
+                                >
+                                    {{ $t('common.data') }}
+                                </button>
+                                <button
+                                    class="btn btn-sm btn-outline border-base-content/30 join-item rounded-r-full"
+                                    @click="addBlocksNode()"
+                                >
+                                    {{ $t('common.blocks') }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <template v-if="isSupported">
+                            <button v-if="copied" class="btn btn-sm btn-disabled">
+                                <i class="bi bi-clipboard-check"></i>
+                            </button>
+                            <button
+                                v-else
+                                class="btn btn-sm"
+                                :title="$t('common.copyStructureToClipboard')"
+                                @click="copyStructure"
+                            >
+                                <i class="bi bi-copy"></i>
+                            </button>
+                        </template>
+                    </div>
+
+                    <div ref="editorEndRef"></div>
                 </div>
-
-                <div ref="editorEndRef"></div>
             </div>
-        </div>
 
-        <div
-            v-if="store.preview"
-            class="grow max-w-200 hidden 2xl:flex flex-col mb-6 mt-12 bg-base-300 p-4 rounded overflow-hidden"
-        >
-            <MarkdownRender v-if="content.nodes" :nodes="content.nodes" />
-        </div>
+            <div
+                v-if="store.preview"
+                class="grow max-w-200 hidden 2xl:flex flex-col mb-6 mt-4 bg-base-300 p-4 rounded overflow-hidden"
+            >
+                <MarkdownRender v-if="content.nodes" :nodes="content.nodes" />
+            </div>
 
-        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
-            <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
-        </GenericModal>
-        <MediaBrowser ref="mediaModal" :update="addMedia" />
-        <BlockModal ref="blockModal" @add-block="addDataNode" @template-count="(count) => (templateCount = count)" />
+            <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
+                <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
+            </GenericModal>
+            <MediaBrowser ref="mediaModal" :update="addMedia" />
+            <BlockModal
+                ref="blockModal"
+                @add-block="addDataNode"
+                @template-count="(count) => (templateCount = count)"
+            />
+        </div>
     </div>
 </template>

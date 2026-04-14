@@ -16,6 +16,7 @@ const auth = useAuth()
 const store = useIndex()
 const route = useRoute()
 const router = useRouter()
+
 const deleteModal = ref()
 const commentId = Number(route.params.id ?? 0)
 const comment = ref({
@@ -46,7 +47,7 @@ async function getComment() {
         `/api/comments?id=${commentId}&fields=id,entry_id,parent_id,user_id,author_name,author_email,text,status,entry`,
         {
             headers: auth.authHeader,
-        }
+        },
     )
         .then(async (resp) => {
             if (resp.status >= 400) {
@@ -91,7 +92,7 @@ async function save() {
     const payload = Object.fromEntries(
         Object.entries(comment.value).filter(([key, value]) => {
             return !isEqual(value, commentOriginal.value[key as keyof CommentExt])
-        })
+        }),
     )
 
     if (Object.keys(payload).length === 0) {
@@ -127,17 +128,22 @@ async function save() {
 
 <template>
     <div class="flex flex-col pb-6">
-        <div class="flex-none">
-            <h1 class="text-2xl h-8">{{ comment?.author_name ?? '' }}</h1>
+        <div class="flex">
+            <h1 class="grow text-2xl h-8">{{ comment?.author_name ?? '' }}</h1>
+            <button class="btn btn-sm text-base" @click="router.back()">
+                <i class="bi bi-chevron-left" />
+            </button>
         </div>
 
         <!-- Form + Editor Container -->
-        <div
-            v-if="comment"
-            class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded"
-        >
+        <div v-if="comment" class="flex flex-col flex-1 max-w-5xl bg-base-300 p-4 pt-1 mt-4 rounded">
             <div class="mt-2 py-1 px-2 rounded bg-base-200">
-                {{ $t('comment.sourceArticle') }}: <RouterLink :to="`/content/${comment.entry?.type}/${comment.entry?.id}`" class="link hover:text-base-content/80">{{ comment.entry?.title ?? '' }}</RouterLink>
+                {{ $t('comment.sourceArticle') }}:
+                <RouterLink
+                    :to="`/content/${comment.entry?.type}/${comment.entry?.id}`"
+                    class="link hover:text-base-content/80"
+                    >{{ comment.entry?.title ?? '' }}</RouterLink
+                >
             </div>
             <!-- Form inputs -->
             <div class="flex items-center flex-wrap gap-2 flex-none">

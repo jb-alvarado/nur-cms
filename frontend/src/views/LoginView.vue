@@ -42,13 +42,20 @@ async function login() {
             }, 3000)
         }
 
-        // Only redirect once login succeeded
-        if (status === 200 && auth.jwtToken.length < 10) {
+        // If backend returns tokens directly (2FA disabled), continue to home.
+        if (status === 200 && auth.isLogin) {
+            await auth.selectAuthUser()
+            await router.push({ name: 'home' })
+        }
+
+        // If no token yet (2FA enabled), continue with verification code flow.
+        if (status === 200 && !auth.isLogin) {
             store.msgAlert('success', t('alert.verificationSent'))
             await router.push({ name: 'verification' })
         }
 
         formPassword.value = ''
+        disabled.value = false
     } catch (e) {
         disabled.value = false
         formError.value = e as string

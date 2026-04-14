@@ -21,7 +21,7 @@ export const useIndex = defineStore('index', {
             { check: false, active: false, up: false, name: 'Title', field: 'title' },
             { check: false, active: false, up: false, name: 'Slug', field: 'slug' },
             { check: false, active: false, up: false, name: 'Status', field: 'status' },
-            { check: false, active: false, up: false, name: 'Author', field: 'author' },
+            { check: false, active: false, up: false, name: 'Author', field: 'author.first_name,author.last_name' },
             { check: false, active: false, up: false, name: 'Language', field: 'locale_id' },
             { check: false, active: false, up: false, name: 'Start Time', field: 'start_time' },
             { check: false, active: false, up: false, name: 'End Time', field: 'end_time' },
@@ -44,7 +44,6 @@ export const useIndex = defineStore('index', {
         locales: [] as Locale[],
         types: [] as ContentTypeExt[],
         routeType: '',
-        typeID: 1,
         progress: 0,
         progressShow: false,
         randomKey: 'aHcyWqp',
@@ -148,9 +147,13 @@ export const useIndex = defineStore('index', {
                 })
         },
 
+        saveTableState() {
+            localStorage.setItem(`visibleFields:${this.routeType}`, JSON.stringify(this.visibleRows))
+        },
+
         initContent(suffix: string, fromStorage = true) {
             this.suffix = suffix
-            const visibleFields = localStorage.getItem('visibleFields')
+            const visibleFields = localStorage.getItem(`visibleFields:${this.routeType}`)
 
             if (fromStorage && visibleFields) {
                 this.visibleRows = JSON.parse(visibleFields)
@@ -171,11 +174,22 @@ export const useIndex = defineStore('index', {
         },
 
         activeFields() {
+            const existingRows = new Map(this.visibleRows.map((row) => [row.field, row]))
+
             this.visibleRows = this.allRows
                 .filter((r) => r.check)
-                .map((r) => ({ active: r.active, up: r.up, name: r.name, field: r.field }))
+                .map((r) => {
+                    const existingRow = existingRows.get(r.field)
 
-            localStorage.setItem('visibleFields', JSON.stringify(this.visibleRows))
+                    return {
+                        active: existingRow?.active ?? r.active,
+                        up: existingRow?.up ?? r.up,
+                        name: r.name,
+                        field: r.field,
+                    }
+                })
+
+            this.saveTableState()
             this.contentSelect()
         },
 
@@ -207,7 +221,7 @@ export const useIndex = defineStore('index', {
             let offsetVar = ''
 
             if (this.suffix === 'content/entries') {
-                type = `type_id=${this.typeID}&`
+                type = `type_slug=${this.routeType}&`
             }
 
             if (this.offset > 0) {

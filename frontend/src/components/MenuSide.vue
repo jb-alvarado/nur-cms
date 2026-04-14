@@ -28,7 +28,7 @@ store.selectTypes()
 function logout() {
     auth.removeToken()
     auth.username = ''
-    router.push('/')
+    router.push({ name: 'login' })
 }
 
 function toggleTheme() {
@@ -86,16 +86,27 @@ function setLanguage(code: string) {
                 </RouterLink>
             </div>
             <div v-if="store.types.length > 0" class="join join-vertical">
-                <RouterLink
-                    v-for="item in store.types"
-                    :key="item.name"
-                    :to="`/content/${item.slug}`"
-                    class="btn join-item w-31 p-1 justify-normal items-center"
-                    @click="store.typeID = item.id ?? 0"
-                >
-                    <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon"></i>
-                    {{ item.name }}
-                </RouterLink>
+                <template v-for="item in store.types" :key="item.id">
+                    <RouterLink
+                        v-if="item.slug === 'event'"
+                        to="/content/event"
+                        class="btn join-item w-31 p-1 justify-normal items-center"
+                        @click="store.routeType = item.slug ?? ''"
+                    >
+                        <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon"></i>
+                        {{ item.name }}
+                    </RouterLink>
+                    <RouterLink
+                        v-else
+                        :to="`/content/${item.slug}`"
+                        class="btn join-item w-31 p-1 justify-normal items-center"
+                        @click="store.routeType = item.slug ?? ''"
+                    >
+                        <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon"></i>
+                        {{ item.name }}
+                    </RouterLink>
+                </template>
+
                 <RouterLink to="/media" class="btn join-item w-31 p-1 justify-normal items-center">
                     <i class="bi bi-card-image ps-0.5 text-2xl leading-0"></i>
                     {{ $t('button.media') }}
@@ -129,7 +140,12 @@ function setLanguage(code: string) {
                     <i class="swap-on bi bi-brightness-high text-lg"></i>
                     <i class="swap-off bi bi-moon text-lg"></i>
                 </label>
-                <RouterLink v-if="auth.role === 'admin'" to="/configuration" class="join-item btn btn-sm p-1.5" :title="t('button.configure')">
+                <RouterLink
+                    v-if="auth.role === 'admin'"
+                    to="/configuration"
+                    class="join-item btn btn-sm p-1.5"
+                    :title="t('button.configure')"
+                >
                     <i class="bi bi-gear text-lg" />
                 </RouterLink>
                 <div class="dropdown dropdown-top">

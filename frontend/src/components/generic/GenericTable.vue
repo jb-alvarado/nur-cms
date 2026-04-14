@@ -4,14 +4,13 @@ import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 import 'dayjs/locale/de'
 import 'dayjs/locale/en'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import { closeDropdown } from '@/utils/helper'
 
 dayjs.extend(localizedFormat)
 
-const route = useRoute()
 const store = useIndex()
 const { locale } = useI18n()
 const groupedColumns = ref<any[]>([])
@@ -118,8 +117,15 @@ function formatField(col: any, field: string) {
         return dayjs(col[field] as string).format('llll')
     } else if (col['meta'] && (field === 'start_time' || field === 'end_time')) {
         return dayjs(col['meta'][field]).format('llll')
-    } else if (field === 'author') {
-        return `${col[field]?.first_name} ${col[field]?.last_name}`
+    } else if (field === 'author.first_name,author.last_name') {
+        if (Array.isArray(col.authors) && col.authors.length > 0) {
+            return col.authors
+                .map((author: any) => `${author?.first_name ?? ''} ${author?.last_name ?? ''}`.trim())
+                .filter((name: string) => name.length > 0)
+                .join(', ')
+        }
+
+        return ''
     } else {
         return col[field]
     }
@@ -127,13 +133,12 @@ function formatField(col: any, field: string) {
 
 function orderRows(row: any) {
     for (const r of store.visibleRows) {
-        if (r.field !== row.field) {
-            r.active = false
-        }
+        r.active = false
     }
 
     row.active = true
     store.ordering = row.up ? row.field : `-${row.field}`
+    store.saveTableState()
     store.contentSelect()
 }
 
@@ -173,10 +178,10 @@ function onChangeCheckbox() {
                         (r) =>
                             r.field !== 'locale_id' &&
                             r.field !== 'group_id' &&
-                            (route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
                     )"
                     :key="row.field"
-                    :class="{ 'w-16': row.field === 'id' }"
+                    :class="{ 'w-16': row.field === 'id', 'min-w-48': row.field === 'created_at' }"
                 >
                     <label class="swap" :class="{ 'text-base-content': row.active }">
                         <input type="checkbox" v-model="row.up" @change="orderRows(row)" />
@@ -211,7 +216,7 @@ function onChangeCheckbox() {
                         (r) =>
                             r.field !== 'locale_id' &&
                             r.field !== 'group_id' &&
-                            (route.params.type === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
                     )"
                     :key="row.field"
                 >
@@ -239,7 +244,7 @@ function onChangeCheckbox() {
                     >
                         {{ $t('status.rejected') }}
                     </span>
-                    <span v-else>
+                    <span v-else :class="{ 'line-clamp-1': row.field === 'text' }">
                         {{ formatField(col, row.field) }}
                     </span>
                 </td>

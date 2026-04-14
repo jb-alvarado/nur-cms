@@ -18,6 +18,7 @@ const auth = useAuth()
 const store = useIndex()
 const route = useRoute()
 const router = useRouter()
+
 const categoryId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
 const deleteModal = ref()
@@ -210,7 +211,7 @@ async function save() {
             store.msgAlert('success', t('common.saveSuccess'))
 
             if (categoryId === 0) {
-                router.push(`/category/${await resp.text()}`)
+                router.push('/category')
             }
         })
         .catch((e) => {

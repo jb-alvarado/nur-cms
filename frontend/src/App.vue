@@ -7,7 +7,6 @@ import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 
 import AlertMsg from '@/components/AlertMsg.vue'
-import LoginView from '@/views/LoginView.vue'
 import MenuSide from '@/components/MenuSide.vue'
 
 const route = useRoute()
@@ -24,6 +23,9 @@ onBeforeMount(async () => {
     await auth.inspectToken()
 })
 
+const showMenu = computed(() => route.meta.showMenu === true && auth.isLogin)
+const mainClass = computed(() => (showMenu.value ? 'overflow-y-auto w-full bg-base-100 px-7 pt-3' : 'overflow-y-auto w-full bg-base-100'))
+
 useHead({
     htmlAttrs: {
         lang: computed(() => local),
@@ -34,19 +36,13 @@ useHead({
 
 <template>
     <div class="h-screen bg-base-100">
-        <template v-if="(auth.isLogin || route.name === 'verification') && route.name !== '404'">
-            <div class="flex flex-row h-full">
-                <MenuSide v-if="auth.isLogin" class="pt-3" />
-                <main class="overflow-y-auto w-full bg-base-100 px-7 pt-3">
-                    <RouterView :key="route.fullPath + store.randomKey" />
-                </main>
-            </div>
+        <div class="flex flex-row h-full">
+            <MenuSide v-if="showMenu" class="pt-3" />
+            <main :class="mainClass">
+                <RouterView :key="route.fullPath + store.randomKey" />
+            </main>
+        </div>
 
-            <AlertMsg />
-        </template>
-        <template v-else-if="route.name === '404'">
-            <RouterView :key="404" />
-        </template>
-        <LoginView v-else />
+        <AlertMsg />
     </div>
 </template>
