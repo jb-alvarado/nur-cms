@@ -81,6 +81,12 @@ const router = createRouter({
             meta: { showMenu: true },
         },
         {
+            path: '/content/event/:id/:group_id',
+            name: 'group event edit',
+            component: () => import('../views/event/EditView.vue'),
+            meta: { showMenu: true },
+        },
+        {
             path: '/content/:type',
             name: 'content type',
             component: () => import('../views/content/IndexView.vue'),
