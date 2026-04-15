@@ -72,6 +72,14 @@ pub struct VerifyRequest {
 pub static VERIFICATION_CODES: LazyLock<Arc<Mutex<HashMap<String, VerificationCode>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+fn frontend_name() -> String {
+    option_env!("FRONTEND_NAME")
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "NUR CMS".to_string())
+}
+
 /// Create a json web token (JWT)
 pub async fn encode_jwt(claims: Claims) -> Result<String, NurError> {
     let encoding_key = EncodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
@@ -172,7 +180,7 @@ pub async fn login(
                         info!("Verification code for {username_cleanup} expired and removed");
                     });
 
-                    let app_name = std::env::var("FRONTEND_NAME").unwrap_or("NUR CMS".to_string());
+                    let app_name = frontend_name();
                     let text = mail_body(&verification_code, &app_name);
 
                     let target = MailTarget::new(email, true);
