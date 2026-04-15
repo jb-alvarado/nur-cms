@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { version } from '../../../package.json'
-
 import GlobalSettings from '@/components/config/GlobalSettings.vue'
 import ContentLocale from '@/components/config/ContentLocale.vue'
 import ContentType from '@/components/config/ContentType.vue'
 import MailTargets from '@/components/config/MailTargets.vue'
 import NodeTemplates from '@/components/config/NodeTemplates.vue'
+
+const appVersion = __APP_VERSION__
 </script>
 
 <template>
@@ -13,7 +13,7 @@ import NodeTemplates from '@/components/config/NodeTemplates.vue'
         <div class="flex">
             <h1 class="text-2xl grow">{{ $t('button.configure') }}</h1>
 
-            <div class="text-xs text-base-content/60">v{{ version }}</div>
+            <div class="text-xs text-base-content/60">v{{ appVersion }}</div>
         </div>
     </div>
 
