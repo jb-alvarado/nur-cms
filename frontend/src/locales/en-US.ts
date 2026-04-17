@@ -61,7 +61,7 @@ export default {
         status: 'Status',
         language: 'Language',
         groupId: 'Group ID',
-        authorName: 'Author Name',
+        author: 'Author',
         text: 'Text',
         title: 'Title',
         order: 'Order',

@@ -216,7 +216,7 @@ function addMedia(m: Media) {
             <!-- Form inputs -->
             <div class="flex items-center flex-wrap gap-2 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">
-                    <fieldset class="fieldset max-w-80 md:max-w-56">
+                    <fieldset class="fieldset w-47 max-w-80 md:max-w-56">
                         <legend class="fieldset-legend">{{ $t('user.firstName') }}</legend>
                         <input
                             v-model="author.first_name"

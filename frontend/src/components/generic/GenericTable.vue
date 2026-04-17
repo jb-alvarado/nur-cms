@@ -21,7 +21,7 @@ watch(
     (newLocale) => {
         dayjs.locale(newLocale)
     },
-    { immediate: true }
+    { immediate: true },
 )
 
 const props = defineProps({
@@ -39,7 +39,6 @@ const props = defineProps({
         type: String,
         default: '',
     },
-
 })
 
 watch(
@@ -47,7 +46,7 @@ watch(
     (newVal) => {
         groupedColumns.value = groupColumns(newVal)
     },
-    { deep: true, immediate: true }
+    { deep: true, immediate: true },
 )
 
 function groupColumns(columns: any[]) {
@@ -67,13 +66,10 @@ function groupColumns(columns: any[]) {
 
     const result = []
 
-    const orderedGroups = Array.from(groups.values()).sort(
-        (a, b) => a.firstIndex - b.firstIndex
-    )
+    const orderedGroups = Array.from(groups.values()).sort((a, b) => a.firstIndex - b.firstIndex)
 
     // 2. Show only the object with the smallest id AND add an array of all IDs in the group
     for (const { items: group } of orderedGroups) {
-
         if (group?.length === 1) {
             // no group, just include as-is
             result.push({
@@ -170,7 +166,12 @@ function onChangeCheckbox() {
             <tr>
                 <th class="w-10">
                     <label>
-                        <input v-model="store.selectAll" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
+                        <input
+                            v-model="store.selectAll"
+                            type="checkbox"
+                            class="checkbox checkbox-sm"
+                            @change="selectAll"
+                        />
                     </label>
                 </th>
                 <th
@@ -178,10 +179,11 @@ function onChangeCheckbox() {
                         (r) =>
                             r.field !== 'locale_id' &&
                             r.field !== 'group_id' &&
-                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time')),
                     )"
                     :key="row.field"
-                    :class="{ 'w-16': row.field === 'id', 'min-w-48': row.field === 'created_at' }"
+                    :class="{ 'w-16': row.field === 'id' }"
+                    :style="row.minWidth ? { minWidth: `${row.minWidth}px` } : {}"
                 >
                     <label class="swap" :class="{ 'text-base-content': row.active }">
                         <input type="checkbox" v-model="row.up" @change="orderRows(row)" />
@@ -216,7 +218,7 @@ function onChangeCheckbox() {
                         (r) =>
                             r.field !== 'locale_id' &&
                             r.field !== 'group_id' &&
-                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
+                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time')),
                     )"
                     :key="row.field"
                 >
@@ -244,6 +246,13 @@ function onChangeCheckbox() {
                     >
                         {{ $t('status.rejected') }}
                     </span>
+                    <RouterLink
+                        v-else-if="['author_name', 'title', 'name', 'first_name', 'last_name'].includes(row.field)"
+                        :to="`${prefix}/${type}/${col.id}`"
+                        class="hover:text-base-content/70"
+                    >
+                        {{ formatField(col, row.field) }}
+                    </RouterLink>
                     <span v-else :class="{ 'line-clamp-1': row.field === 'text' }">
                         {{ formatField(col, row.field) }}
                     </span>
@@ -254,7 +263,7 @@ function onChangeCheckbox() {
                         class="dropdown"
                         :class="{ 'dropdown-top': groupedColumns.length - 3 < i }"
                     >
-                        <summary class="btn font-normal" @blur="closeDropdown">
+                        <summary class="btn btn-sm text-base font-normal" @blur="closeDropdown">
                             {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
                         </summary>
                         <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-28 p-0 shadow-sm">
@@ -265,12 +274,12 @@ function onChangeCheckbox() {
                             </li>
                         </ul>
                     </details>
-                    <div class="btn font-normal btn-disabled text-base-content" v-else>
+                    <div class="btn btn-sm text-base font-normal btn-disabled text-base-content" v-else>
                         {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
                     </div>
                 </td>
                 <td>
-                    <RouterLink :to="`${prefix}/${type}/${col.id}`" class="btn btn-sm p-1">
+                    <RouterLink :to="`${prefix}/${type}/${col.id}`" class="btn btn-sm hover:text-base-content/70 p-1">
                         <i class="bi bi-pencil-square text-lg"></i>
                     </RouterLink>
                 </td>

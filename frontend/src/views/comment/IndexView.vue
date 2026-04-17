@@ -13,10 +13,10 @@ store.ordering = '-created_at'
 
 store.visibleRows = [
     { active: false, up: false, name: t('table.id'), field: 'id' },
-    { active: false, up: false, name: t('table.authorName'), field: 'author_name' },
+    { active: false, up: false, name: t('table.author'), field: 'author_name', minWidth: 200 },
     { active: false, up: false, name: t('table.status'), field: 'status' },
     { active: false, up: false, name: t('table.text'), field: 'text' },
-    { active: true, up: false, name: t('table.createdAt'), field: 'created_at' },
+    { active: true, up: false, name: t('table.createdAt'), field: 'created_at', minWidth: 190 },
 ]
 
 store.initContent('comments', true)

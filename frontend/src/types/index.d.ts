@@ -61,6 +61,14 @@ declare global {
         refresh: string
     }
 
+    interface TableRow {
+        check?: boolean
+        active: boolean
+        up: boolean, name: string
+        field: string,
+        minWidth?: number
+    }
+
     declare namespace Intl {
         type Key = 'calendar' | 'collation' | 'currency' | 'numberingSystem' | 'timeZone' | 'unit'
 

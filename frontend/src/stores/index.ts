@@ -28,7 +28,7 @@ export const useIndex = defineStore('index', {
             { check: false, active: false, up: false, name: 'Created At', field: 'created_at' },
             { check: false, active: false, up: false, name: 'Updated At', field: 'updated_at' },
             { check: false, active: false, up: false, name: 'Group ID', field: 'group_id' },
-        ],
+        ] as TableRow[],
         visibleRows: [
             { active: true, up: true, name: 'ID', field: 'id' },
             { active: false, up: false, name: 'Title', field: 'title' },
@@ -36,7 +36,7 @@ export const useIndex = defineStore('index', {
             { active: false, up: false, name: 'Created At', field: 'created_at' },
             { active: false, up: false, name: 'Language', field: 'locale_id' },
             { active: false, up: false, name: 'Group ID', field: 'group_id' },
-        ],
+        ] as TableRow[],
         suffix: 'content/entries',
         search: '',
         tableCols: [] as Content[],
