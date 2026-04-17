@@ -185,8 +185,29 @@ pub async fn upload_chunk(
     // Storage path: YEAR/MONTH
     let mut output_path = PathBuf::from(&*STORAGE);
     output_path = output_path.join(Local::now().format("%Y/%m").to_string());
-    if !output_path.is_dir() {
-        fs::create_dir_all(&output_path).await?;
+
+    // Check if directory exists and what it is
+    match fs::metadata(&output_path).await {
+        Ok(meta) => {
+            if !meta.is_dir() {
+                return Err(NurError::BadRequest(format!(
+                    "Upload path exists but is not a directory: {}",
+                    output_path.display()
+                )));
+            }
+        }
+        Err(e) => {
+            info!("Path does not exist, creating: {}", e);
+            fs::create_dir_all(&output_path).await.map_err(|e| {
+                error!(
+                    "Failed to create upload directory {}: {}",
+                    output_path.display(),
+                    e
+                );
+                NurError::BadRequest(format!("Failed to create upload directory: {e}"))
+            })?;
+            info!("Created directory: {}", output_path.display());
+        }
     }
 
     let output_file = output_path.join(&file_name);
@@ -225,6 +246,15 @@ pub async fn upload_chunk(
     file.seek(SeekFrom::Start(start)).await?;
     file.write_all(&chunk_data).await?;
     file.flush().await?;
+    drop(file);
+
+    // Verify the chunk was actually written to disk
+    let metadata = fs::metadata(&output_file).await?;
+    if metadata.len() < end {
+        return Err(NurError::BadRequest(
+            "Failed to write chunk to disk. Please check file permissions.".into(),
+        ));
+    }
 
     // Update ranges and check completion
     let ranges_arc = upload_value.ranges.clone();

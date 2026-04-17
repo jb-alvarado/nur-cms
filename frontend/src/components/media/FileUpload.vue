@@ -58,6 +58,7 @@ async function uploadFile(
     const totalChunks = Math.ceil(file.size / chunkSize)
     const fileSize = file.size
     let completedChunks = 0
+    let hasError = false  // ← Error flag
 
     const queue: { start: number; end: number; blob: Blob }[] = []
 
@@ -68,7 +69,7 @@ async function uploadFile(
     }
 
     async function worker() {
-        while (queue.length) {
+        while (queue.length && !hasError) {  // ← Stop if error
             const { start, end, blob } = queue.shift()!
             const form = new FormData()
             form.append('fileName', file.name)
@@ -86,6 +87,7 @@ async function uploadFile(
             })
 
             if (!resp.ok) {
+                hasError = true  // ← Set flag
                 const err = await errMsg(resp)
                 throw new Error(err)
             }
@@ -112,6 +114,7 @@ async function runJob() {
     if (length > 0) {
         const id = shortID()
         store.progressShow = true
+        let hasError = false
 
         for (const [i, file] of Array.from(input.value.files as FileList).entries()) {
             try {
@@ -119,13 +122,16 @@ async function runJob() {
             } catch (err: any) {
                 store.msgAlert('error', err)
                 error.value = err.message || t('upload.failed')
-            } finally {
+                hasError = true
                 uploading.value = false
+                break // Stop uploading on first error
             }
         }
 
-        store.progress = 100
-        store.msgAlert('success', t('upload.complete'))
+        if (!hasError) {
+            store.progress = 100
+            store.msgAlert('success', t('upload.complete'))
+        }
 
         setTimeout(() => {
             store.progressShow = false
