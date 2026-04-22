@@ -16,7 +16,7 @@ import { slugify } from '@/utils/slugify.js'
 import GenericBlock from './GenericBlock.vue'
 import GenericModal from './GenericModal.vue'
 import BlockModal from '@/components/BlockModal.vue'
-import MarkdownRender from '@/components/MarkdownRender.vue'
+import MarkdownPreview from '@/components/MarkdownPreview.vue'
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
@@ -73,8 +73,22 @@ function handleEmptyStatePaste(event: ClipboardEvent) {
 
     event.preventDefault()
 
+    function removeIds(obj: any): any {
+        if (Array.isArray(obj)) {
+            return obj.map(removeIds)
+        } else if (obj && typeof obj === 'object') {
+            const newObj: any = {}
+            for (const key in obj) {
+                if (key === 'id') continue
+                newObj[key] = removeIds(obj[key])
+            }
+            return newObj
+        }
+        return obj
+    }
+
     const json = JSON.parse(pasted)
-    content.value.nodes = json
+    content.value.nodes = removeIds(json)
 }
 
 const content = ref({
@@ -745,7 +759,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 </script>
 
 <template>
-    <div class="flex flex-col h-full pb-6">
+    <div class="flex flex-col h-full">
         <div class="flex">
             <h1 class="grow text-2xl h-8">{{ content?.title ?? '' }}</h1>
             <button class="btn btn-sm text-base" @click="router.back()">
@@ -754,7 +768,7 @@ async function insertEntryAuthor(entry: number, author: number) {
         </div>
 
         <div class="flex gap-2 h-full">
-            <div class="flex flex-col h-full pb-6">
+            <div class="flex flex-col h-full">
                 <!-- Form + Editor Container -->
                 <div
                     v-if="content"
@@ -1093,16 +1107,16 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </button>
                         </template>
                     </div>
-
-                    <div ref="editorEndRef"></div>
                 </div>
+
+                <div ref="editorEndRef" class="h-6 min-h-6"></div>
             </div>
 
             <div
                 v-if="store.preview"
                 class="grow max-w-200 hidden 2xl:flex flex-col mb-6 mt-4 bg-base-300 p-4 rounded overflow-hidden"
             >
-                <MarkdownRender v-if="content.nodes" :nodes="content.nodes" />
+                <MarkdownPreview v-if="content.nodes" :nodes="content.nodes" />
             </div>
 
             <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeMount } from 'vue'
+import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
@@ -23,7 +23,7 @@ store.visibleRows = [
 
 store.initContent('content/entries', true)
 
-onBeforeMount(() => {
+onMounted(() => {
     store.contentSelect()
 })
 </script>

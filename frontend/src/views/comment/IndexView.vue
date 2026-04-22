@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeMount } from 'vue'
+import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import GenericIndex from '@/components/generic/GenericIndex.vue'
@@ -21,7 +21,7 @@ store.visibleRows = [
 
 store.initContent('comments', true)
 
-onBeforeMount(() => {
+onMounted(() => {
     store.contentSelect()
 })
 </script>

@@ -57,7 +57,7 @@ defineProps({
                 <div
                     v-for="(block, bi) in node.blocks"
                     :key="block.id ?? bi"
-                    class="bg-base-200 rounded p-2 flex gap-1"
+                    class="flex bg-base-200 rounded p-2 gap-1"
                 >
                     <div class="w-10">
                         <img
@@ -89,10 +89,12 @@ defineProps({
                 v-else-if="'text' in node"
                 v-html="marked(node.text ?? '')"
                 class="prose max-w-full overflow-auto bg-base-200 p-4 rounded border border-base-content/25"
+                :class="{ 'mt-2': i > 0 }"
             />
             <div
                 v-else-if="'data' in node && node.data && typeof node.data === 'object' && !Array.isArray(node.data)"
-                class="flex items-center gap-1 bg-base-200 p-2"
+                class="flex bg-base-200 p-2 gap-1"
+                :class="{ 'mt-2': i > 0 }"
             >
                 <div class="w-10">
                     <img
@@ -103,14 +105,16 @@ defineProps({
                     />
                     <div v-else class="bg-base-content/30 w-full h-10"></div>
                 </div>
-                <div v-for="(_, key) in node.data" :key="key" class="flex items-center gap-2 grow">
-                    <label class="min-w-20">{{ key }}: </label>
-                    <input
-                        v-model="node.data[key]"
-                        type="text"
-                        class="input grow border border-base-content/10"
-                        disabled
-                    />
+                <div class="flex flex-col gap-2 grow">
+                    <div v-for="(_, key) in node.data" :key="key" class="flex items-center gap-2 grow">
+                        <label class="min-w-20">{{ key }}: </label>
+                        <input
+                            v-model="node.data[key]"
+                            type="text"
+                            class="input grow border border-base-content/10"
+                            disabled
+                        />
+                    </div>
                 </div>
             </div>
         </template>

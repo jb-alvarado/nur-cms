@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeMount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
@@ -19,11 +19,15 @@ if (savedLang) {
     locale.value = savedLang
 }
 
-auth.selectAuthUser()
-auth.obtainUuid()
-store.selectAuthors()
-store.selectLocales()
-store.selectTypes()
+onBeforeMount(async () => {
+    await store.selectLocales()
+    await store.selectTypes()
+    await auth.selectAuthUser()
+    auth.obtainUuid()
+    store.selectAuthors()
+
+    store.isLoaded = true
+})
 
 function logout() {
     auth.removeToken()

@@ -38,7 +38,7 @@ useHead({
     <div class="h-screen bg-base-100">
         <div class="flex flex-row h-full">
             <MenuSide v-if="showMenu" class="pt-3" />
-            <main :class="mainClass">
+            <main v-if="store.isLoaded" :class="mainClass">
                 <RouterView :key="route.fullPath + store.randomKey" />
             </main>
         </div>
