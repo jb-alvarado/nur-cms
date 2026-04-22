@@ -96,7 +96,11 @@ fn group_join(entry_alias: &str) -> String {
         r#"LEFT JOIN LATERAL (
             SELECT COALESCE(
                 jsonb_agg(
-                    jsonb_build_object('id', ge.id, 'locale_code', l.code, 'locale_name', l.name)
+                    jsonb_build_object(
+                        'id', ge.id,
+                        'locale_code', l.code,
+                        'locale_name', l.name
+                    )
                 ),
                 '[]'::jsonb
             ) AS data

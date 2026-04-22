@@ -48,11 +48,16 @@ pub async fn select_categories(
     let page_ordering = ordering_with_alias("f");
     let outer_ordering = ordering_with_alias("p");
 
-    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-        "WITH filtered AS NOT MATERIALIZED ( SELECT cc.* FROM content_categories cc ",
-    );
+    let lang = match query_obj.grouped {
+        true => ", l.code AS locale_slug",
+        false => "",
+    };
 
-    if query_obj.search_locale.is_some() {
+    let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+        "WITH filtered AS NOT MATERIALIZED ( SELECT cc.*{lang} FROM content_categories cc "
+    ));
+
+    if query_obj.search_locale.is_some() || query_obj.grouped {
         query_builder.push("LEFT JOIN locales l ON l.id = cc.locale_id ");
     }
 
@@ -89,10 +94,24 @@ pub async fn select_categories(
 
     query_builder = where_chain.into_inner();
 
-    query_builder.push(" ), page AS ( SELECT f.* FROM filtered f");
+    if query_obj.grouped {
+        query_builder.push(" ), page AS ( SELECT DISTINCT ON (f.group_id) f.* FROM filtered f ORDER BY f.group_id,");
+
+        if let Some(code) = &query_obj.locale_code {
+            query_builder.push("(f.locale_slug = ");
+            query_builder.push_bind(code);
+            query_builder.push(") DESC,");
+        }
+    } else {
+        query_builder.push(" ), page AS ( SELECT f.* FROM filtered f");
+
+        if !page_ordering.is_empty() {
+            query_builder.push(" ORDER BY");
+        }
+    };
 
     if !page_ordering.is_empty() {
-        query_builder.push(format!(" ORDER BY {}", page_ordering));
+        query_builder.push(format!(" {}", page_ordering));
     }
 
     query_builder.push(format!(
@@ -100,7 +119,13 @@ pub async fn select_categories(
         query_obj.limit, query_obj.offset
     ));
 
-    query_builder.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+    match query_obj.grouped {
+        true => query_builder.push(
+            " ), total AS ( SELECT COUNT(DISTINCT group_id) AS total_count FROM filtered ) SELECT ",
+        ),
+        false => query_builder
+            .push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT "),
+    };
 
     let mut sep = query_builder.separated(", ");
 
@@ -152,10 +177,12 @@ pub async fn select_categories(
                 SELECT jsonb_agg(
                     jsonb_build_object(
                         'id', ge.id,
-                        'locale_id', ge.locale_id
+                        'locale_code', l.code,
+                        'locale_name', l.name
                     )
                 ) AS data
-                FROM content_entries ge
+                FROM content_categories ge
+                JOIN locales l ON l.id = ge.locale_id
                 WHERE ge.group_id = p.group_id
                   AND ge.id != p.id
             ) AS group_members ON TRUE "#,

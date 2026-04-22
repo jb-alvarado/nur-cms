@@ -63,7 +63,7 @@ if (categoryId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
+                        result.group_members?.map((member: GroupMember) => member.locale_code) ?? [result.locale_code],
                 ),
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
@@ -104,7 +104,7 @@ async function selectCategory() {
             locales.value = store.locales.filter((locale) => {
                 const isCurrentLocale = locale.id === category.value.locale_id
                 const hasGroupMember = category.value.group_members?.some(
-                    (member: GroupMember) => member.locale_id === locale.id,
+                    (member: GroupMember) => member.locale_code === locale.code,
                 )
                 return isCurrentLocale || hasGroupMember
             })
@@ -147,10 +147,10 @@ function updateSlug() {
     category.value.slug = slugify(category.value.name ?? '')
 }
 
-function memberLink(id: number): string {
-    const member = category.value.group_members?.find((member: GroupMember) => member.locale_id === id)
+function memberLink(code: string): string {
+    const member = category.value.group_members?.find((member: GroupMember) => member.locale_code === code)
 
-    return `/content/category/${member?.id ?? category.value.id}`
+    return `/category/${member?.id ?? category.value.id}`
 }
 
 function contentDelete() {
@@ -286,13 +286,13 @@ function addMedia(m: Media) {
                             </summary>
                             <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
                                 <li v-for="l in locales" :key="l.id">
-                                    <RouterLink :to="memberLink(l.id!)">{{ l.name }}</RouterLink>
+                                    <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
                                 </li>
                             </ul>
                         </details>
 
                         <RouterLink
-                            :to="`/content/category/0/${category.group_id}`"
+                            :to="`/category/0/${category.group_id}`"
                             class="btn join-item px-2"
                             :title="$t('common.addLanguage')"
                         >

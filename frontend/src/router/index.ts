@@ -27,6 +27,12 @@ const router = createRouter({
             meta: { public: true, showMenu: false },
         },
         {
+            path: '/configuration',
+            name: 'configuration',
+            component: () => import('../views/ConfigurationView.vue'),
+            meta: { showMenu: true },
+        },
+        {
             path: '/author',
             name: 'author',
             component: () => import('../views/author/IndexView.vue'),
@@ -35,12 +41,6 @@ const router = createRouter({
         {
             path: '/author/:id',
             name: 'author edit',
-            component: () => import('../views/author/EditView.vue'),
-            meta: { showMenu: true },
-        },
-        {
-            path: '/author/:id/:group_id',
-            name: 'group author edit',
             component: () => import('../views/author/EditView.vue'),
             meta: { showMenu: true },
         },
@@ -60,12 +60,6 @@ const router = createRouter({
             path: '/category/:id/:group_id',
             name: 'group category edit',
             component: () => import('../views/category/EditView.vue'),
-            meta: { showMenu: true },
-        },
-        {
-            path: '/configuration',
-            name: 'configuration',
-            component: () => import('../views/ConfigurationView.vue'),
             meta: { showMenu: true },
         },
         {
