@@ -89,6 +89,9 @@ pub struct QueryObj<T> {
     pub group_id: Option<i64>,
 
     #[serde(default)]
+    pub grouped: bool,
+
+    #[serde(default)]
     pub start_time: Option<DateTime<Utc>>,
     #[serde(default)]
     pub end_time: Option<DateTime<Utc>>,
@@ -137,6 +140,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             output_type: None,
             last_login: false,
             group_id: None,
+            grouped: false,
             start_time: None,
             end_time: None,
             created_after: None,

@@ -184,7 +184,7 @@ if (contentId > 0) {
             const groupMemberLocaleIds = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
-                        result.group_members?.map((member: GroupMember) => member.locale_id) ?? [result.locale_id],
+                        result.group_members?.map((member: GroupMember) => member.locale_code) ?? [result.locale_code],
                 ),
             )
             locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
@@ -240,7 +240,7 @@ function selectContent() {
 
                 locales.value = store.locales.filter((locale) => {
                     const isCurrentLocale = locale.id === content.value.locale_id
-                    const hasGroupMember = content.value.group_members?.some((member) => member.locale_id === locale.id)
+                    const hasGroupMember = content.value.group_members?.some((member) => member.locale_code === locale.code)
                     return isCurrentLocale || hasGroupMember
                 })
 
@@ -438,8 +438,8 @@ function deleteNode(index: number, blockIndex: number | null = null) {
     }
 }
 
-function memberLink(id: number): string {
-    const member = content.value.group_members?.find((member) => member.locale_id === id)
+function memberLink(code: string): string {
+    const member = content.value.group_members?.find((member) => member.locale_code === code)
 
     return `${rootPath}/${member?.id ?? content.value.id}`
 }
@@ -823,7 +823,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     </summary>
                                     <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
                                         <li v-for="l in locales" :key="l.id">
-                                            <RouterLink :to="memberLink(l.id!)">{{ l.name }}</RouterLink>
+                                            <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
                                         </li>
                                     </ul>
                                 </details>

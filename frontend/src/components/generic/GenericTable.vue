@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { watch } from 'vue'
+import { sortBy } from 'es-toolkit/array'
 import dayjs from 'dayjs'
 import localizedFormat from 'dayjs/plugin/localizedFormat'
 import 'dayjs/locale/de'
@@ -7,13 +8,11 @@ import 'dayjs/locale/en'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
-import { closeDropdown } from '@/utils/helper'
 
 dayjs.extend(localizedFormat)
 
 const store = useIndex()
 const { locale } = useI18n()
-const groupedColumns = ref<any[]>([])
 
 // Set dayjs locale based on i18n locale
 watch(
@@ -40,65 +39,6 @@ const props = defineProps({
         default: '',
     },
 })
-
-watch(
-    () => store.tableCols,
-    (newVal) => {
-        groupedColumns.value = groupColumns(newVal)
-    },
-    { deep: true, immediate: true },
-)
-
-function groupColumns(columns: any[]) {
-    const groups = new Map<string, { items: any[]; firstIndex: number }>()
-
-    // 1. Create groups while preserving the first-seen order
-    columns.forEach((item, index) => {
-        const key = String(item.group_id ?? item.id) // if no group_id exists -> its own group
-        const entry = groups.get(key)
-
-        if (entry) {
-            entry.items.push(item)
-        } else {
-            groups.set(key, { items: [item], firstIndex: index })
-        }
-    })
-
-    const result = []
-
-    const orderedGroups = Array.from(groups.values()).sort((a, b) => a.firstIndex - b.firstIndex)
-
-    // 2. Show only the object with the smallest id AND add an array of all IDs in the group
-    for (const { items: group } of orderedGroups) {
-        if (group?.length === 1) {
-            // no group, just include as-is
-            result.push({
-                ...group[0],
-                locale_ids: group[0].locale_id ? [{ id: group[0].id, locale_id: group[0].locale_id }] : [],
-            })
-        } else {
-            // group → determine the object with the smallest ID
-            const sortedGroup = [...(group ?? [])].sort((a, b) => a.locale_id - b.locale_id) // sort by ID for minObj
-            const minObj = sortedGroup[0]
-
-            // sort locale_ids by id or locale_id
-            const sortedLocaleIds = sortedGroup
-                .map((g) => ({ id: g.id, locale_id: g.locale_id }))
-                .sort((a, b) => {
-                    if (a.locale_id < b.locale_id) return -1
-                    if (a.locale_id > b.locale_id) return 1
-                    return 0
-                })
-
-            result.push({
-                ...minObj,
-                locale_ids: sortedLocaleIds,
-            })
-        }
-    }
-
-    return result
-}
 
 function selectAll() {
     for (const item of store.tableCols) {
@@ -146,17 +86,21 @@ function onChangeCheckbox() {
         }
     }
 
-    for (const item of groupedColumns.value) {
-        const mainCol = colMap.get(item.id)
-        if (mainCol) mainCol.check = item.check
+    // for (const item of groupedColumns.value) {
+    //     const mainCol = colMap.get(item.id)
+    //     if (mainCol) mainCol.check = item.check
 
-        for (const loc of item.locale_ids) {
-            const locCol = colMap.get(loc.id)
-            if (locCol) locCol.check = loc.check ?? item.check
-        }
-    }
+    //     for (const loc of item.locale_ids) {
+    //         const locCol = colMap.get(loc.id)
+    //         if (locCol) locCol.check = loc.check ?? item.check
+    //     }
+    // }
 
     props.checkBoxChange()
+}
+
+function getValue(col: any, row: { field: string }) {
+    return col?.[row.field]
 }
 </script>
 
@@ -202,7 +146,7 @@ function onChangeCheckbox() {
             </tr>
         </thead>
         <tbody>
-            <tr v-for="(col, i) in groupedColumns" :key="i">
+            <tr v-for="(col, i) in store.tableCols" :key="i">
                 <th>
                     <label>
                         <input
@@ -222,26 +166,29 @@ function onChangeCheckbox() {
                     )"
                     :key="row.field"
                 >
-                    <span v-if="col[row.field] === 'published'" class="text-success bg-base-100 p-1 rounded border">
+                    <span v-if="getValue(col, row) === 'published'" class="text-success bg-base-100 p-1 rounded border">
                         {{ $t('status.published') }}
                     </span>
-                    <span v-else-if="col[row.field] === 'approved'" class="text-success bg-base-100 p-1 rounded border">
+                    <span
+                        v-else-if="getValue(col, row) === 'approved'"
+                        class="text-success bg-base-100 p-1 rounded border"
+                    >
                         {{ $t('status.approved') }}
                     </span>
-                    <span v-else-if="col[row.field] === 'draft'" class="bg-base-100 p-1 rounded border">
+                    <span v-else-if="getValue(col, row) === 'draft'" class="bg-base-100 p-1 rounded border">
                         {{ $t('status.draft') }}
                     </span>
-                    <span v-else-if="col[row.field] === 'pending'" class="bg-base-100 p-1 rounded border">
+                    <span v-else-if="getValue(col, row) === 'pending'" class="bg-base-100 p-1 rounded border">
                         {{ $t('status.pending') }}
                     </span>
                     <span
-                        v-else-if="col[row.field] === 'archived'"
+                        v-else-if="getValue(col, row) === 'archived'"
                         class="bg-base-100 p-1 rounded border text-base-content/60 border-base-content/60"
                     >
                         {{ $t('status.archived') }}
                     </span>
                     <span
-                        v-else-if="col[row.field] === 'rejected'"
+                        v-else-if="getValue(col, row) === 'rejected'"
                         class="text-error bg-base-100 p-1 rounded border border-error/60"
                     >
                         {{ $t('status.rejected') }}
@@ -257,23 +204,29 @@ function onChangeCheckbox() {
                         {{ formatField(col, row.field) }}
                     </span>
                 </td>
-                <td v-if="col.locale_ids.length > 0">
-                    <details
-                        v-if="col.locale_ids.length > 1"
-                        class="dropdown"
-                        :class="{ 'dropdown-top': groupedColumns.length - 3 < i }"
-                    >
-                        <summary class="btn btn-sm text-base font-normal" @blur="closeDropdown">
+                <td v-if="col.locale_id">
+                    <template v-if="Array.isArray(col.group_members) && col.group_members.length > 0">
+                        <button
+                            class="btn btn-sm btn-primary text-base font-normal"
+                            :popovertarget="`lang-select-${col.id}`"
+                            :style="`anchor-name: --anchor-${i}`"
+                        >
                             {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
-                        </summary>
-                        <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-28 p-0 shadow-sm">
-                            <li v-for="lo in col.locale_ids" :key="lo.id">
+                        </button>
+                        <ul
+                            class="dropdown menu w-28 rounded-box bg-base-100 shadow-sm p-0"
+                            :class="{ 'dropdown-top': i > 2 && store.tableCols.length - 2 < i }"
+                            popover
+                            :id="`lang-select-${col.id}`"
+                            :style="`position-anchor: --anchor-${i}`"
+                        >
+                            <li v-for="lo in sortBy(col.group_members, ['locale_name'])" :key="lo.id">
                                 <RouterLink :to="`${prefix}/${type}/${lo.id}`" class="rounded-box">
-                                    {{ store.locales.find((l) => l.id === lo.locale_id)?.name }}
+                                    {{ lo.locale_name }}
                                 </RouterLink>
                             </li>
                         </ul>
-                    </details>
+                    </template>
                     <div class="btn btn-sm text-base font-normal btn-disabled text-base-content" v-else>
                         {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
                     </div>

@@ -42,6 +42,7 @@ export const useIndex = defineStore('index', {
         tableCols: [] as Content[],
         authors: [] as ContentAuthor[],
         locales: [] as Locale[],
+        locale: 'en-US',
         types: [] as ContentTypeExt[],
         routeType: '',
         progress: 0,
@@ -231,7 +232,7 @@ export const useIndex = defineStore('index', {
 
             let url = u
                 ? u
-                : `/api/${this.suffix}?${type}fields=${fields}&limit=${this.limit}${offsetVar}&ordering=${this.ordering}`
+                : `/api/${this.suffix}?${type}grouped=true&locale=${this.locale}&fields=${fields},group_members&limit=${this.limit}${offsetVar}&ordering=${this.ordering}`
 
             if (this.search) {
                 url = `${url}&search=${this.search}`

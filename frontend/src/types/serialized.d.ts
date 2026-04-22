@@ -18,7 +18,7 @@ export type ContentTagSerializer = { id?: number | null, name?: string | null, s
 
 export type ContentTypeSerializer = { id?: number | null, name?: string | null, slug?: string | null, order_index?: number | null, };
 
-export type GroupMemberSerializer = { id: number, locale_id: number, };
+export type GroupMemberSerializer = { id: number, locale_code: string | null, locale_name: string | null, };
 
 export type MediaSerializer = { id?: number | null, alt?: string | null, title?: string | null, src?: string | null, filename?: string | null, path?: string | null, type?: string | null, width?: number | null, height?: number | null, size?: number, ast_line?: number | null, start_offset?: number | null, end_offset?: number | null, created_at?: string | null, variants?: Array<MediaVariantSerializer>, };
 

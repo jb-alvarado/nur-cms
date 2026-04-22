@@ -96,11 +96,12 @@ fn group_join(entry_alias: &str) -> String {
         r#"LEFT JOIN LATERAL (
             SELECT COALESCE(
                 jsonb_agg(
-                    jsonb_build_object('id', ge.id, 'locale_id', ge.locale_id)
+                    jsonb_build_object('id', ge.id, 'locale_code', l.code, 'locale_name', l.name)
                 ),
                 '[]'::jsonb
             ) AS data
             FROM content_entries ge
+            JOIN locales l ON l.id = ge.locale_id
             WHERE ge.group_id = {e}.group_id
               AND ge.id != {e}.id
         ) AS group_members ON TRUE "#,
@@ -501,11 +502,21 @@ pub async fn select_content_entries(
         qb.push_bind(search);
         qb.push(") AS q ), base_entries AS ( SELECT ce.id, ce.title, ce.slug, ce.status, ce.created_at, ce.updated_at, ce.locale_id, ce.group_id, ce.type_id, ce.category_id, ce.media_id FROM content_entries ce ");
     } else {
-        qb.push("WITH filtered AS NOT MATERIALIZED ( SELECT ce.* FROM content_entries ce ");
+        let lang = match query_obj.grouped {
+            true => ", l.code AS locale_slug",
+            false => "",
+        };
+        qb.push(format!(
+            "WITH filtered AS NOT MATERIALIZED ( SELECT ce.*{lang} FROM content_entries ce "
+        ));
     }
 
     if query_obj.type_slug.is_some() {
         qb.push("JOIN content_types ct ON ct.id = ce.type_id ");
+    }
+
+    if query_obj.grouped {
+        qb.push("JOIN locales l ON l.id = ce.locale_id ");
     }
 
     let mut where_chain = WhereBuilder::new(qb);
@@ -556,7 +567,9 @@ pub async fn select_content_entries(
         );
     }
 
-    if let Some(locale_code) = &query_obj.locale_code {
+    if let Some(locale_code) = &query_obj.locale_code
+        && !query_obj.grouped
+    {
         where_chain.push_and_bind(
             None,
             "EXISTS (SELECT 1 FROM locales l WHERE l.id = ce.locale_id AND l.code = ",
@@ -700,15 +713,25 @@ pub async fn select_content_entries(
         );
     }
 
-    qb.push(" ), page AS ( SELECT f.* FROM filtered f");
+    if query_obj.grouped {
+        qb.push(" ), page AS ( SELECT DISTINCT ON (f.group_id) f.* FROM filtered f ORDER BY f.group_id,");
+
+        if let Some(code) = &query_obj.locale_code {
+            qb.push("(f.locale_slug = ");
+            qb.push_bind(code);
+            qb.push(") DESC,");
+        }
+    } else {
+        qb.push(" ), page AS ( SELECT f.* FROM filtered f ORDER BY");
+    };
     if query_obj.search.is_some() {
         if page_ordering.is_empty() {
-            qb.push(" ORDER BY f.search_score DESC, f.id DESC");
+            qb.push(" f.search_score DESC, f.id DESC");
         } else {
-            qb.push(format!(" ORDER BY f.search_score DESC, {}", page_ordering));
+            qb.push(format!(" f.search_score DESC, {}", page_ordering));
         }
     } else if !page_ordering.is_empty() {
-        qb.push(format!(" ORDER BY {}", page_ordering));
+        qb.push(format!(" {}", page_ordering));
     }
     qb.push(format!(
         " LIMIT {} OFFSET {}",
@@ -716,7 +739,14 @@ pub async fn select_content_entries(
     ));
 
     if query_obj.search_slug.is_none() {
-        qb.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ");
+        match query_obj.grouped {
+            true => qb.push(
+                " ), total AS ( SELECT COUNT(DISTINCT group_id) AS total_count FROM filtered ) SELECT ",
+            ),
+            false => {
+                qb.push(" ), total AS ( SELECT COUNT(*) AS total_count FROM filtered ) SELECT ")
+            }
+        };
     } else {
         qb.push(" ) SELECT ");
     }

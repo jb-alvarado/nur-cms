@@ -499,7 +499,10 @@ pub struct ContentMetaSerializer {
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct GroupMemberSerializer {
     pub id: i32,
-    pub locale_id: i32,
+    #[serde(default)]
+    pub locale_code: Option<String>,
+    #[serde(default)]
+    pub locale_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]

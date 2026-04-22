@@ -64,8 +64,9 @@ declare global {
     interface TableRow {
         check?: boolean
         active: boolean
-        up: boolean, name: string
-        field: string,
+        up: boolean
+        name: string
+        field: string
         minWidth?: number
     }
 

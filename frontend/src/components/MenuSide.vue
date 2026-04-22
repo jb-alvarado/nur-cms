@@ -5,18 +5,21 @@ import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { locales as appLocales } from '@/i18n'
+import { normalizeCode } from '@/utils/helper'
 
 import SseHandler from './SseHandler.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
+
 const auth = useAuth()
 const store = useIndex()
 
 // Load language from localStorage on mount
 const savedLang = localStorage.getItem('language')
 if (savedLang) {
-    locale.value = savedLang
+    locale.value = normalizeCode(savedLang)
+    store.locale = savedLang
 }
 
 onBeforeMount(async () => {
@@ -50,23 +53,16 @@ function toggleTheme() {
 type LangOpt = { code: string; name: string }
 const languageOptions = computed<LangOpt[]>(() => {
     return appLocales.map((l) => ({
-        code: l.code,
+        code: l.language,
         name: l.name,
     }))
 })
 
-function normalizeCode(code: string) {
-    if (!code) return 'en'
-    const lower = code.toLowerCase()
-    if (lower.startsWith('en')) return 'en'
-    if (lower.startsWith('de')) return 'de'
-    return lower
-}
-
 function setLanguage(code: string) {
     const next = normalizeCode(code)
     locale.value = next
-    localStorage.setItem('language', next)
+    store.locale = code
+    localStorage.setItem('language', code)
     document.documentElement.setAttribute('lang', next)
 
     store.randomKey = (Math.random() + 1).toString(36).substring(7)

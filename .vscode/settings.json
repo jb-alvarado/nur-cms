@@ -30,6 +30,7 @@
         "cfgname",
         "ILIKE",
         "lettre",
+        "popovertarget",
         "postgres",
         "REFERER",
         "serde",

@@ -71,3 +71,28 @@ export function iconFrom(type: string | null | undefined): string {
             return 'bi-file-earmark'
     }
 }
+
+export function normalizeCode(code: string): string {
+    if (!code) return 'en'
+    const lower = code.toLowerCase()
+    if (lower.startsWith('en')) return 'en'
+    if (lower.startsWith('de')) return 'de'
+    if (lower.startsWith('fr')) return 'fr'
+    if (lower.startsWith('es')) return 'es'
+    if (lower.startsWith('it')) return 'it'
+    if (lower.startsWith('ru')) return 'ru'
+    if (lower.startsWith('pl')) return 'pl'
+    if (lower.startsWith('nl')) return 'nl'
+    if (lower.startsWith('tr')) return 'tr'
+    if (lower.startsWith('pt')) return 'pt'
+    if (lower.startsWith('zh')) return 'zh'
+    if (lower.startsWith('ja')) return 'ja'
+    if (lower.startsWith('ar')) return 'ar'
+    if (lower.startsWith('cs')) return 'cs'
+    if (lower.startsWith('sv')) return 'sv'
+    if (lower.startsWith('fi')) return 'fi'
+    if (lower.startsWith('da')) return 'da'
+    if (lower.startsWith('no')) return 'no'
+    if (lower.startsWith('el')) return 'el'
+    return lower
+}
