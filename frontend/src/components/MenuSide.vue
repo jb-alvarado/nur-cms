@@ -15,6 +15,8 @@ const router = useRouter()
 const auth = useAuth()
 const store = useIndex()
 
+type LangOpt = { code: string; name: string }
+
 // Load language from localStorage on mount
 const savedLang = localStorage.getItem('language')
 if (savedLang) {
@@ -50,7 +52,6 @@ function toggleTheme() {
     }
 }
 
-type LangOpt = { code: string; name: string }
 const languageOptions = computed<LangOpt[]>(() => {
     return appLocales.map((l) => ({
         code: l.language,
