@@ -181,13 +181,13 @@ if (contentId > 0) {
         })
         .then((response: RespondObj) => {
             addTextNode()
-            const groupMemberLocaleIds = new Set(
+            const groupMemberLocales = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
                         result.group_members?.map((member: GroupMember) => member.locale_code) ?? [result.locale_code],
                 ),
             )
-            locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
+            locales.value = store.locales.filter((locale) => !groupMemberLocales.has(locale.code))
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -810,7 +810,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                             $t('common.language')
                                         }}
                                     </summary>
-                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
                                         <li v-for="l in locales" :key="l.id">
                                             <a @click="content.locale_id = l.id">{{ l.name }}</a>
                                         </li>
@@ -821,7 +821,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     <summary class="btn join-item" @blur="closeDropdown">
                                         {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
                                     </summary>
-                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
                                         <li v-for="l in locales" :key="l.id">
                                             <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
                                         </li>
@@ -847,7 +847,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     >
                                         {{ content.status }}
                                     </summary>
-                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-2 shadow-sm">
+                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-1 shadow-sm">
                                         <li
                                             v-for="s in status"
                                             :key="s"
@@ -872,7 +872,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                         </div>
                     </div>
 
-                    <div class="flex flex-col md:flex-row gap-2 mt-2">
+                    <div class="flex flex-col md:flex-row gap-2 mt-1">
                         <div class="w-64 flex gap-1">
                             <div
                                 class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"

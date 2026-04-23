@@ -184,7 +184,6 @@ pub async fn select_categories(
                 FROM content_categories ge
                 JOIN locales l ON l.id = ge.locale_id
                 WHERE ge.group_id = p.group_id
-                  AND ge.id != p.id
             ) AS group_members ON TRUE "#,
         );
     }

@@ -205,7 +205,12 @@ function getValue(col: any, row: { field: string }) {
                     </span>
                 </td>
                 <td v-if="col.locale_id">
-                    <template v-if="Array.isArray(col.group_members) && col.group_members.length > 0">
+                    <template
+                        v-if="
+                            Array.isArray(col.group_members) &&
+                            col.group_members.filter((gm) => gm.id !== col.id).length > 0
+                        "
+                    >
                         <button
                             class="btn btn-sm btn-primary text-base font-normal"
                             :popovertarget="`lang-select-${col.id}`"
@@ -214,13 +219,19 @@ function getValue(col: any, row: { field: string }) {
                             {{ store.locales.find((l) => l.id === col.locale_id)?.name }}
                         </button>
                         <ul
-                            class="dropdown menu w-28 rounded-box bg-base-100 shadow-sm p-0"
+                            class="dropdown menu w-34 rounded-box bg-base-100 shadow-sm p-1"
                             :class="{ 'dropdown-top': i > 2 && store.tableCols.length - 2 < i }"
                             popover
                             :id="`lang-select-${col.id}`"
                             :style="`position-anchor: --anchor-${i}`"
                         >
-                            <li v-for="lo in sortBy(col.group_members, ['locale_name'])" :key="lo.id">
+                            <li
+                                v-for="lo in sortBy(
+                                    col.group_members.filter((gm) => gm.id !== col.id),
+                                    ['locale_name'],
+                                )"
+                                :key="lo.id"
+                            >
                                 <RouterLink :to="`${prefix}/${type}/${lo.id}`" class="rounded-box">
                                     {{ lo.locale_name }}
                                 </RouterLink>

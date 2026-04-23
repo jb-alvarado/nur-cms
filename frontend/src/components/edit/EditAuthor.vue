@@ -214,9 +214,9 @@ function addMedia(m: Media) {
             class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
         >
             <!-- Form inputs -->
-            <div class="flex items-center flex-wrap gap-2 flex-none">
+            <div class="flex items-center flex-wrap-reverse gap-2 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">
-                    <fieldset class="fieldset w-47 max-w-80 md:max-w-56">
+                    <fieldset class="fieldset w-full max-w-80 md:max-w-64">
                         <legend class="fieldset-legend">{{ $t('user.firstName') }}</legend>
                         <input
                             v-model="author.first_name"
@@ -227,7 +227,7 @@ function addMedia(m: Media) {
                         />
                     </fieldset>
 
-                    <fieldset class="fieldset max-w-80 md:max-w-56">
+                    <fieldset class="fieldset w-full max-w-80 md:max-w-64">
                         <legend class="fieldset-legend">{{ $t('user.lastName') }}</legend>
                         <input
                             v-model="author.last_name"
@@ -238,13 +238,13 @@ function addMedia(m: Media) {
                         />
                     </fieldset>
 
-                    <fieldset class="fieldset max-w-80">
+                    <fieldset class="fieldset w-full max-w-80">
                         <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
                         <input v-model="author.slug" type="text" class="input" :placeholder="$t('article.slug')" />
                     </fieldset>
                 </div>
 
-                <div class="join md:mt-7">
+                <div class="join mt-3 md:mt-8">
                     <button class="btn text-warning join-item" @click="openDeleteModal()">
                         {{ $t('common.delete') }}
                     </button>
@@ -254,7 +254,7 @@ function addMedia(m: Media) {
                 </div>
             </div>
 
-            <div class="w-64 flex gap-1">
+            <div class="w-64 flex gap-1 mt-1">
                 <div
                     class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
                 >

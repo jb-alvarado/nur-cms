@@ -107,7 +107,6 @@ fn group_join(entry_alias: &str) -> String {
             FROM content_entries ge
             JOIN locales l ON l.id = ge.locale_id
             WHERE ge.group_id = {e}.group_id
-              AND ge.id != {e}.id
         ) AS group_members ON TRUE "#,
         e = entry_alias
     )
@@ -238,7 +237,6 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                             )
                             FROM content_categories cc3
                             WHERE cc3.group_id = cc2.group_id
-                              AND cc3.id != cc2.id
                         ),
                         '[]'
                     )"#

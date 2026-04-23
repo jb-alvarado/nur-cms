@@ -60,13 +60,13 @@ if (categoryId > 0) {
             return resp.json()
         })
         .then((response: RespondObj) => {
-            const groupMemberLocaleIds = new Set(
+            const groupMemberLocales = new Set(
                 response.results.flatMap(
                     (result: RespondObj) =>
                         result.group_members?.map((member: GroupMember) => member.locale_code) ?? [result.locale_code],
                 ),
             )
-            locales.value = store.locales.filter((locale) => !groupMemberLocaleIds.has(locale.id))
+            locales.value = store.locales.filter((locale) => !groupMemberLocales.has(locale.code))
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -245,9 +245,9 @@ function addMedia(m: Media) {
             class="flex flex-col flex-1 max-w-5xl min-h-96 bg-base-300 p-4 pt-1 mt-4 rounded overflow-hidden"
         >
             <!-- Form inputs -->
-            <div class="flex items-center flex-wrap gap-4 flex-none">
+            <div class="flex items-center flex-wrap-reverse gap-4 flex-none">
                 <div class="grow flex flex-col md:flex-row gap-2">
-                    <fieldset class="fieldset w-full max-w-80">
+                    <fieldset class="fieldset w-full max-w-64">
                         <legend class="fieldset-legend">{{ $t('article.name') }}</legend>
                         <input
                             v-model="category.name"
@@ -264,7 +264,7 @@ function addMedia(m: Media) {
                     </fieldset>
                 </div>
 
-                <div class="md:mt-7 flex flex-col md:flex-row gap-2">
+                <div class="mt-3 md:mt-8 flex flex-col md:flex-row gap-2">
                     <div class="join">
                         <details v-if="category.id === 0" class="dropdown">
                             <summary class="btn join-item" @blur="closeDropdown">
@@ -273,7 +273,7 @@ function addMedia(m: Media) {
                                     $t('common.language')
                                 }}
                             </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
                                 <li v-for="l in locales" :key="l.id">
                                     <a @click="category.locale_id = l.id">{{ l.name }}</a>
                                 </li>
@@ -284,7 +284,7 @@ function addMedia(m: Media) {
                             <summary class="btn join-item" @blur="closeDropdown">
                                 {{ store.locales.find((l) => l.id === category.locale_id)?.name }}
                             </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-2 shadow-sm">
+                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
                                 <li v-for="l in locales" :key="l.id">
                                     <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
                                 </li>
@@ -310,7 +310,7 @@ function addMedia(m: Media) {
                             >
                                 {{ category.status }}
                             </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-2 shadow-sm">
+                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-24 p-1 shadow-sm">
                                 <li
                                     v-for="s in status"
                                     :key="s"
@@ -335,7 +335,7 @@ function addMedia(m: Media) {
                 </div>
             </div>
 
-            <div class="w-64 flex gap-1">
+            <div class="w-64 flex gap-1 mt-1">
                 <div
                     class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
                 >
