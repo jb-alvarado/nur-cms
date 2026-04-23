@@ -111,12 +111,6 @@ const router = createRouter({
             meta: { showMenu: true },
         },
         {
-            path: '/comment/:id/:group_id',
-            name: 'group comment edit',
-            component: () => import('../views/comment/EditView.vue'),
-            meta: { showMenu: true },
-        },
-        {
             path: '/media',
             name: 'media',
             component: () => import('../views/MediaView.vue'),
