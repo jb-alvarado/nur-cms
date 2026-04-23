@@ -105,6 +105,10 @@ export default {
     dialog: {
         deleteTitle: 'Auswahl löschen',
         deleteConfirm: 'Möchten Sie wirklich {count} Element(e) löschen?',
+        deleteGroupMembers: 'Auch Gruppenmitglieder löschen',
+        statusTitle: 'Status ändern',
+        statusConfirm: 'Möchten Sie wirklich den Status von {count} Element(en) ändern?',
+        statusGroupMembers: 'Status auch für Gruppenmitglieder ändern',
         createTypeTitle: 'Inhaltstyp erstellen',
         editTypeTitle: 'Inhaltstyp bearbeiten',
         createLocaleTitle: 'Sprache erstellen',

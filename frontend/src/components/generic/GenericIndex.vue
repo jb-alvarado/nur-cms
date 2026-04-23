@@ -27,26 +27,47 @@ const lp = computed(() => props.linkPrefix ?? '')
 const selectCount = computed(() => store.tableCols.reduce((acc: number, item: any) => acc + (item.check ? 1 : 0), 0))
 const published = ref(t('button.publish'))
 const approved = ref(t('button.approve'))
+
+const statusModal = ref()
 const deleteModal = ref()
+const statusGroupMembers = ref(false)
+const deleteGroupMembers = ref(false)
+const status = ref('')
 
 const openDeleteModal = () => {
     deleteModal.value.showModal()
 }
 
+function handleDelete() {
+    store.contentDelete(deleteGroupMembers.value)
+    deleteGroupMembers.value = false
+}
+
+function updateStatus() {
+    store.updateStatus(status.value, statusGroupMembers.value)
+    statusGroupMembers.value = false
+    status.value = ''
+}
+
 async function setStatus() {
-    let status
     if (store.routeType === 'comment') {
-        status =
+        status.value =
             approved.value === t('button.approve')
                 ? 'approved'
                 : approved.value === t('button.pending')
                   ? 'pending'
                   : 'rejected'
     } else {
-        status = published.value === t('button.publish') ? 'published' : 'draft'
+        status.value = published.value === t('button.publish') ? 'published' : 'draft'
     }
 
-    store.updateStatus(status)
+    const selected = store.tableCols.filter((c: any) => c.check)
+
+    if (selected.some((c: any) => c.group_members && c.group_members.length > 1)) {
+        statusModal.value.showModal()
+    } else {
+        updateStatus()
+    }
 }
 
 function statusLabel() {
@@ -129,8 +150,26 @@ function resetSearch() {
         <div class="overflow-x-auto mt-4 pb-4">
             <GenericTable :type="store.routeType" :check-box-change="statusLabel" :prefix="lp" />
         </div>
-        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="store.contentDelete">
+        <GenericModal ref="statusModal" :title="$t('dialog.statusTitle')" :ok-action="updateStatus">
+            <p>{{ $t('dialog.statusConfirm', { count: selectCount }) }}</p>
+            <div class="form-control mt-2">
+                <label class="label cursor-pointer">
+                    <input type="checkbox" v-model="statusGroupMembers" class="checkbox checkbox-warning" />
+                    <span class="label-text ms-2">{{ $t('dialog.statusGroupMembers') }}</span>
+                </label>
+            </div>
+        </GenericModal>
+        <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="handleDelete">
             <p>{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>
+            <div
+                v-if="store.tableCols.some((item) => item.check && item.group_members && item.group_members.length > 1)"
+                class="form-control mt-2"
+            >
+                <label class="label cursor-pointer">
+                    <input type="checkbox" v-model="deleteGroupMembers" class="checkbox checkbox-warning" />
+                    <span class="label-text ms-2">{{ $t('dialog.deleteGroupMembers') }}</span>
+                </label>
+            </div>
         </GenericModal>
     </div>
 </template>

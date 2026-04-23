@@ -104,6 +104,10 @@ export default {
     dialog: {
         deleteTitle: 'Delete Selection',
         deleteConfirm: 'Are you sure you want to delete {count} item(s)?',
+        deleteGroupMembers: 'Also delete group members',
+        statusTitle: 'Change Status',
+        statusConfirm: 'Are you sure you want to change the status of {count} item(s)?',
+        statusGroupMembers: 'Also change status for group members',
         createTypeTitle: 'Create Content Type',
         editTypeTitle: 'Edit Content Type',
         createLocaleTitle: 'Create Locale',

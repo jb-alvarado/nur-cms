@@ -50,7 +50,9 @@ defineProps({
 
 onMounted(() => {
     setTimeout(() => {
-        searchRef.value.focus()
+        if (searchRef.value) {
+            searchRef.value.focus()
+        }
     }, 300)
 })
 

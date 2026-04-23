@@ -9,7 +9,7 @@ export const useIndex = defineStore('index', {
         msgList: [] as alertMessage[],
         contentType: { 'content-type': 'application/json;charset=UTF-8' },
         preview: false,
-        limit: Number(localStorage.getItem('limit')  ?? 10 ),
+        limit: Number(localStorage.getItem('limit') ?? 10),
         limits: [10, 25, 50, 100],
         offset: 0,
         total: 0,
@@ -263,53 +263,67 @@ export const useIndex = defineStore('index', {
                 })
         },
 
-        async updateStatus(status: string) {
+        async updateStatus(status: string, updateGroup: boolean = false) {
             const auth = useAuth()
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`/api/${this.suffix}/${item.id}`, {
-                        method: 'PUT',
-                        headers: { ...this.contentType, ...auth.authHeader },
-                        body: JSON.stringify({ status }),
-                    })
-                        .then(async (resp) => {
-                            if (resp.status >= 400) {
-                                const msg = await errMsg(resp)
-                                throw new Error(msg)
-                            } else {
-                                this.msgAlert('success', `Update: ${item.title ?? item.id}`)
-                            }
+                    let ids = [item.id!]
+                    if (updateGroup) {
+                        ids = item.group_members?.map((i) => i.id) ?? [item.id!]
+                    }
+
+                    for (const id of ids) {
+                        await fetch(`/api/${this.suffix}/${id}`, {
+                            method: 'PUT',
+                            headers: { ...this.contentType, ...auth.authHeader },
+                            body: JSON.stringify({ status }),
                         })
-                        .catch((e) => {
-                            this.msgAlert('error', e)
-                        })
+                            .then(async (resp) => {
+                                if (resp.status >= 400) {
+                                    const msg = await errMsg(resp)
+                                    throw new Error(msg)
+                                } else {
+                                    this.msgAlert('success', `Update: ${item.title ?? id}`)
+                                }
+                            })
+                            .catch((e) => {
+                                this.msgAlert('error', e)
+                            })
+                    }
                 }
             }
 
             await this.contentSelect()
         },
 
-        async contentDelete() {
+        async contentDelete(deleteGroup: boolean = false) {
             const auth = useAuth()
 
             for (const item of this.tableCols) {
                 if (item.check) {
-                    await fetch(`/api/${this.suffix}/${item.id}`, {
-                        method: 'DELETE',
-                        headers: auth.authHeader,
-                    })
-                        .then(async (resp) => {
-                            if (resp.status >= 400) {
-                                const msg = await errMsg(resp)
-                                throw new Error(msg)
-                            } else {
-                                this.msgAlert('success', `Deleted: ${item.title ?? item.id}`)
-                            }
+                    let ids = [item.id!]
+                    if (deleteGroup) {
+                        ids = item.group_members?.map((i) => i.id) ?? [item.id!]
+                    }
+
+                    for (const id of ids) {
+                        await fetch(`/api/${this.suffix}/${id}`, {
+                            method: 'DELETE',
+                            headers: auth.authHeader,
                         })
-                        .catch((e) => {
-                            this.msgAlert('error', e)
-                        })
+                            .then(async (resp) => {
+                                if (resp.status >= 400) {
+                                    const msg = await errMsg(resp)
+                                    throw new Error(msg)
+                                } else {
+                                    this.msgAlert('success', `Deleted: ${item.title ?? id}`)
+                                }
+                            })
+                            .catch((e) => {
+                                this.msgAlert('error', e)
+                            })
+                    }
                 }
             }
 

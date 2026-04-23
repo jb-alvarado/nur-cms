@@ -86,16 +86,6 @@ function onChangeCheckbox() {
         }
     }
 
-    // for (const item of groupedColumns.value) {
-    //     const mainCol = colMap.get(item.id)
-    //     if (mainCol) mainCol.check = item.check
-
-    //     for (const loc of item.locale_ids) {
-    //         const locCol = colMap.get(loc.id)
-    //         if (locCol) locCol.check = loc.check ?? item.check
-    //     }
-    // }
-
     props.checkBoxChange()
 }
 
