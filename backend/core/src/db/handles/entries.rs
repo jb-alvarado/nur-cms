@@ -499,15 +499,16 @@ pub async fn select_content_entries(
 
     let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("");
 
+    let lang = match query_obj.grouped {
+        true => ", l.code AS locale_slug",
+        false => "",
+    };
+
     if let Some(search) = query_obj.search.clone() {
         qb.push("WITH search_input AS ( SELECT trim(");
         qb.push_bind(search);
-        qb.push(") AS q ), base_entries AS ( SELECT ce.id, ce.title, ce.slug, ce.status, ce.created_at, ce.updated_at, ce.locale_id, ce.group_id, ce.type_id, ce.category_id, ce.media_id FROM content_entries ce ");
+        qb.push(format!(") AS q ), base_entries AS ( SELECT ce.id, ce.title, ce.slug, ce.status, ce.created_at, ce.updated_at, ce.locale_id, ce.group_id, ce.type_id, ce.category_id, ce.media_id{lang} FROM content_entries ce "));
     } else {
-        let lang = match query_obj.grouped {
-            true => ", l.code AS locale_slug",
-            false => "",
-        };
         qb.push(format!(
             "WITH filtered AS NOT MATERIALIZED ( SELECT ce.*{lang} FROM content_entries ce "
         ));

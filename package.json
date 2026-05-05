@@ -1,6 +1,6 @@
 {
   "name": "frontend",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "private": true,
   "type": "module",
   "engines": {
@@ -19,20 +19,20 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "=4.2.2",
-    "@unhead/vue": "^3.0.5",
-    "@vueuse/core": "^14.2.1",
-    "@vueuse/integrations": "^14.2.1",
+    "@unhead/vue": "^3.1.0",
+    "@vueuse/core": "^14.3.0",
+    "@vueuse/integrations": "^14.3.0",
     "bootstrap-icons": "^1.13.1",
     "dayjs": "^1.11.20",
-    "es-toolkit": "^1.46.0",
+    "es-toolkit": "^1.46.1",
     "jwt-decode": "^4.0.0",
-    "marked": "^18.0.2",
+    "marked": "^18.0.3",
     "marked-footnote": "^1.4.0",
     "pinia": "^3.0.4",
     "sortablejs": "^1.15.7",
     "tailwindcss": "=4.2.2",
     "vue": "^3.5.33",
-    "vue-i18n": "^11.3.2",
+    "vue-i18n": "^11.4.0",
     "vue-multiselect": "^3.5.0",
     "vue-router": "^5.0.6"
   },
@@ -45,7 +45,7 @@
     "@vue/eslint-config-typescript": "^14.7.0",
     "@vue/tsconfig": "^0.9.1",
     "daisyui": "^5.5.19",
-    "eslint": "^10.2.1",
+    "eslint": "^10.3.0",
     "eslint-plugin-vue": "~10.9.0",
     "jiti": "^2.6.1",
     "npm-run-all2": "^8.0.4",
@@ -53,6 +53,6 @@
     "typescript": "^5.9.3",
     "vite": "^8.0.10",
     "vite-plugin-vue-devtools": "^8.1.1",
-    "vue-tsc": "^3.2.7"
+    "vue-tsc": "^3.2.8"
   }
 }

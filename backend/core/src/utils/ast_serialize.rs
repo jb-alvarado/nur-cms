@@ -132,6 +132,31 @@ fn node_type_name(node: &Node) -> &'static str {
     }
 }
 
+fn apply_style_to_text_descendants(node: &mut Value, style_key: &str) {
+    match node {
+        Value::Object(map) => {
+            let node_type = map.get("type").and_then(Value::as_str).unwrap_or("");
+
+            if node_type == "text" {
+                map.insert(style_key.into(), Value::Bool(true));
+                return;
+            }
+
+            if let Some(Value::Array(children)) = map.get_mut("children") {
+                for child in children {
+                    apply_style_to_text_descendants(child, style_key);
+                }
+            }
+        }
+        Value::Array(children) => {
+            for child in children {
+                apply_style_to_text_descendants(child, style_key);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
     match ast {
         Node::Text(text) => {
@@ -220,6 +245,10 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
                 for child in nodes {
                     let mut converted = to_structure_mdast(child, media);
 
+                    if let Some(style_key) = style_key {
+                        apply_style_to_text_descendants(&mut converted, style_key);
+                    }
+
                     if is_link
                         && let Node::Link(parent_link) = ast
                         && let Some(obj) = converted.as_object()
@@ -231,12 +260,15 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
                         continue;
                     }
 
-                    if !is_link
-                        && let Some(style_key) = style_key
-                        && let Value::Object(ref mut out) = converted
+                    if let Some(obj) = converted.as_object()
+                        && matches!(
+                            obj.get("type").and_then(Value::as_str),
+                            Some("strong" | "emphasis" | "delete")
+                        )
+                        && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
                     {
-                        out.insert(style_key.into(), Value::Bool(true));
-                        return converted;
+                        children.extend(inner_children.iter().cloned());
+                        continue;
                     }
 
                     children.push(converted);
