@@ -2,8 +2,6 @@ use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 
 #[cfg(debug_assertions)]
-use sqlx::Execute;
-#[cfg(debug_assertions)]
 use tracing::debug;
 
 use crate::db::{
@@ -151,10 +149,10 @@ pub async fn select_content_author(
         query_builder.push(format!(" ORDER BY {}", outer_ordering));
     }
 
-    let query = query_builder.build_query_as::<AuthorSerializer>();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(query_builder.sql()));
+
+    let query = query_builder.build_query_as::<AuthorSerializer>();
 
     let data: Vec<AuthorSerializer> = query.fetch_all(pool).await?;
 

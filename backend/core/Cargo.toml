@@ -50,8 +50,9 @@ serde_yaml = "0.9"
 strum = "0.28"
 strum_macros = "0.28"
 sqlformat = "0.5"
-sqlx = { version = "0.8", features = [
-    "runtime-tokio-rustls",
+sqlx = { version = "0.9", features = [
+    "runtime-tokio",
+    "tls-rustls",
     "postgres",
     "chrono",
 ] }

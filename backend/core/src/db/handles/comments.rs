@@ -2,8 +2,6 @@ use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 
 #[cfg(debug_assertions)]
-use sqlx::Execute;
-#[cfg(debug_assertions)]
 use tracing::debug;
 
 use crate::db::{
@@ -106,10 +104,10 @@ pub async fn select_comments(
         query_obj.limit, query_obj.offset
     ));
 
-    let query = qb.build_query_as::<Comment>();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(qb.sql()));
+
+    let query = qb.build_query_as::<Comment>();
 
     let data: Vec<Comment> = query.fetch_all(pool).await?;
 
@@ -184,10 +182,10 @@ pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError>
 
     qb.push(") RETURNING id");
 
-    let query = qb.build_query_scalar();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(qb.sql()));
+
+    let query = qb.build_query_scalar();
 
     let id = query.fetch_one(pool).await?;
 

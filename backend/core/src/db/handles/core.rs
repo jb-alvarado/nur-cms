@@ -23,17 +23,15 @@ use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
-#[cfg(debug_assertions)]
-use sqlx::Execute;
 
 pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), NurError> {
     let mut qb = QueryBuilder::<Postgres>::new(format!("DELETE FROM {table} WHERE id = "));
     qb.push_bind(id);
 
-    let query = qb.build();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(qb.sql()));
+
+    let query = qb.build();
 
     let rows_affected = query.execute(pool).await?.rows_affected();
 
@@ -103,10 +101,10 @@ where
         query_obj.limit, query_obj.offset
     ));
 
-    let query = query_builder.build_query_as::<M>();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(query_builder.sql()));
+
+    let query = query_builder.build_query_as::<M>();
 
     let data: Vec<M> = query.fetch_all(pool).await?;
 
@@ -235,10 +233,10 @@ where
 
     qb.push(format!(") RETURNING {return_field}"));
 
-    let query = qb.build_query_scalar();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(qb.sql()));
+
+    let query = qb.build_query_scalar();
 
     let id = query.fetch_one(pool).await?;
 
@@ -346,10 +344,10 @@ where
     qb.push(" WHERE id = ");
     qb.push_bind(id);
 
-    let query = qb.build();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(qb.sql()));
+
+    let query = qb.build();
 
     query.execute(pool).await?;
 

@@ -7,8 +7,6 @@ use tracing::error;
 #[cfg(debug_assertions)]
 use colored::Colorize;
 #[cfg(debug_assertions)]
-use sqlx::Execute;
-#[cfg(debug_assertions)]
 use tracing::debug;
 
 use crate::db::{
@@ -495,6 +493,7 @@ pub async fn select_content_entries(
     };
 
     let page_ordering = ordering_with_alias("f");
+    let picked_ordering = ordering_with_alias("picked");
     let outer_ordering = ordering_with_alias("p");
 
     let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("");
@@ -717,21 +716,37 @@ pub async fn select_content_entries(
     }
 
     if query_obj.grouped {
-        qb.push(" ), page AS ( SELECT DISTINCT ON (f.group_id) f.* FROM filtered f ORDER BY f.group_id,");
+        qb.push(
+            " ), page AS ( SELECT * FROM ( SELECT DISTINCT ON (f.group_id) f.* FROM filtered f ORDER BY f.group_id,",
+        );
 
         if let Some(code) = &query_obj.locale_code {
             qb.push("(f.locale_slug = ");
             qb.push_bind(code);
             qb.push(") DESC,");
         }
+
+        qb.push(" f.created_at DESC ) picked ORDER BY");
     } else {
         qb.push(" ), page AS ( SELECT f.* FROM filtered f ORDER BY");
     };
     if query_obj.search.is_some() {
-        if page_ordering.is_empty() {
+        if query_obj.grouped {
+            if picked_ordering.is_empty() {
+                qb.push(" picked.search_score DESC, picked.id DESC");
+            } else {
+                qb.push(format!(" picked.search_score DESC, {}", picked_ordering));
+            }
+        } else if page_ordering.is_empty() {
             qb.push(" f.search_score DESC, f.id DESC");
         } else {
             qb.push(format!(" f.search_score DESC, {}", page_ordering));
+        }
+    } else if query_obj.grouped {
+        if picked_ordering.is_empty() {
+            qb.push(" picked.created_at DESC");
+        } else {
+            qb.push(format!(" {}", picked_ordering));
         }
     } else if !page_ordering.is_empty() {
         qb.push(format!(" {}", page_ordering));
@@ -854,14 +869,16 @@ pub async fn select_content_entries(
         } else {
             qb.push(format!(" ORDER BY p.search_score DESC, {}", outer_ordering));
         }
+    } else if query_obj.grouped && outer_ordering.is_empty() {
+        qb.push(" ORDER BY p.created_at DESC");
     } else if !outer_ordering.is_empty() {
         qb.push(format!(" ORDER BY {}", outer_ordering));
     }
 
-    let query = qb.build_query_as::<ContentEntrySerializer>();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(qb.sql()));
+
+    let query = qb.build_query_as::<ContentEntrySerializer>();
 
     let mut data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
 

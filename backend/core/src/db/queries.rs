@@ -435,13 +435,13 @@ where
     }
 }
 
-pub struct WhereBuilder<'a> {
-    builder: QueryBuilder<'a, Postgres>,
+pub struct WhereBuilder {
+    builder: QueryBuilder<Postgres>,
     where_set: bool,
 }
 
-impl<'a> WhereBuilder<'a> {
-    pub fn new(builder: QueryBuilder<'a, Postgres>) -> Self {
+impl WhereBuilder {
+    pub fn new(builder: QueryBuilder<Postgres>) -> Self {
         Self {
             builder,
             where_set: false,
@@ -465,7 +465,7 @@ impl<'a> WhereBuilder<'a> {
         self.builder.push(format!(" {condition}"));
     }
 
-    pub fn push_and_bind<T>(
+    pub fn push_and_bind<'a, T>(
         &mut self,
         operator: Option<&str>,
         condition: &str,
@@ -495,7 +495,7 @@ impl<'a> WhereBuilder<'a> {
         }
     }
 
-    pub fn into_inner(self) -> QueryBuilder<'a, Postgres> {
+    pub fn into_inner(self) -> QueryBuilder<Postgres> {
         self.builder
     }
 }

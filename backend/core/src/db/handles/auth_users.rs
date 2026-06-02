@@ -1,8 +1,6 @@
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 
 #[cfg(debug_assertions)]
-use sqlx::Execute;
-#[cfg(debug_assertions)]
 use tracing::debug;
 
 use crate::db::{
@@ -102,10 +100,10 @@ pub async fn select_auth_user(
         query_obj.limit, query_obj.offset
     ));
 
-    let query = query_builder.build_query_as::<AuthUserSerializer>();
-
     #[cfg(debug_assertions)]
-    debug!("{}", format_sql(query.sql()));
+    debug!("{}", format_sql(query_builder.sql()));
+
+    let query = query_builder.build_query_as::<AuthUserSerializer>();
 
     let data: Vec<AuthUserSerializer> = query.fetch_all(pool).await?;
 

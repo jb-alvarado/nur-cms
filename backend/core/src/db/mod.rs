@@ -12,20 +12,26 @@ pub mod queries;
 pub mod serialize;
 
 #[cfg(debug_assertions)]
-pub fn format_sql(s: &str) -> String {
-    sqlformat::format(
-        s,
-        &sqlformat::QueryParams::default(),
-        &sqlformat::FormatOptions {
-            indent: sqlformat::Indent::Spaces(4),
-            uppercase: Some(true),
-            ignore_case_convert: None,
-            lines_between_queries: 1,
-            ..Default::default()
-        },
-    )
-    .bright_black()
-    .to_string()
+const FM: sqlformat::FormatOptions = sqlformat::FormatOptions {
+    indent: sqlformat::Indent::Spaces(4),
+    uppercase: Some(true),
+    ignore_case_convert: None,
+    lines_between_queries: 1,
+    inline: false,
+    max_inline_block: 50,
+    max_inline_arguments: None,
+    max_inline_top_level: None,
+    joins_as_top_level: false,
+    dialect: sqlformat::Dialect::PostgreSql,
+};
+
+#[cfg(debug_assertions)]
+pub fn format_sql(s: impl AsRef<str>) -> String {
+    let sql = s.as_ref();
+
+    sqlformat::format(sql, &sqlformat::QueryParams::default(), &FM)
+        .bright_black()
+        .to_string()
 }
 
 pub fn to_datetime_utc<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>

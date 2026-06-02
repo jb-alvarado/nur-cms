@@ -91,13 +91,11 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
                 migrations.sort_by_key(fs::DirEntry::path);
 
                 for entry in migrations {
-                    use sqlx::Executor;
-
                     let path = entry.path();
                     let sql = fs::read_to_string(&path).await?;
                     info!("Executing dev migration: {:?}", path.file_name().unwrap());
 
-                    pool.execute(&*sql).await?;
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(pool).await?;
                 }
             } else {
                 warn!("Dev migrations folder not found, no migration applied.");
