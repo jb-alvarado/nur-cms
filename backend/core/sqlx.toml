@@ -1,2 +1,2 @@
 [migrate]
-table-name = "_sqlx_nur_core_migrations"
+table-name = "_sqlx_nc_migrations"

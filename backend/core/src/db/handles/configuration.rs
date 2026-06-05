@@ -24,7 +24,7 @@ use crate::db::{
 use crate::utils::errors::NurError;
 
 pub async fn db_migrate(pool: &PgPool) -> Result<(), NurError> {
-    sqlx::migrate!("../../migrations").run(pool).await?;
+    sqlx::migrate!("./migrations").run(pool).await?;
 
     if select_configuration(pool).await.is_err() {
         let secret: String = rand::rng()
@@ -95,7 +95,9 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
                     let sql = fs::read_to_string(&path).await?;
                     info!("Executing dev migration: {:?}", path.file_name().unwrap());
 
-                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(pool).await?;
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                        .execute(pool)
+                        .await?;
                 }
             } else {
                 warn!("Dev migrations folder not found, no migration applied.");
