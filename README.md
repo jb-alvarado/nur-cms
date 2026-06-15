@@ -2,8 +2,6 @@
 
 A simple and fast (headless) content management system built with Rust and Vue.js.
 
-**Note:** This project is in an early stage of development. Therefore, errors may occur.
-
 **This project is open source, but it is not currently a "community project", so there is no support, and feature requests are not welcome. However, minor pull requests may be accepted under certain circumstances.**
 
 ## Features
