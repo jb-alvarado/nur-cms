@@ -240,7 +240,9 @@ function selectContent() {
 
                 locales.value = store.locales.filter((locale) => {
                     const isCurrentLocale = locale.id === content.value.locale_id
-                    const hasGroupMember = content.value.group_members?.some((member) => member.locale_code === locale.code)
+                    const hasGroupMember = content.value.group_members?.some(
+                        (member) => member.locale_code === locale.code,
+                    )
                     return isCurrentLocale || hasGroupMember
                 })
 
@@ -767,7 +769,7 @@ async function insertEntryAuthor(entry: number, author: number) {
             </button>
         </div>
 
-        <div class="flex gap-2 h-full">
+        <div class="flex gap-2 h-[calc(100%-32px)]">
             <div class="flex flex-col h-full">
                 <!-- Form + Editor Container -->
                 <div
