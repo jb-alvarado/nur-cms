@@ -196,8 +196,7 @@ pub async fn upload_chunk(
                 )));
             }
         }
-        Err(e) => {
-            info!("Path does not exist, creating: {}", e);
+        Err(_) => {
             fs::create_dir_all(&output_path).await.map_err(|e| {
                 error!(
                     "Failed to create upload directory {}: {}",
