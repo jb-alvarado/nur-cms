@@ -25,13 +25,16 @@ watch(
     (newLocale) => {
         dayjs.locale(newLocale)
     },
-    { immediate: true }
+    { immediate: true },
 )
 
 async function selectLatestLogins() {
-    await fetch('/api/auth-user?last_login=true&fields=id,first_name,last_name,last_login&ordering=-last_login&limit=5', {
-        headers: auth.authHeader,
-    })
+    await fetch(
+        '/api/auth-user?last_login=true&fields=id,first_name,last_name,last_login&ordering=-last_login&limit=5',
+        {
+            headers: auth.authHeader,
+        },
+    )
         .then(async (resp) => {
             if (resp.status >= 400) {
                 const msg = await errMsg(resp)
@@ -62,7 +65,7 @@ useHead({
 <template>
     <div class="relative w-full h-full">
         <div class="w-full h-full flex items-center justify-center">
-            <div class="text-center opacity-30">
+            <div class="flex flex-col items-center text-center opacity-30">
                 <div id="homeLogo" class="w-96 min-w-52 h-96 min-h-52" />
                 <h1 class="font-bold text-5xl mt-5">{{ frontendName }}</h1>
             </div>
