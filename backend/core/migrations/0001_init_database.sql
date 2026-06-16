@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS media_variants (
 
 CREATE TABLE IF NOT EXISTS content_types (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(12) UNIQUE NOT NULL, -- "Article", "Page", "Event"
-    slug VARCHAR(32) UNIQUE NOT NULL,
+    name VARCHAR(64) UNIQUE NOT NULL, -- "Article", "Page", "Event"
+    slug VARCHAR(64) UNIQUE NOT NULL,
     order_index INT NOT NULL DEFAULT 0
 );
 
