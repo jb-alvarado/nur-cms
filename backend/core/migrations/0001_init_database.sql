@@ -77,7 +77,7 @@ VALUES
     ('Article', 'article', 1, false),
     ('Page', 'page', 2, false),
     ('Event', 'event', 3, true)
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT (slug) DO NOTHING;
 
 CREATE SEQUENCE IF NOT EXISTS category_group_seq START 1001;
 
