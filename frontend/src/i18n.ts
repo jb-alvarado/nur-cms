@@ -1,27 +1,27 @@
 import { createI18n } from 'vue-i18n'
 
-import deDE from './locales/de-DE.ts'
-import enUS from './locales/en-US.ts'
+import de from './locales/de.ts'
+import en from './locales/en.ts'
 
 export const locales = [
     {
         code: 'de',
-        language: 'de-DE',
+        language: 'de',
         name: 'Deutsch',
     },
     {
         code: 'en',
-        language: 'en-US',
+        language: 'en',
         name: 'English',
     },
 ]
 
 const instance = createI18n({
     legacy: false,
-    locale: 'en-US',
+    locale: 'en',
     messages: {
-        de: deDE,
-        en: enUS,
+        de,
+        en,
     },
 })
 

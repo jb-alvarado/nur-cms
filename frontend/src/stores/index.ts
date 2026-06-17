@@ -42,7 +42,7 @@ export const useIndex = defineStore('index', {
         tableCols: [] as Content[],
         authors: [] as ContentAuthor[],
         locales: [] as Locale[],
-        locale: 'en-US',
+        locale: 'en',
         types: [] as ContentTypeExt[],
         routeType: '',
         progress: 0,

@@ -38,10 +38,8 @@ CREATE TABLE IF NOT EXISTS locales (
 INSERT INTO
     locales (code, name, tsv_dict)
 VALUES
-    ('de-DE', 'German', 'german'),
-    ('en-US', 'English (US)', 'english'),
-    ('fr-FR', 'French', 'french'),
-    ('es-ES', 'Spanish', 'spanish')
+    ('de', 'German', 'german'),
+    ('en', 'English', 'english')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS media (
