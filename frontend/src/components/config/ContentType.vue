@@ -249,7 +249,6 @@ function saveType() {
                         <th v-for="row in typeRows" :key="row.field" class="min-w-16">
                             {{ row.name }}
                         </th>
-                        <th>{{ $t('table.order') }}</th>
                         <th class="w-10"></th>
                     </tr>
                 </thead>
@@ -267,9 +266,6 @@ function saveType() {
 
                         <td v-for="row in typeRows" :key="row.field">
                             {{ (col as any)[row.field] }}
-                        </td>
-                        <td class="text-center">
-                            {{ col.order_index }}
                         </td>
                         <td>
                             <button class="btn btn-sm p-1" @click="editType(col)">
