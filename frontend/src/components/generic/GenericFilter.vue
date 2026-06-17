@@ -17,26 +17,26 @@ defineProps({
             <i class="bi bi-gear text-lg leading-0"></i>
         </div>
         <ul tabindex="-1" class="dropdown-content menu bg-base-300 rounded-sm z-1 w-52 p-2 mt-1 shadow-sm">
-            <li
-                v-for="row in store.allRows.filter(
-                    (r) =>
-                        r.field !== 'locale_id' &&
-                        r.field !== 'group_id' &&
-                        (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time'))
-                )"
-                :key="row.field"
-            >
-                <label>
-                    <input
-                        v-model="row.check"
-                        type="checkbox"
-                        class="checkbox checkbox-sm"
-                        @change="store.activeFields()"
-                        :disabled="row.field === 'id'"
-                    />
-                    {{ row.name }}
-                </label>
-            </li>
+            <template v-for="row in store.allRows" :key="row.field">
+                <li
+                    v-if="
+                        row.field !== 'locale_id' &&
+                        row.field !== 'group_id' &&
+                        ((row.field !== 'start_time' && row.field !== 'end_time') || store.type.use_meta)
+                    "
+                >
+                    <label>
+                        <input
+                            v-model="row.check"
+                            type="checkbox"
+                            class="checkbox checkbox-sm"
+                            @change="store.activeFields()"
+                            :disabled="row.field === 'id'"
+                        />
+                        {{ row.name }}
+                    </label>
+                </li>
+            </template>
         </ul>
     </div>
 </template>

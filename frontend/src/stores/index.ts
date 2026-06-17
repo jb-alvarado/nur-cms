@@ -44,6 +44,7 @@ export const useIndex = defineStore('index', {
         locales: [] as Locale[],
         locale: 'en',
         types: [] as ContentTypeExt[],
+        type: {} as ContentTypeExt,
         routeType: '',
         progress: 0,
         progressShow: false,
@@ -119,24 +120,25 @@ export const useIndex = defineStore('index', {
                 .then((response: RespondObj) => {
                     if (response.results?.length > 0) {
                         this.types = response.results.map((t: ContentTypeExt) => {
-                            switch (t.name) {
-                                case 'Article':
+                            switch (t.slug) {
+                                case 'article':
                                     t.icon = 'bi-card-list'
                                     break
-                                case 'Collection':
+                                case 'collection':
                                     t.icon = 'bi-collection'
                                     break
-                                case 'Data':
+                                case 'data':
                                     t.icon = 'bi-collection'
                                     break
-                                case 'Page':
+                                case 'page':
                                     t.icon = 'bi-card-heading'
                                     break
-                                case 'Event':
-                                    t.icon = 'bi-calendar-event'
-                                    break
                                 default:
-                                    t.icon = 'bi-card-text'
+                                    if (t.use_meta) {
+                                        t.icon = 'bi-calendar-event'
+                                    } else {
+                                        t.icon = 'bi-card-text'
+                                    }
                             }
                             return t
                         })

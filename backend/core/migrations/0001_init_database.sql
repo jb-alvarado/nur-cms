@@ -67,15 +67,16 @@ CREATE TABLE IF NOT EXISTS content_types (
     id SERIAL PRIMARY KEY,
     name VARCHAR(64) UNIQUE NOT NULL, -- "Article", "Page", "Event"
     slug VARCHAR(64) UNIQUE NOT NULL,
-    order_index INT NOT NULL DEFAULT 0
+    order_index INT NOT NULL DEFAULT 0,
+    use_meta BOOLEAN NOT NULL DEFAULT false
 );
 
 INSERT INTO
-    content_types (name, slug)
+    content_types (name, slug, order_index, use_meta)
 VALUES
-    ('Article', 'article'),
-    ('Page', 'page'),
-    ('Event', 'event')
+    ('Article', 'article', 1, false),
+    ('Page', 'page', 2, false),
+    ('Event', 'event', 3, true)
 ON CONFLICT (name) DO NOTHING;
 
 CREATE SEQUENCE IF NOT EXISTS category_group_seq START 1001;

@@ -21,6 +21,7 @@ const formType = ref<ContentTypeExt>({
     name: '',
     slug: '',
     order_index: 0,
+    use_meta: false,
 })
 
 const deleteModal = ref()
@@ -143,6 +144,7 @@ function openCreateModal() {
     formType.value.id = 0
     formType.value.name = ''
     formType.value.slug = ''
+    formType.value.use_meta = false
     isEditing.value = false
     typeModal.value.showModal()
 }
@@ -192,6 +194,7 @@ function saveType() {
         body: JSON.stringify({
             name: formType.value.name,
             slug: formType.value.slug,
+            use_meta: formType.value.use_meta,
             ...(!isEditing.value ? { order_index: nextOrderIndex } : {}),
         }),
     })
@@ -205,6 +208,7 @@ function saveType() {
                 formType.value.id = 0
                 formType.value.name = ''
                 formType.value.slug = ''
+                formType.value.use_meta = false
 
                 store.selectTypes()
                 await typeSelect()
@@ -300,6 +304,18 @@ function saveType() {
         <fieldset class="fieldset">
             <legend class="fieldset-legend">{{ $t('contentType.slug') }}</legend>
             <input v-model="formType.slug" type="text" class="input w-full" :placeholder="$t('contentType.slug')" />
+        </fieldset>
+        <fieldset class="fieldset">
+            <label class="label cursor-pointer justify-start gap-2">
+                <input v-model="formType.order_index" type="number" step="1" class="input max-w-16" />
+                <span class="label-text">{{ t('contentType.order') }}</span>
+            </label>
+        </fieldset>
+        <fieldset class="fieldset">
+            <label class="label cursor-pointer justify-start gap-2">
+                <input v-model="formType.use_meta" type="checkbox" class="checkbox" />
+                <span class="label-text">{{ $t('contentType.useMeta') }}</span>
+            </label>
         </fieldset>
     </GenericModal>
 </template>

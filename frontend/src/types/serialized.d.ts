@@ -16,7 +16,7 @@ export type ContentNodeSerializer = { id?: number | null, entry_id?: number | nu
 
 export type ContentTagSerializer = { id?: number | null, name?: string | null, slug?: string | null, };
 
-export type ContentTypeSerializer = { id?: number | null, name?: string | null, slug?: string | null, order_index?: number | null, };
+export type ContentTypeSerializer = { id?: number | null, name?: string | null, slug?: string | null, order_index?: number | null, use_meta?: boolean | null, };
 
 export type GroupMemberSerializer = { id: number, locale_code: string | null, locale_name: string | null, };
 

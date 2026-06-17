@@ -25,7 +25,7 @@ export type ContentNodeTemplate = { id: number, name: string, data: JsonValue, }
 
 export type ContentTag = { id?: number, name?: string, slug?: string, };
 
-export type ContentType = { id?: number, name?: string, slug?: string, order_index: number, };
+export type ContentType = { id?: number, name?: string, slug?: string, order_index: number, use_meta: boolean, };
 
 export type Entry = { id: number, title: string, type: string, slug: string, };
 

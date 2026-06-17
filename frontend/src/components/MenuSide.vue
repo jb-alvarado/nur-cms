@@ -89,16 +89,6 @@ function setLanguage(code: string) {
             <div v-if="store.types.length > 0" class="join join-vertical">
                 <template v-for="item in store.types" :key="item.id">
                     <RouterLink
-                        v-if="item.slug === 'event'"
-                        to="/content/event"
-                        class="btn join-item w-31 p-1 justify-normal items-center"
-                        @click="store.routeType = item.slug ?? ''"
-                    >
-                        <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon"></i>
-                        {{ item.name }}
-                    </RouterLink>
-                    <RouterLink
-                        v-else
                         :to="`/content/${item.slug}`"
                         class="btn join-item w-31 p-1 justify-normal items-center"
                         @click="store.routeType = item.slug ?? ''"

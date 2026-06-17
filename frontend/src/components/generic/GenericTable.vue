@@ -51,7 +51,7 @@ function selectAll() {
 function formatField(col: any, field: string) {
     if (['created_at', 'updated_at'].includes(field)) {
         return dayjs(col[field] as string).format('llll')
-    } else if (col['meta'] && (field === 'start_time' || field === 'end_time')) {
+    } else if (col['meta'] && (field === 'start_time' || field === 'end_time') && col['meta'][field]) {
         return dayjs(col['meta'][field]).format('llll')
     } else if (field === 'author.first_name,author.last_name') {
         if (Array.isArray(col.authors) && col.authors.length > 0) {
@@ -92,6 +92,20 @@ function onChangeCheckbox() {
 function getValue(col: any, row: { field: string }) {
     return col?.[row.field]
 }
+
+function hasMetaValue(field: 'start_time' | 'end_time') {
+    return store.tableCols.some((col: any) => {
+        const value = col?.meta?.[field]
+        return typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
+    })
+}
+
+function shouldShowColumn(field: string) {
+    if (field === 'locale_id' || field === 'group_id') return false
+    if (field === 'start_time') return hasMetaValue('start_time')
+    if (field === 'end_time') return hasMetaValue('end_time')
+    return true
+}
 </script>
 
 <template>
@@ -109,12 +123,7 @@ function getValue(col: any, row: { field: string }) {
                     </label>
                 </th>
                 <th
-                    v-for="row in store.visibleRows.filter(
-                        (r) =>
-                            r.field !== 'locale_id' &&
-                            r.field !== 'group_id' &&
-                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time')),
-                    )"
+                    v-for="row in store.visibleRows.filter((r) => shouldShowColumn(r.field))"
                     :key="row.field"
                     :class="{ 'w-16': row.field === 'id' }"
                     :style="row.minWidth ? { minWidth: `${row.minWidth}px` } : {}"
@@ -147,15 +156,7 @@ function getValue(col: any, row: { field: string }) {
                         />
                     </label>
                 </th>
-                <td
-                    v-for="row in store.visibleRows.filter(
-                        (r) =>
-                            r.field !== 'locale_id' &&
-                            r.field !== 'group_id' &&
-                            (store.routeType === 'event' || (r.field !== 'start_time' && r.field !== 'end_time')),
-                    )"
-                    :key="row.field"
-                >
+                <td v-for="row in store.visibleRows.filter((r) => shouldShowColumn(r.field))" :key="row.field">
                     <span v-if="getValue(col, row) === 'published'" class="text-success bg-base-100 p-1 rounded border">
                         {{ $t('status.published') }}
                     </span>

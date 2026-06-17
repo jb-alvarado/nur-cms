@@ -121,6 +121,10 @@ const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status = ['draft', 'published', 'archived']
 const currentNodeIndex = ref(-1)
 const templateCount = ref(0)
+const currentContentType = computed(() => store.types.find((item) => item.slug === store.routeType))
+const showMetaFields = computed(() => {
+    return Boolean(content.value.meta?.start_time || content.value.meta?.end_time || currentContentType.value?.use_meta)
+})
 
 const authorsFormatted = computed(() =>
     store.authors.map((a) => ({
@@ -942,10 +946,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </Multiselect>
                             </fieldset>
 
-                            <div
-                                v-if="content.meta?.start_time || store.routeType === 'event'"
-                                class="flex flex-wrap gap-2"
-                            >
+                            <div v-if="showMetaFields" class="flex flex-wrap gap-2">
                                 <fieldset class="flex-1 fieldset py-0 min-w-50">
                                     <legend class="fieldset-legend pt-0">{{ $t('common.start') }}</legend>
                                     <input

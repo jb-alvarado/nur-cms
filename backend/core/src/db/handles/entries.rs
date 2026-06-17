@@ -796,7 +796,7 @@ pub async fn select_content_entries(
                 }
             }
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
-            CF::Type => sep.push("(ct.id, ct.name, ct.slug, ct.order_index) AS type".to_string()),
+            CF::Type => sep.push("(ct.id, ct.name, ct.slug, ct.order_index, ct.use_meta) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
             CF::CommentCount => {
                 sep.push("COALESCE(cc.comment_count, 0) AS comment_count".to_string())

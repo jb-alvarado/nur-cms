@@ -256,6 +256,8 @@ pub struct ContentType {
     pub slug: String,
     #[serde(default)]
     pub order_index: i32,
+    #[serde(default)]
+    pub use_meta: bool,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -268,6 +270,7 @@ impl FromRow<'_, PgRow> for ContentType {
             name: row.try_get("name").unwrap_or_default(),
             slug: row.try_get("slug").unwrap_or_default(),
             order_index: row.try_get("order_index").unwrap_or_default(),
+            use_meta: row.try_get("use_meta").unwrap_or(false),
             total_count: row.try_get("total_count").ok(),
         })
     }

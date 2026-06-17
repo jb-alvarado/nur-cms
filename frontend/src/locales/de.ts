@@ -81,6 +81,8 @@ export default {
         title: 'Inhaltstypen',
         name: 'Name',
         slug: 'Slug',
+        order: 'Position',
+        useMeta: 'Meta verwenden',
     },
     locale: {
         title: 'Sprachen',

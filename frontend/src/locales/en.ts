@@ -80,6 +80,8 @@ export default {
         title: 'Content Types',
         name: 'Name',
         slug: 'Slug',
+        order: 'Order',
+        useMeta: 'Use Meta',
     },
     locale: {
         title: 'Locales',
@@ -158,10 +160,10 @@ export default {
         altText: 'Alt Text',
         alt: 'Alt',
         filename: 'Filename',
-            type: 'Type',
-            dimension: 'Dimension',
-            size: 'Size',
-            uploaded: 'Uploaded',
+        type: 'Type',
+        dimension: 'Dimension',
+        size: 'Size',
+        uploaded: 'Uploaded',
     },
     error: {
         notFound: 'Page not found',

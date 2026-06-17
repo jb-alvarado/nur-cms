@@ -175,6 +175,8 @@ pub struct ContentTypeSerializer {
     pub slug: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub order_index: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_meta: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
@@ -249,13 +251,14 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             .and_then(|v| serde_json::from_value::<ContentCategorySerializer>(v).ok());
 
         let r#type = row
-            .try_get::<Option<(i32, String, String, i32)>, _>("type")
+            .try_get::<Option<(i32, String, String, i32, bool)>, _>("type")
             .unwrap_or_default()
-            .map(|(id, name, slug, order_index)| ContentTypeSerializer {
+            .map(|(id, name, slug, order_index, use_meta)| ContentTypeSerializer {
                 id: Some(id),
                 name: Some(name),
                 slug: Some(slug),
                 order_index: Some(order_index),
+                use_meta: Some(use_meta),
             });
 
         for (id, name, slug) in row
