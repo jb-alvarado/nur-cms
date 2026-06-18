@@ -14,7 +14,7 @@ use crate::db::{
         ContentAuthorFields, ContentCategoryFields, ContentEntryFields as CF,
         ContentNodeFields as CN, Table,
     },
-    handles::core::update_record,
+    handles::core::{insert_record, update_record},
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::ContentEntrySerializer,
 };
@@ -24,6 +24,40 @@ use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
 use crate::db::format_sql;
 
 type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value>);
+
+const ENTRY_SLUG_UNIQUE_CONSTRAINT: &str = "content_entries_slug_locale_id_type_id_key";
+
+fn slug_with_suffix(slug: &str, suffix: u32) -> String {
+    format!("{slug}_{suffix}")
+}
+
+fn is_entry_slug_conflict(error: &NurError) -> bool {
+    let error = error.to_string();
+
+    error.contains("duplicate key value violates unique constraint")
+        && error.contains(ENTRY_SLUG_UNIQUE_CONSTRAINT)
+}
+
+pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurError> {
+    let Some(slug) = content.get("slug").and_then(Value::as_str) else {
+        return insert_record(pool, &Table::ContentEntries, content).await;
+    };
+
+    let base_slug = slug.to_string();
+    let mut candidate = content.clone();
+    let mut suffix = 0;
+
+    loop {
+        match insert_record(pool, &Table::ContentEntries, &candidate).await {
+            Ok(id) => return Ok(id),
+            Err(error) if is_entry_slug_conflict(&error) => {
+                suffix += 1;
+                candidate["slug"] = slug_with_suffix(&base_slug, suffix).into();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 
 fn tag_join(entry_alias: &str) -> String {
     format!(
@@ -1202,11 +1236,39 @@ pub async fn update_entry_with_nodes(
     }
 
     // Update the entry record (nodes will be ignored by update_record)
-    update_record(pool, &Table::ContentEntries, entry_id, &content).await?;
+    if let Some(slug) = content.get("slug").and_then(Value::as_str) {
+        let base_slug = slug.to_string();
+        let mut candidate = content.clone();
+        let mut suffix = 0;
+
+        loop {
+            match update_record(pool, &Table::ContentEntries, entry_id, &candidate).await {
+                Ok(()) => break,
+                Err(error) if is_entry_slug_conflict(&error) => {
+                    suffix += 1;
+                    candidate["slug"] = slug_with_suffix(&base_slug, suffix).into();
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    } else {
+        update_record(pool, &Table::ContentEntries, entry_id, content).await?;
+    }
 
     if let Some(nodes) = content.get("nodes").as_ref().and_then(|b| b.as_array()) {
         sync_entry_nodes(pool, entry_id, nodes).await?;
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slug_with_suffix;
+
+    #[test]
+    fn appends_incrementing_suffix_to_slug() {
+        assert_eq!(slug_with_suffix("example", 1), "example_1");
+        assert_eq!(slug_with_suffix("example", 2), "example_2");
+    }
 }

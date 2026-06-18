@@ -241,7 +241,7 @@ pub async fn entry_insert(
         obj.remove("meta");
     }
 
-    let id: i32 = handles::insert_record(&pool, &Table::ContentEntries, &content).await?;
+    let id = handles::insert_entry(&pool, &content).await?;
 
     if let Some(mut m) = meta {
         m["entry_id"] = Value::Number(id.into());
