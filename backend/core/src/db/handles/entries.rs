@@ -830,7 +830,8 @@ pub async fn select_content_entries(
                 }
             }
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
-            CF::Type => sep.push("(ct.id, ct.name, ct.slug, ct.order_index, ct.use_meta) AS type".to_string()),
+            CF::Type => sep
+                .push("(ct.id, ct.name, ct.slug, ct.order_index, ct.use_meta) AS type".to_string()),
             CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
             CF::CommentCount => {
                 sep.push("COALESCE(cc.comment_count, 0) AS comment_count".to_string())
@@ -976,7 +977,6 @@ pub async fn upsert_entry_meta(
     data: &Value,
 ) -> Result<(), sqlx::Error> {
     if let Some(meta_obj) = data.as_object() {
-        let json_data = meta_obj.get("data").cloned();
         let start_time = meta_obj
             .get("start_time")
             .and_then(|v| v.as_str())
@@ -989,15 +989,13 @@ pub async fn upsert_entry_meta(
             .map(|dt| dt.with_timezone(&chrono::Utc));
 
         sqlx::query(
-            r#"INSERT INTO content_meta (entry_id, data, start_time, end_time)
-               VALUES ($1, $2, $3, $4)
+            r#"INSERT INTO content_meta (entry_id, start_time, end_time)
+               VALUES ($1, $2, $3)
                ON CONFLICT (entry_id) DO UPDATE SET
-                   data = EXCLUDED.data,
                    start_time = EXCLUDED.start_time,
                    end_time = EXCLUDED.end_time"#,
         )
         .bind(entry_id)
-        .bind(json_data)
         .bind(start_time)
         .bind(end_time)
         .execute(pool)
