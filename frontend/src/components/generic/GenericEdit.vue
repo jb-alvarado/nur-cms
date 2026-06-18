@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, inject, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -12,6 +12,7 @@ import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
+import { genericEditConfigKey, type GenericEditField, type GenericEditStatus } from '@/types/generic-edit'
 
 import GenericBlock from './GenericBlock.vue'
 import GenericModal from './GenericModal.vue'
@@ -25,10 +26,13 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const store = useIndex()
+const genericEditConfig = inject(genericEditConfigKey, {})
 
 const rootPath = route.path.replace(/\/[0-9/]+$/g, '')
+const routeType = String(route.params.type ?? store.routeType)
 const contentId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
+const defaultStatus = genericEditConfig[routeType]?.defaultStatus ?? genericEditConfig['*']?.defaultStatus ?? 'draft'
 
 const deleteModal = ref()
 const mediaModal = ref()
@@ -98,7 +102,7 @@ const content = ref({
     title: '',
     slug: '',
     nodes: [],
-    status: 'draft',
+    status: defaultStatus,
     locale_id: 0,
     group_members: [],
     check: false,
@@ -118,12 +122,23 @@ const categories = ref<Category[]>([])
 const tags = ref<Tag[]>([])
 const locales = ref<Locale[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
-const status = ['draft', 'published', 'archived']
+const status: GenericEditStatus[] = ['draft', 'published', 'archived']
 const currentNodeIndex = ref(-1)
 const templateCount = ref(0)
 const currentContentType = computed(() => store.types.find((item) => item.slug === store.routeType))
+const disabledFields = computed(() => {
+    return new Set<GenericEditField>([
+        ...(genericEditConfig['*']?.disabledFields ?? []),
+        ...(genericEditConfig[routeType]?.disabledFields ?? []),
+    ])
+})
+const isFieldEnabled = (field: GenericEditField) => !disabledFields.value.has(field)
 const showMetaFields = computed(() => {
-    return Boolean(content.value.meta?.start_time || content.value.meta?.end_time || currentContentType.value?.use_meta)
+    const hasEnabledMetaField = isFieldEnabled('start_time') || isFieldEnabled('end_time')
+    const usesMeta =
+        content.value.meta?.start_time || content.value.meta?.end_time || currentContentType.value?.use_meta
+
+    return Boolean(hasEnabledMetaField && usesMeta)
 })
 
 const authorsFormatted = computed(() =>
@@ -205,8 +220,12 @@ if (contentId > 0) {
     }, 1000)
 }
 
-selectCategories()
-selectTags()
+if (isFieldEnabled('category')) {
+    selectCategories()
+}
+if (isFieldEnabled('tags')) {
+    selectTags()
+}
 
 function selectContent() {
     fetch(`/api/content/entries?type_slug=${store.routeType}&id=${contentId}&output_type=markdown`, {
@@ -457,6 +476,12 @@ async function save() {
             return !isEqual(value, (contentOriginal.value as Record<string, any>)[key])
         }),
     )
+
+    // New entries must send their configured initial status because it is unchanged
+    // relative to contentOriginal and would otherwise be omitted from the payload.
+    if (contentId === 0) {
+        payload.status = content.value.status
+    }
 
     // Calculate tag changes
     const originalTagIds = new Set(contentOriginal.value.tags?.map((t) => t.id) ?? [])
@@ -783,8 +808,11 @@ async function insertEntryAuthor(entry: number, author: number) {
                 >
                     <!-- Form inputs -->
                     <div class="flex flex-wrap-reverse gap-4">
-                        <div class="grow flex flex-col md:flex-row gap-2">
-                            <fieldset class="fieldset w-64">
+                        <div
+                            v-if="isFieldEnabled('title') || isFieldEnabled('slug')"
+                            class="grow flex flex-col md:flex-row gap-2"
+                        >
+                            <fieldset v-if="isFieldEnabled('title')" class="fieldset w-64">
                                 <legend class="fieldset-legend">{{ $t('table.title') }}</legend>
                                 <input
                                     v-model="content.title"
@@ -796,7 +824,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 />
                             </fieldset>
 
-                            <fieldset class="fieldset w-64">
+                            <fieldset v-if="isFieldEnabled('slug')" class="fieldset w-64">
                                 <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
                                 <input
                                     v-model="content.slug"
@@ -809,40 +837,46 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                         <div class="mt-3 md:mt-8 flex gap-2 flex-none">
                             <div class="join">
-                                <details v-if="content.id === 0" class="dropdown">
-                                    <summary class="btn join-item" @blur="closeDropdown">
-                                        {{
-                                            store.locales.find((l) => l.id === content.locale_id)?.name ||
-                                            $t('common.language')
-                                        }}
-                                    </summary>
-                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
-                                        <li v-for="l in locales" :key="l.id">
-                                            <a @click="content.locale_id = l.id">{{ l.name }}</a>
-                                        </li>
-                                    </ul>
-                                </details>
+                                <template v-if="locales.length > 1">
+                                    <details v-if="content.id === 0" class="dropdown">
+                                        <summary class="btn join-item" @blur="closeDropdown">
+                                            {{
+                                                store.locales.find((l) => l.id === content.locale_id)?.name ||
+                                                $t('common.language')
+                                            }}
+                                        </summary>
+                                        <ul
+                                            class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm"
+                                        >
+                                            <li v-for="l in locales" :key="l.id">
+                                                <a @click="content.locale_id = l.id">{{ l.name }}</a>
+                                            </li>
+                                        </ul>
+                                    </details>
 
-                                <details v-if="(content.id ?? 0) > 0" class="dropdown">
-                                    <summary class="btn join-item" @blur="closeDropdown">
-                                        {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
-                                    </summary>
-                                    <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
-                                        <li v-for="l in locales" :key="l.id">
-                                            <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
-                                        </li>
-                                    </ul>
-                                </details>
+                                    <details v-if="(content.id ?? 0) > 0" class="dropdown">
+                                        <summary class="btn join-item" @blur="closeDropdown">
+                                            {{ store.locales.find((l) => l.id === content.locale_id)?.name }}
+                                        </summary>
+                                        <ul
+                                            class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm"
+                                        >
+                                            <li v-for="l in locales" :key="l.id">
+                                                <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
+                                            </li>
+                                        </ul>
+                                    </details>
 
-                                <RouterLink
-                                    :to="`${rootPath}/0/${content.group_id}`"
-                                    class="btn join-item px-2"
-                                    :title="$t('common.addLanguage')"
-                                >
-                                    <i class="bi bi-plus-lg"></i>
-                                </RouterLink>
+                                    <RouterLink
+                                        :to="`${rootPath}/0/${content.group_id}`"
+                                        class="btn join-item px-2"
+                                        :title="$t('common.addLanguage')"
+                                    >
+                                        <i class="bi bi-plus-lg"></i>
+                                    </RouterLink>
+                                </template>
 
-                                <details class="dropdown">
+                                <details v-if="isFieldEnabled('status')" class="dropdown">
                                     <summary
                                         class="btn join-item"
                                         :class="{
@@ -868,7 +902,11 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </div>
 
                             <div class="join">
-                                <button class="btn text-warning join-item" @click="openDeleteModal()">
+                                <button
+                                    v-if="isFieldEnabled('delete')"
+                                    class="btn text-warning join-item"
+                                    @click="openDeleteModal()"
+                                >
                                     {{ $t('common.delete') }}
                                 </button>
                                 <button class="btn join-item" :class="{ 'btn-primary': needsSave }" @click="save()">
@@ -902,7 +940,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                         <div class="grow flex flex-col gap-2">
                             <div class="flex flex-wrap w-full gap-2">
-                                <fieldset class="fieldset py-0 grow min-w-64">
+                                <fieldset v-if="isFieldEnabled('author')" class="fieldset py-0 grow min-w-64">
                                     <legend class="fieldset-legend pt-0">{{ $t('article.authors') }}</legend>
                                     <Multiselect
                                         v-model="selectedAuthorsFormatted"
@@ -915,7 +953,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     >
                                     </Multiselect>
                                 </fieldset>
-                                <fieldset class="fieldset py-0 grow min-w-46">
+                                <fieldset v-if="isFieldEnabled('category')" class="fieldset py-0 grow min-w-46">
                                     <legend class="fieldset-legend pt-0">{{ $t('article.category') }}</legend>
                                     <Multiselect
                                         v-model="selectedCategory"
@@ -930,7 +968,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </fieldset>
                             </div>
 
-                            <fieldset class="fieldset py-0">
+                            <fieldset v-if="isFieldEnabled('tags')" class="fieldset py-0">
                                 <legend class="fieldset-legend pt-0">{{ $t('article.tags') }}</legend>
                                 <Multiselect
                                     v-model="content.tags"
@@ -947,7 +985,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </fieldset>
 
                             <div v-if="showMetaFields" class="flex flex-wrap gap-2">
-                                <fieldset class="flex-1 fieldset py-0 min-w-50">
+                                <fieldset v-if="isFieldEnabled('start_time')" class="flex-1 fieldset py-0 min-w-50">
                                     <legend class="fieldset-legend pt-0">{{ $t('common.start') }}</legend>
                                     <input
                                         v-model="content.meta!.start_time"
@@ -955,7 +993,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                         class="input w-full"
                                     />
                                 </fieldset>
-                                <fieldset class="flex-1 fieldset py-0 min-w-50">
+                                <fieldset v-if="isFieldEnabled('end_time')" class="flex-1 fieldset py-0 min-w-50">
                                     <legend class="fieldset-legend pt-0">{{ $t('common.end') }}</legend>
                                     <input
                                         v-model="content.meta!.end_time"
