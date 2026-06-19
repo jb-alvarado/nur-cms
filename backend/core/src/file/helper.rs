@@ -5,48 +5,43 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
 use tokio::{
     fs,
     sync::{Mutex, broadcast::Sender},
 };
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::{
     PUBLIC_UPLOADS, STORAGE,
-    db::{
-        fields::Table,
-        handles,
-        models::{Configuration, Media, MediaVariant},
-        serialize::MediaSerializer,
-    },
+    db::{models::Configuration, serialize::MediaSerializer},
     file::processing::save_image,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
 
-/// Metadata for a single file upload
-#[derive(Clone, Default)]
-pub struct Meta {
-    pub db_id: Option<i32>,
-    pub mime_type: Option<String>,
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedUpload {
+    user_id: i32,
+    total_size: u64,
+    ranges: Vec<(u64, u64)>,
+}
+
+#[derive(Debug)]
+struct UploadState {
+    batch_id: String,
+    user_id: i32,
+    total_size: u64,
+    ranges: Vec<Range<u64>>,
+    finalizing: bool,
 }
 
 #[derive(Clone)]
 pub struct Upload {
-    pub batch_id: String,
-    pub ranges: Arc<Mutex<Vec<Range<u64>>>>,
-    pub meta: Arc<Mutex<Meta>>,
-}
-
-impl Upload {
-    pub fn new(batch_id: String, meta: Arc<Mutex<Meta>>) -> Self {
-        Self {
-            batch_id,
-            ranges: Arc::new(Mutex::new(Vec::new())),
-            meta,
-        }
-    }
+    state: Arc<Mutex<UploadState>>,
+    pub temp_file: PathBuf,
+    pub metadata_file: PathBuf,
 }
 
 /// Tracks byte ranges for resumable uploads
@@ -93,112 +88,290 @@ pub fn is_upload_complete(ranges: &[Range<u64>], total_size: u64) -> bool {
     pos == total_size
 }
 
-/// Check if a batch of uploads is complete
-pub fn is_batch_complete(upload_map: &UploadMap, batch_id: &str, batch_count: usize) -> bool {
-    upload_map
-        .values()
-        .filter(|upload| upload.batch_id == batch_id)
-        .count()
-        == batch_count
+fn append_extension(path: &Path, extension: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(extension);
+    PathBuf::from(name)
 }
 
-/// Get or create UploadValue for a file
-pub async fn file_ranges(
-    start: u64,
-    total_size: u64,
-    file_name: &str,
+pub fn uploading_path(output_file: &Path) -> PathBuf {
+    append_extension(output_file, ".uploading")
+}
+
+fn metadata_path(temp_file: &Path) -> PathBuf {
+    append_extension(temp_file, ".json")
+}
+
+pub async fn get_active_upload(
     output_file: &Path,
     batch_id: &str,
-    meta: Arc<Mutex<Meta>>,
+    user_id: i32,
+    total_size: u64,
+) -> Result<Option<Upload>, NurError> {
+    let upload_key = output_file.to_string_lossy().to_string();
+    let uploads = UPLOADS.lock().await;
+    let Some(upload) = uploads.get(&upload_key) else {
+        return Ok(None);
+    };
+
+    let mut state = upload.state.lock().await;
+    if state.batch_id != batch_id {
+        if state.ranges.is_empty() && !state.finalizing {
+            state.batch_id = batch_id.to_string();
+        } else {
+            return Err(NurError::Conflict(
+                "Another upload is already writing this file.".into(),
+            ));
+        }
+    }
+    if state.user_id != user_id || state.total_size != total_size {
+        return Err(NurError::Conflict(
+            "Upload metadata does not match the existing upload.".into(),
+        ));
+    }
+    drop(state);
+
+    Ok(Some(upload.clone()))
+}
+
+async fn persist_upload(upload: &Upload, state: &UploadState) -> Result<(), NurError> {
+    let persisted = PersistedUpload {
+        user_id: state.user_id,
+        total_size: state.total_size,
+        ranges: state.ranges.iter().map(|r| (r.start, r.end)).collect(),
+    };
+    let data = serde_json::to_vec(&persisted)?;
+    let temporary_metadata = append_extension(&upload.metadata_file, ".tmp");
+
+    fs::write(&temporary_metadata, data).await?;
+    fs::rename(&temporary_metadata, &upload.metadata_file).await?;
+
+    Ok(())
+}
+
+/// Get or restore the tracked state for a file upload.
+pub async fn get_or_create_upload(
+    total_size: u64,
+    output_file: &Path,
+    batch_id: &str,
+    user_id: i32,
 ) -> Result<Upload, NurError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let mut uploads = UPLOADS.lock().await;
 
-    // Prevent overwriting if file already exists and is not being tracked
-    if total_size > 0
-        && fs::metadata(&output_file)
-            .await
-            .is_ok_and(|f| f.len() == total_size)
-        && !uploads.contains_key(&upload_key)
-    {
+    if let Some(upload) = uploads.get(&upload_key) {
+        let mut state = upload.state.lock().await;
+        if state.batch_id != batch_id {
+            if state.ranges.is_empty() && !state.finalizing {
+                state.batch_id = batch_id.to_string();
+            } else {
+                return Err(NurError::Conflict(
+                    "Another upload is already writing this file.".into(),
+                ));
+            }
+        }
+        if state.user_id != user_id || state.total_size != total_size {
+            return Err(NurError::Conflict(
+                "Upload metadata does not match the existing upload.".into(),
+            ));
+        }
+        drop(state);
+        return Ok(upload.clone());
+    }
+
+    if fs::try_exists(output_file).await? {
         return Err(NurError::Conflict(format!(
-            "File {file_name:?} is currently being uploaded!"
+            "File '{}' already exists on disk.",
+            output_file.display()
         )));
     }
 
-    // Remove old tracking if start == 0 and file has no active ranges
-    if start == 0 {
-        if let Some(upload) = uploads.get(&upload_key) {
-            let is_empty = {
-                let guard = upload.ranges.lock().await;
-                guard.is_empty()
-            };
+    let temp_file = uploading_path(output_file);
+    let metadata_file = metadata_path(&temp_file);
+    let state = if fs::try_exists(&metadata_file).await? {
+        let data = fs::read(&metadata_file).await?;
+        let persisted: PersistedUpload = serde_json::from_slice(&data)?;
 
-            if is_empty {
-                uploads.remove(&upload_key);
-                warn!("Removed old upload history for {file_name:?}");
+        if persisted.user_id != user_id || persisted.total_size != total_size {
+            return Err(NurError::Conflict(
+                "An incompatible incomplete upload already exists.".into(),
+            ));
+        }
+
+        let mut ranges = persisted
+            .ranges
+            .into_iter()
+            .map(|(start, end)| start..end)
+            .collect::<Vec<_>>();
+
+        if ranges
+            .iter()
+            .any(|range| range.start >= range.end || range.end > total_size)
+        {
+            return Err(NurError::Conflict(
+                "Stored upload ranges are invalid.".into(),
+            ));
+        }
+
+        if let Some(last_end) = ranges.iter().map(|range| range.end).max() {
+            let temp_size = fs::metadata(&temp_file).await.map(|meta| meta.len());
+            if temp_size.is_err() || temp_size.is_ok_and(|size| size < last_end) {
+                return Err(NurError::Conflict(
+                    "Incomplete upload data does not match its resume metadata.".into(),
+                ));
             }
         }
 
-        info!("Start uploading: {output_file:?}");
-    }
+        merge_ranges(&mut ranges);
 
-    let upload_entry = uploads
-        .entry(upload_key.clone())
-        .or_insert_with(|| Upload::new(batch_id.to_string(), meta.clone()));
+        UploadState {
+            batch_id: batch_id.to_string(),
+            user_id,
+            total_size,
+            ranges,
+            finalizing: false,
+        }
+    } else {
+        if fs::try_exists(&temp_file).await? {
+            return Err(NurError::Conflict(format!(
+                "Incomplete upload '{}' has no resume metadata.",
+                temp_file.display()
+            )));
+        }
 
-    let result = Upload {
-        batch_id: upload_entry.batch_id.clone(),
-        ranges: upload_entry.ranges.clone(),
-        meta: upload_entry.meta.clone(),
+        UploadState {
+            batch_id: batch_id.to_string(),
+            user_id,
+            total_size,
+            ranges: Vec::new(),
+            finalizing: false,
+        }
     };
 
-    drop(uploads);
-    Ok(result)
+    let upload = Upload {
+        state: Arc::new(Mutex::new(state)),
+        temp_file,
+        metadata_file,
+    };
+
+    {
+        let state = upload.state.lock().await;
+        persist_upload(&upload, &state).await?;
+    }
+
+    uploads.insert(upload_key, upload.clone());
+    info!("Start or resume uploading: {output_file:?}");
+
+    Ok(upload)
 }
 
-/// Remove all uploads of a batch
-pub async fn cleanup_uploads(batch_id: &str) {
-    let mut uploads = UPLOADS.lock().await;
-    uploads.retain(|_, upload| upload.batch_id != batch_id);
-}
-
-/// Check if file already exists in database
-pub async fn file_exists_in_db(
-    pool: &PgPool,
-    filename: &str,
-    path: &str,
+pub async fn write_upload_chunk(
+    upload: &Upload,
+    start: u64,
+    end: u64,
+    chunk_data: &[u8],
 ) -> Result<bool, NurError> {
-    const QUERY: &str = "SELECT EXISTS(SELECT 1 FROM media WHERE filename = $1 AND path = $2)";
-    let exists: bool = sqlx::query_scalar(QUERY)
-        .bind(filename)
-        .bind(path)
-        .fetch_one(pool)
-        .await?;
-    Ok(exists)
+    use tokio::io::{AsyncSeekExt, AsyncWriteExt, SeekFrom};
+
+    let mut state = upload.state.lock().await;
+
+    if state.finalizing {
+        return Ok(false);
+    }
+
+    let already_written = state
+        .ranges
+        .iter()
+        .any(|range| range.start <= start && range.end >= end);
+
+    if !already_written {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&upload.temp_file)
+            .await?;
+        file.seek(SeekFrom::Start(start)).await?;
+        file.write_all(chunk_data).await?;
+        file.flush().await?;
+        file.sync_data().await?;
+
+        state.ranges.push(start..end);
+        merge_ranges(&mut state.ranges);
+        persist_upload(upload, &state).await?;
+    }
+
+    if is_upload_complete(&state.ranges, state.total_size) {
+        state.finalizing = true;
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
-/// Add media record to database and update UploadMeta
+pub async fn reset_finalizing(upload: &Upload) {
+    upload.state.lock().await.finalizing = false;
+}
+
+pub async fn received_ranges(upload: &Upload) -> Vec<(u64, u64)> {
+    let state = upload.state.lock().await;
+
+    // A fully written temporary file still needs one request to claim finalization
+    // after a process restart. Returning no ranges makes the client resend a chunk.
+    if is_upload_complete(&state.ranges, state.total_size) && !state.finalizing {
+        return Vec::new();
+    }
+
+    state
+        .ranges
+        .iter()
+        .map(|range| (range.start, range.end))
+        .collect()
+}
+
+pub async fn cleanup_upload(output_file: &Path, upload: &Upload) {
+    let upload_key = output_file.to_string_lossy().to_string();
+    UPLOADS.lock().await.remove(&upload_key);
+
+    if let Err(error) = fs::remove_file(&upload.metadata_file).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        error!("Failed to remove upload metadata: {error}");
+    }
+}
+
+pub async fn delete_media_record(pool: &PgPool, media_id: i32) {
+    if let Err(error) = sqlx::query("DELETE FROM media WHERE id = $1")
+        .bind(media_id)
+        .execute(pool)
+        .await
+    {
+        error!("Failed to roll back media record {media_id}: {error}");
+    }
+}
+
+/// Add one unique media record for the completed temporary file.
 pub async fn add_media_record(
     pool: &PgPool,
     user_id: i32,
-    output_file: &PathBuf,
-) -> Result<(), NurError> {
-    let upload_key = output_file.to_string_lossy().to_string();
+    upload_id: &str,
+    temp_file: &Path,
+    output_file: &Path,
+) -> Result<(i32, String, bool), NurError> {
     let mime_type = mime_guess::from_path(output_file)
         .first_or_octet_stream()
         .to_string();
 
     let (width, height) = if mime_type.starts_with("image") {
-        let img = image::open(output_file)?;
-        let width = img.width();
-        let height = img.height();
-        (Some(width as i32), Some(height as i32))
+        match image::open(temp_file) {
+            Ok(img) => (Some(img.width() as i32), Some(img.height() as i32)),
+            Err(_) => (None, None),
+        }
     } else {
         (None, None)
     };
 
-    let size = output_file.metadata().map(|m| m.len() as i64).ok();
+    let size = fs::metadata(temp_file).await.ok().map(|m| m.len() as i64);
 
     let path = output_file
         .strip_prefix(STORAGE.as_str())
@@ -209,109 +382,86 @@ pub async fn add_media_record(
         .to_string_lossy()
         .to_string();
 
-    let data = Media {
-        alt: Some(
-            output_file
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("file")
-                .to_string(),
-        ),
-        filename: output_file
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string(),
-        path,
-        r#type: Some(mime_type.clone()),
-        width,
-        height,
-        size,
-        uploaded_by: Some(user_id),
-        ..Default::default()
-    };
+    let filename = output_file
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let alt = output_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
 
-    let media_id: i32 = handles::insert_record(pool, &Table::Media, &data).await?;
+    let media_id = sqlx::query_scalar::<_, i32>(
+        r#"INSERT INTO media
+               (alt, filename, path, type, width, height, size, uploaded_by, upload_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (path, filename) DO NOTHING
+           RETURNING id"#,
+    )
+    .bind(alt)
+    .bind(filename)
+    .bind(path)
+    .bind(&mime_type)
+    .bind(width)
+    .bind(height)
+    .bind(size)
+    .bind(user_id)
+    .bind(upload_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| NurError::Conflict("File already exists in database.".into()))?;
 
-    let mut uploads = UPLOADS.lock().await;
-    if let Some(upload) = uploads.get_mut(&upload_key) {
-        let mut meta = upload.meta.lock().await;
-        meta.db_id = Some(media_id);
-        meta.mime_type = Some(mime_type);
-    }
-
-    Ok(())
+    Ok((media_id, mime_type, width.is_some()))
 }
 
-/// Process image variants in a batch
-pub fn process_variants(
-    pool: PgPool,
-    config: Configuration,
-    upload_map: UploadMap,
-    batch_id: String,
-    tx: Sender<String>,
+/// Generate all variants and wait until every database row has been inserted.
+pub async fn process_variants(
+    pool: &PgPool,
+    config: &Configuration,
+    output_file: &Path,
+    media_id: i32,
+    mime_type: &str,
+    processable_image: bool,
+    tx: &Sender<String>,
 ) -> Result<(), NurError> {
-    let resolutions = config.image_resolutions.unwrap_or_default();
-    let extensions = config.image_extensions.unwrap_or_default();
+    let resolutions = config.image_resolutions.clone().unwrap_or_default();
+    let extensions = config.image_extensions.clone().unwrap_or_default();
 
-    let mut batch_files = Vec::new();
-    for (path_str, upload) in upload_map {
-        if upload.batch_id == batch_id {
-            let meta = upload.meta.blocking_lock();
-            if let (Some(db_id), Some(mime_type)) = (meta.db_id, meta.mime_type.clone()) {
-                batch_files.push((PathBuf::from(path_str), db_id, mime_type));
-            }
-        }
+    if !mime_type.starts_with("image") || !processable_image || extensions.is_empty() {
+        return Ok(());
     }
 
-    if batch_files
-        .iter()
-        .any(|(_, _, mime_type)| mime_type.contains("image"))
-    {
-        let msg = SSEMessage::new(Level::Info, "Create image variants in background.");
-        if let Err(e) = tx.send(msg.to_string()) {
-            error!("SSE send failed: {e}");
-        }
+    let msg = SSEMessage::new(Level::Info, "Create image variants.");
+    let _ = tx.send(msg.to_string());
+
+    let output_file = output_file.to_path_buf();
+    let tx_clone = tx.clone();
+    let variants = tokio::task::spawn_blocking(move || {
+        save_image(resolutions, &extensions, &output_file, Some(tx_clone))
+            .map_err(|error| error.to_string())
+    })
+    .await?
+    .map_err(NurError::Conflict)?;
+
+    if variants.is_empty() {
+        return Err(NurError::Conflict(
+            "No image variants were generated.".into(),
+        ));
     }
 
-    // Process each image sequentially to avoid excessive task spawning
-    for (output_file, media_id, mime_type) in batch_files {
-        if mime_type.contains("image") {
-            match save_image(
-                resolutions.clone(),
-                &extensions,
-                &output_file,
-                Some(tx.clone()),
-            ) {
-                Ok(variants) => {
-                    for (width, height, filename) in variants {
-                        let pool_clone = pool.clone();
-                        let variance = MediaVariant {
-                            id: 0,
-                            media_id,
-                            width,
-                            height,
-                            filename,
-                            total_count: None,
-                        };
-
-                        // Spawn async task for DB insert
-                        tokio::spawn(async move {
-                            if let Err(e) = handles::insert_record::<MediaVariant, i64>(
-                                &pool_clone,
-                                &Table::MediaVariants,
-                                &variance,
-                            )
-                            .await
-                            {
-                                error!("Error inserting MediaVariant: {e}");
-                            }
-                        });
-                    }
-                }
-                Err(e) => error!("Error saving image variants: {e}"),
-            }
-        }
+    for (width, height, filename) in variants {
+        sqlx::query(
+            r#"INSERT INTO media_variants (media_id, width, height, filename)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (media_id, width, height, filename) DO NOTHING"#,
+        )
+        .bind(media_id)
+        .bind(width)
+        .bind(height)
+        .bind(filename)
+        .execute(pool)
+        .await?;
     }
 
     Ok(())
@@ -426,4 +576,33 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> 
     info!("Removed file {:?}", target);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_upload_complete, merge_ranges, uploading_path};
+    use std::{ops::Range, path::Path};
+
+    #[test]
+    fn merges_overlapping_and_adjacent_ranges() {
+        let mut ranges: Vec<Range<u64>> = vec![10..20, 0..5, 5..12, 30..40];
+
+        merge_ranges(&mut ranges);
+
+        assert_eq!(ranges, vec![0..20, 30..40]);
+    }
+
+    #[test]
+    fn only_contiguous_ranges_complete_an_upload() {
+        assert!(is_upload_complete(&[0..10, 10..20], 20));
+        assert!(!is_upload_complete(&[0..10, 12..20], 20));
+    }
+
+    #[test]
+    fn appends_uploading_to_the_full_filename() {
+        assert_eq!(
+            uploading_path(Path::new("/uploads/image.jpg")),
+            Path::new("/uploads/image.jpg.uploading")
+        );
+    }
 }

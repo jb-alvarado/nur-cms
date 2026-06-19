@@ -13,6 +13,8 @@ const store = useIndex()
 const uploading = ref(false)
 const input = ref()
 const error = ref('')
+const batchId = ref(shortID())
+const completedFiles = new Set<string>()
 
 const MAX_PARALLEL_UPLOADS = 4
 const DEFAULT_CHUNK_SIZE = 1024 * 512 // 512 kb
@@ -24,7 +26,7 @@ const lastTime = ref(Date.now())
 
 defineExpose({
     upload() {
-        runJob()
+        return runJob()
     },
 })
 
@@ -52,24 +54,51 @@ async function uploadFile(
     batch_id: string,
     currentIndex: number,
     count: number,
-    chunkSize = DEFAULT_CHUNK_SIZE
+    chunkSize = DEFAULT_CHUNK_SIZE,
 ) {
     let offset = 0
     const totalChunks = Math.ceil(file.size / chunkSize)
     const fileSize = file.size
-    let completedChunks = 0
-    let hasError = false  // ← Error flag
+    let hasError = false
+
+    const statusParams = new URLSearchParams({
+        file_name: file.name,
+        size: fileSize.toString(),
+        batch_id,
+    })
+    const statusResponse = await fetch(`/api/upload?${statusParams}`, {
+        headers: auth.authHeader,
+    })
+    if (!statusResponse.ok) {
+        throw new Error(await errMsg(statusResponse))
+    }
+
+    const status = (await statusResponse.json()) as {
+        received_ranges: [number, number][]
+        complete: boolean
+    }
+    if (status.complete) return
 
     const queue: { start: number; end: number; blob: Blob }[] = []
+    lastLoaded = 0
+    lastTime.value = Date.now()
 
     while (offset < file.size) {
         const end = Math.min(offset + chunkSize, file.size)
-        queue.push({ start: offset, end, blob: file.slice(offset, end) })
+        const alreadyReceived = status.received_ranges.some(
+            ([rangeStart, rangeEnd]) => rangeStart <= offset && rangeEnd >= end,
+        )
+        if (!alreadyReceived) {
+            queue.push({ start: offset, end, blob: file.slice(offset, end) })
+        }
         offset = end
     }
 
+    let completedChunks = totalChunks - queue.length
+    updateProgress(completedChunks, fileSize, currentIndex, count)
+
     async function worker() {
-        while (queue.length && !hasError) {  // ← Stop if error
+        while (queue.length && !hasError) {
             const { start, end, blob } = queue.shift()!
             const form = new FormData()
             form.append('fileName', file.name)
@@ -78,7 +107,6 @@ async function uploadFile(
             form.append('size', fileSize.toString())
             form.append('chunk', blob)
             form.append('batch_id', batch_id)
-            form.append('batch_count', count.toString())
 
             const resp = await fetch('/api/upload', {
                 method: 'POST',
@@ -87,7 +115,7 @@ async function uploadFile(
             })
 
             if (!resp.ok) {
-                hasError = true  // ← Set flag
+                hasError = true
                 const err = await errMsg(resp)
                 throw new Error(err)
             }
@@ -105,34 +133,46 @@ async function uploadFile(
 }
 
 async function runJob() {
+    if (uploading.value) return
+
     const length = input.value?.files?.length
+    if (!length) return
 
     uploading.value = true
     store.progress = 0
     error.value = ''
+    store.progressShow = true
 
-    if (length > 0) {
-        const id = shortID()
-        store.progressShow = true
-        let hasError = false
+    let hasError = false
 
+    try {
         for (const [i, file] of Array.from(input.value.files as FileList).entries()) {
+            const currentFile = file as File
+            const fileKey = `${currentFile.name}:${currentFile.size}:${currentFile.lastModified}`
+            if (completedFiles.has(fileKey)) {
+                store.progress = Math.round(((i + 1) / length) * 100)
+                continue
+            }
+
             try {
-                await uploadFile(file as File, id, i, length)
+                await uploadFile(currentFile, batchId.value, i, length)
+                completedFiles.add(fileKey)
             } catch (err: any) {
-                store.msgAlert('error', err)
                 error.value = err.message || t('upload.failed')
+                store.msgAlert('error', error.value)
                 hasError = true
-                uploading.value = false
-                break // Stop uploading on first error
+                break
             }
         }
 
         if (!hasError) {
             store.progress = 100
             store.msgAlert('success', t('upload.complete'))
+            batchId.value = shortID()
+            completedFiles.clear()
         }
-
+    } finally {
+        uploading.value = false
         setTimeout(() => {
             store.progressShow = false
             store.progress = 0
@@ -142,6 +182,9 @@ async function runJob() {
 
 async function onFileChange(e: Event) {
     input.value = e.target as HTMLInputElement
+    batchId.value = shortID()
+    completedFiles.clear()
+    error.value = ''
 }
 </script>
 
@@ -149,7 +192,7 @@ async function onFileChange(e: Event) {
     <div>
         <fieldset class="fieldset">
             <legend class="fieldset-legend">{{ $t('upload.pickFiles') }}</legend>
-            <input type="file" class="file-input w-full" @change="onFileChange" multiple />
+            <input type="file" class="file-input w-full" :disabled="uploading" @change="onFileChange" multiple />
         </fieldset>
 
         <p v-if="error" style="color: red">{{ error }}</p>

@@ -1,22 +1,17 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use axum::{
-    Extension,
-    extract::{Multipart, State},
+    Extension, Json,
+    extract::{Multipart, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use chrono::Local;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use sanitize_filename::sanitize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
-use tokio::{
-    fs::{self, OpenOptions},
-    io::{AsyncSeekExt, AsyncWriteExt, SeekFrom},
-    sync::{Mutex, broadcast::Sender},
-    task,
-};
+use tokio::{fs, sync::broadcast::Sender};
 use tracing::{error, info};
 
 use crate::{
@@ -112,6 +107,115 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+#[derive(Deserialize)]
+pub struct UploadStatusQuery {
+    file_name: String,
+    size: u64,
+    batch_id: String,
+}
+
+#[derive(Serialize)]
+pub struct UploadStatus {
+    received_ranges: Vec<(u64, u64)>,
+    complete: bool,
+}
+
+fn upload_output_file(file_name: &str) -> PathBuf {
+    PathBuf::from(&*STORAGE)
+        .join(Local::now().format("%Y/%m").to_string())
+        .join(file_name)
+}
+
+fn public_upload_path(output_file: &Path) -> String {
+    output_file
+        .strip_prefix(STORAGE.as_str())
+        .unwrap_or(output_file)
+        .parent()
+        .map(|path| Path::new(PUBLIC_UPLOADS).join(path))
+        .unwrap_or_else(|| Path::new(PUBLIC_UPLOADS).to_path_buf())
+        .to_string_lossy()
+        .to_string()
+}
+
+async fn ensure_upload_directory(output_file: &Path) -> Result<(), NurError> {
+    let output_path = output_file
+        .parent()
+        .ok_or_else(|| NurError::BadRequest("Invalid upload path".into()))?;
+
+    match fs::metadata(output_path).await {
+        Ok(meta) if meta.is_dir() => Ok(()),
+        Ok(_) => Err(NurError::BadRequest(format!(
+            "Upload path exists but is not a directory: {}",
+            output_path.display()
+        ))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir_all(output_path).await.map_err(|error| {
+                error!(
+                    "Failed to create upload directory {}: {}",
+                    output_path.display(),
+                    error
+                );
+                NurError::BadRequest(format!("Failed to create upload directory: {error}"))
+            })?;
+            info!("Created directory: {}", output_path.display());
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub async fn upload_status(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Extension(user): Extension<AuthUserMeta>,
+    details: AuthDetails<Role>,
+    Query(query): Query<UploadStatusQuery>,
+) -> Result<Json<UploadStatus>, NurError> {
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+
+    let file_name = sanitize(&query.file_name);
+    validate_mime_type(&file_name)?;
+    if query.batch_id.is_empty() || query.size > *MAX_UPLOAD_SIZE {
+        return Err(NurError::BadRequest("Invalid upload metadata".into()));
+    }
+
+    let output_file = upload_output_file(&file_name);
+    ensure_upload_directory(&output_file).await?;
+    let file_path = public_upload_path(&output_file);
+
+    if let Some(existing_upload_id) = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT upload_id FROM media WHERE filename = $1 AND path = $2",
+    )
+    .bind(&file_name)
+    .bind(&file_path)
+    .fetch_optional(&pool)
+    .await?
+    {
+        if existing_upload_id.as_deref() == Some(query.batch_id.as_str())
+            && fs::try_exists(&output_file).await?
+        {
+            return Ok(Json(UploadStatus {
+                received_ranges: Vec::new(),
+                complete: true,
+            }));
+        }
+
+        return Err(NurError::Conflict(format!(
+            "File '{file_name}' already exists in database."
+        )));
+    }
+
+    let upload = get_or_create_upload(query.size, &output_file, &query.batch_id, user.id).await?;
+
+    Ok(Json(UploadStatus {
+        received_ranges: received_ranges(&upload).await,
+        complete: false,
+    }))
+}
+
 /// Handle chunked/resumable file uploads
 pub async fn upload_chunk(
     State((pool, tx)): State<(PgPool, Sender<String>)>,
@@ -131,7 +235,6 @@ pub async fn upload_chunk(
     let mut size: u64 = 0;
     let mut chunk_data: Option<Vec<u8>> = None;
     let mut batch_id = String::new();
-    let mut batch_count = 1;
 
     // Extract multipart fields
     while let Some(field) = multipart.next_field().await.ok().flatten() {
@@ -142,7 +245,6 @@ pub async fn upload_chunk(
             "size" => size = field.text().await?.parse::<u64>().unwrap_or(0),
             "chunk" => chunk_data = Some(field.bytes().await?.to_vec()),
             "batch_id" => batch_id = field.text().await?,
-            "batch_count" => batch_count = field.text().await?.parse::<usize>().unwrap_or(1),
             _ => {}
         }
     }
@@ -152,9 +254,12 @@ pub async fn upload_chunk(
     let start = start.ok_or_else(|| NurError::BadRequest("Missing start offset".into()))?;
     let end = end.ok_or_else(|| NurError::BadRequest("Missing end offset".into()))?;
     let chunk_data = chunk_data.ok_or_else(|| NurError::BadRequest("Missing chunk".into()))?;
+    if batch_id.is_empty() {
+        return Err(NurError::BadRequest("Missing batch id".into()));
+    }
 
     // Validate MIME type
-    let mime_type = validate_mime_type(&original_filename)?;
+    validate_mime_type(&original_filename)?;
 
     // Validate file size limits
     if size > *MAX_UPLOAD_SIZE {
@@ -183,145 +288,84 @@ pub async fn upload_chunk(
     let file_name = original_filename;
 
     // Storage path: YEAR/MONTH
-    let mut output_path = PathBuf::from(&*STORAGE);
-    output_path = output_path.join(Local::now().format("%Y/%m").to_string());
+    let output_file = upload_output_file(&file_name);
+    ensure_upload_directory(&output_file).await?;
 
-    // Check if directory exists and what it is
-    match fs::metadata(&output_path).await {
-        Ok(meta) => {
-            if !meta.is_dir() {
-                return Err(NurError::BadRequest(format!(
-                    "Upload path exists but is not a directory: {}",
-                    output_path.display()
+    let file_path = public_upload_path(&output_file);
+
+    let upload =
+        if let Some(upload) = get_active_upload(&output_file, &batch_id, user.id, size).await? {
+            upload
+        } else {
+            if let Some(existing_upload_id) = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT upload_id FROM media WHERE filename = $1 AND path = $2",
+            )
+            .bind(&file_name)
+            .bind(&file_path)
+            .fetch_optional(&pool)
+            .await?
+            {
+                if existing_upload_id.as_deref() == Some(batch_id.as_str())
+                    && fs::try_exists(&output_file).await?
+                {
+                    return Ok(StatusCode::OK);
+                }
+
+                return Err(NurError::Conflict(format!(
+                    "File '{file_name}' already exists in database."
                 )));
             }
-        }
-        Err(_) => {
-            fs::create_dir_all(&output_path).await.map_err(|e| {
-                error!(
-                    "Failed to create upload directory {}: {}",
-                    output_path.display(),
-                    e
-                );
-                NurError::BadRequest(format!("Failed to create upload directory: {e}"))
-            })?;
-            info!("Created directory: {}", output_path.display());
-        }
-    }
 
-    let output_file = output_path.join(&file_name);
-
-    // On first chunk: check if file already exists in DB to prevent overwriting
-    if start == 0 {
-        let file_path = output_file
-            .strip_prefix(STORAGE.as_str())
-            .unwrap_or(&output_file)
-            .parent()
-            .map(|p| Path::new(PUBLIC_UPLOADS).join(p))
-            .unwrap_or_else(|| Path::new(PUBLIC_UPLOADS).to_path_buf())
-            .to_string_lossy()
-            .to_string();
-
-        if file_exists_in_db(&pool, &file_name, &file_path).await? {
-            return Err(NurError::Conflict(format!(
-                "File '{}' already exists in database. Cannot overwrite.",
-                file_name
-            )));
-        }
-    }
-    let meta = Arc::new(Mutex::new(Meta {
-        db_id: None,
-        mime_type: Some(mime_type),
-    }));
-    let upload_value = file_ranges(start, size, &file_name, &output_file, &batch_id, meta).await?;
-
-    // Write chunk
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&output_file)
-        .await?;
-    file.seek(SeekFrom::Start(start)).await?;
-    file.write_all(&chunk_data).await?;
-    file.flush().await?;
-    drop(file);
-
-    // Verify the chunk was actually written to disk
-    let metadata = fs::metadata(&output_file).await?;
-    if metadata.len() < end {
-        return Err(NurError::BadRequest(
-            "Failed to write chunk to disk. Please check file permissions.".into(),
-        ));
-    }
-
-    // Update ranges and check completion
-    let ranges_arc = upload_value.ranges.clone();
-    let mut ranges = ranges_arc.lock().await;
-    ranges.push(start..end);
-
-    merge_ranges(&mut ranges);
-
-    let is_complete = is_upload_complete(&ranges, size);
-
-    if is_complete {
-        info!("Upload complete: {file_name}");
-        add_media_record(&pool, user.id, &output_file).await?;
-
-        // Check batch completion with proper locking
-        let should_process_batch = {
-            let uploads = UPLOADS.lock().await;
-            is_batch_complete(&uploads, &batch_id, batch_count)
+            get_or_create_upload(size, &output_file, &batch_id, user.id).await?
         };
+    let should_finalize = write_upload_chunk(&upload, start, end, &chunk_data).await?;
 
-        if should_process_batch {
-            let msg = if batch_count > 1 {
-                SSEMessage::new(
-                    Level::Success,
-                    &format!("Batch upload complete: {batch_count} files uploaded."),
-                )
-            } else {
-                SSEMessage::new(Level::Success, &format!("Upload done: {file_name}"))
-            };
+    if should_finalize {
+        info!("Upload complete: {file_name}");
+        let result = async {
+            let (media_id, stored_mime_type, processable_image) =
+                add_media_record(&pool, user.id, &batch_id, &upload.temp_file, &output_file)
+                    .await?;
 
-            if let Err(e) = tx.send(msg.to_string()) {
-                error!("SSE send failed: {e}");
+            if let Err(error) = fs::rename(&upload.temp_file, &output_file).await {
+                delete_media_record(&pool, media_id).await;
+                return Err(error.into());
             }
 
-            info!("Upload complete!");
-
             let config = CONFIG.read().await.clone();
-
-            if config
-                .image_extensions
-                .as_ref()
-                .is_some_and(|v| !v.is_empty())
+            if let Err(error) = process_variants(
+                &pool,
+                &config,
+                &output_file,
+                media_id,
+                &stored_mime_type,
+                processable_image,
+                &tx,
+            )
+            .await
             {
-                let uploads_clone = {
-                    let uploads = UPLOADS.lock().await;
-                    uploads.clone()
-                };
+                delete_media_record(&pool, media_id).await;
+                if let Err(rename_error) = fs::rename(&output_file, &upload.temp_file).await {
+                    error!("Failed to restore incomplete upload: {rename_error}");
+                }
+                return Err(error);
+            }
 
-                let id_owned = batch_id.clone();
-                let pool_clone = pool.clone();
-                let txc = tx.clone();
-                let handle = tokio::runtime::Handle::current();
+            Ok::<_, NurError>(())
+        }
+        .await;
 
-                // Spawn blocking task for CPU-intensive image processing
-                task::spawn_blocking(move || {
-                    if let Err(e) =
-                        process_variants(pool_clone, config, uploads_clone, id_owned.clone(), txc)
-                    {
-                        error!("Error processing variants: {e}");
-                    }
-
-                    // Cleanup in separate async task
-                    handle.spawn(async move {
-                        cleanup_uploads(&id_owned).await;
-
-                        info!("Background job done!");
-                    });
-                });
+        match result {
+            Ok(()) => {
+                cleanup_upload(&output_file, &upload).await;
+                let msg = SSEMessage::new(Level::Success, &format!("Upload done: {file_name}"));
+                if let Err(error) = tx.send(msg.to_string()) {
+                    error!("SSE send failed: {error}");
+                }
+            }
+            Err(error) => {
+                reset_finalizing(&upload).await;
+                return Err(error);
             }
         }
     }
