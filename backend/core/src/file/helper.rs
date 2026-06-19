@@ -363,9 +363,14 @@ pub async fn add_media_record(
         .to_string();
 
     let (width, height) = if mime_type.starts_with("image") {
-        match image::open(temp_file) {
-            Ok(img) => (Some(img.width() as i32), Some(img.height() as i32)),
-            Err(_) => (None, None),
+        let image = image::ImageReader::open(temp_file)
+            .and_then(image::ImageReader::with_guessed_format)
+            .ok()
+            .and_then(|reader| reader.decode().ok());
+
+        match image {
+            Some(image) => (Some(image.width() as i32), Some(image.height() as i32)),
+            None => (None, None),
         }
     } else {
         (None, None)
