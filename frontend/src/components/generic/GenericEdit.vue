@@ -837,7 +837,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                         <div class="mt-3 md:mt-8 flex gap-2 flex-none">
                             <div class="join">
-                                <template v-if="locales.length > 1">
+                                <template v-if="store.locales.length > 1">
                                     <details v-if="content.id === 0" class="dropdown">
                                         <summary class="btn join-item" @blur="closeDropdown">
                                             {{
