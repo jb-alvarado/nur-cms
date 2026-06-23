@@ -8,7 +8,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
     build: {
         chunkSizeWarningLimit: 1600,
-        outDir: './example/dist',
+        outDir: './dist',
     },
     base: '/',
     root: './example',

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import HomeArticle from '@/components/HomeArticle.vue'
 import HomeFeatures from '@/components/HomeFeatures.vue'
-import HomeFooter from '@/components/HomeFooter.vue';
+import HomeFooter from '@/components/HomeFooter.vue'
 </script>
 
 <template>
@@ -30,7 +30,7 @@ import HomeFooter from '@/components/HomeFooter.vue';
         </section>
 
         <!-- Content Section -->
-        <section id="entries" class="flex justify-center px-4 pb-16">
+        <section id="entries" class="flex justify-center px-4 pb-16 scroll-mt-20">
             <HomeArticle />
         </section>
 

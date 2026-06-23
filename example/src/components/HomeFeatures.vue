@@ -17,7 +17,7 @@ const features = [
         text: 'Output content in multiple formats: Markdown, HTML, or AST for complete control over rendering.',
     },
     {
-        id: 1,
+        id: 2,
         bgColor: 'bg-purple-100/10',
         textColor: 'text-purple-600',
         icon: 'bi-sliders',

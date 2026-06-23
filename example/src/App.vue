@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
 import HeaderMenu from './components/HeaderMenu.vue'

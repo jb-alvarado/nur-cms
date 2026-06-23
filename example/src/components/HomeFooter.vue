@@ -30,11 +30,18 @@
                     <li class="flex items-start gap-3">
                         <span class="text-primary font-bold">3.</span>
                         <span class="text-base-content/70"
-                            >Run the backend: <code class="bg-base-content/10 px-2 py-1 rounded">cargo run</code></span
+                            >Run postgres container:
+                            <code class="bg-base-content/10 px-2 py-1 rounded">docker compose up -d</code></span
                         >
                     </li>
                     <li class="flex items-start gap-3">
                         <span class="text-primary font-bold">4.</span>
+                        <span class="text-base-content/70"
+                            >Run the backend: <code class="bg-base-content/10 px-2 py-1 rounded">cargo run</code></span
+                        >
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <span class="text-primary font-bold">5.</span>
                         <span class="text-base-content/70"
                             >Start this frontend:
                             <code class="bg-base-content/10 px-2 py-1 rounded">npm run dev:example</code></span

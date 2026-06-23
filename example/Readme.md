@@ -1,286 +1,137 @@
 # NUR CMS Example Frontend
 
-This is an example frontend project that demonstrates how to use the NUR CMS backend API. It serves as a reference implementation and starting point for building custom frontends with NUR CMS.
+This is a small public Vue frontend for NUR CMS. It demonstrates how to read published content from the backend without admin authentication.
 
-## Overview
+## What it shows
 
-The example frontend is a minimal Vue 3 application that showcases:
-- How to connect to the NUR CMS backend API
-- Basic project structure for a Vue-based frontend
-- API proxy configuration for development
-- Tailwind CSS integration
+- Listing published `article` entries from `/api/content/entries`
+- Fetching one article from `/api/content/entries/{type}/{slug}`
+- Using the real query parameters used by the backend: `fields`, `type`, `locale`, `limit`, `offset`, `ordering`
+- Rendering content nodes when the backend returns AST, HTML, or Markdown
+- Displaying media and generated image variants from `/uploads`
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
-
-- Node.js (v20.19.0 or v22.12.0+)
+- Node.js `^20.19.0` or `>=22.12.0`
 - NUR CMS backend running on `http://127.0.0.1:8777`
+- At least one published content entry of type `article`
 
-### Installation
+## Run it
 
-Dependencies are installed at the root level of the NUR CMS project:
+Install dependencies from the repository root:
 
 ```bash
-cd /path/to/nur-cms
 npm install
 ```
 
-### Development
-
-Start the example frontend development server:
+Start the backend and then run the example frontend:
 
 ```bash
 npm run dev:example
 ```
 
-The application will be available at `http://127.0.0.1:5758`
+The example is served at `http://127.0.0.1:5758`.
 
-### Building for Production
-
-Build the example frontend:
+## Build it
 
 ```bash
 npm run build:example
 ```
 
-The compiled files will be in the `example/dist` directory.
-
-## Project Structure
-
-```
-example/
-├── src/
-│   ├── App.vue          # Main application component
-│   ├── main.ts          # Application entry point
-│   └── assets/
-│       └── main.css     # Tailwind CSS imports
-├── index.html           # HTML template
-├── env.d.ts             # TypeScript environment declarations
-├── tsconfig.json        # TypeScript configuration
-└── Readme.md           # This file
-```
+The compiled files are written to `example/dist`.
 
 ## Configuration
 
-The example frontend is configured via `vite.example.config.ts` in the project root:
+The example uses `vite.example.config.ts` in the repository root.
 
-- **Port**: 5758 (different from main admin frontend on 5757)
-- **Base URL**: `/`
-- **API Proxies**: All API requests are proxied to the backend at `http://127.0.0.1:8777`
+Relevant defaults:
 
-### API Endpoints Proxied
+- frontend port: `5758`
+- backend proxy target: `http://127.0.0.1:8777`
+- content type: `article`
+- locale: `en`
 
-- `/api/*` - Main API endpoints
-- `/auth/*` - Authentication endpoints
-- `/sse/*` - Server-Sent Events
-- `/uploads/*` - Media files
+You can override the content type and locale at build/dev time:
 
-## Using the Backend API
+```bash
+VITE_NUR_ARTICLE_TYPE=article VITE_NUR_LOCALE=de npm run dev:example
+```
 
-### Authentication
+## API notes
 
-```typescript
-// Login example
-const login = async (username: string, password: string) => {
-  const response = await fetch('/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
-  })
-  const { access, refresh } = await response.json()
-  return { access, refresh }
+Public requests are treated as guest requests. The backend automatically restricts entries to `status=published`.
+
+The example list request is equivalent to:
+
+```text
+GET /api/content/entries
+  ?type=article
+  &locale=en
+  &fields=id,title,slug,media,created_at,category.name,category.slug,tags,node.text
+  &limit=6
+  &offset=0
+  &ordering=-created_at
+  &blocks_limit=1
+  &character_limit=240
+```
+
+The response shape is:
+
+```ts
+{
+  count: number
+  next: string | null
+  previous: string | null
+  results: ContentEntrySerializer[]
 }
 ```
 
-### Fetching Content
+Single article request:
 
-```typescript
-// Get published entries
-const getEntries = async (accessToken: string) => {
-  const response = await fetch('/api/content/entries?status=published&output_type=html', {
-    headers: { 'Authorization': `Bearer ${accessToken}` }
-  })
-  const data = await response.json()
-  return data.results
-}
-
-// Get a single entry
-const getEntry = async (typeSlug: string, slug: string) => {
-  const response = await fetch(`/api/content/entries/${typeSlug}/${slug}?output_type=html`)
-  const entry = await response.json()
-  return entry
-}
+```text
+GET /api/content/entries/article/my-slug
+  ?locale=en
+  &fields=id,title,slug,media,created_at,category.name,category.slug,tags,author.first_name,author.last_name,node.id,node.order_index,node.text,node.media,node.data
 ```
 
-### Creating Content
+`output_type` can only be overridden by authenticated admin/author requests. Public requests use the backend configuration. The example therefore handles all supported node outputs:
 
-```typescript
-// Create a new entry (requires authentication)
-const createEntry = async (accessToken: string, entryData: any) => {
-  const response = await fetch('/api/content/entries', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(entryData)
-  })
-  return await response.json()
-}
+- `node.ast`
+- `node.html`
+- `node.text`
+
+## Project structure
+
+```text
+example/
+├── src/
+│   ├── api/content.ts          # Small API wrapper for public content requests
+│   ├── components/AstRender.vue
+│   ├── components/HomeArticle.vue
+│   ├── views/HomeView.vue
+│   ├── views/ArticleView.vue
+│   └── utils/helper.ts
+├── index.html
+├── tsconfig.json
+└── Readme.md
 ```
 
-## Example Use Cases
-
-This example frontend can be extended to demonstrate:
-
-1. **Blog/News Site**: Fetch and display published articles
-2. **Portfolio**: Showcase projects and work samples
-3. **Documentation**: Present structured documentation with categories
-4. **Multi-language Site**: Use the locales system for i18n content
-5. **Custom Admin**: Build a specialized content management interface
-
-## Key Features to Explore
-
-### Content Output Formats
-
-The API supports three output formats:
-
-```typescript
-// Markdown (raw)
-fetch('/api/content/entries?output_type=markdown')
-
-// HTML (pre-rendered)
-fetch('/api/content/entries?output_type=html')
-
-// AST (JSON structure for custom rendering)
-fetch('/api/content/entries?output_type=ast')
-```
-
-### Filtering & Pagination
-
-```typescript
-const params = new URLSearchParams({
-  page: '1',
-  page_size: '10',
-  status: 'published',
-  category_slug: 'technology',
-  order_by: 'published_at',
-  order_dir: 'desc'
-})
-
-fetch(`/api/content/entries?${params}`)
-```
-
-### Media Files
-
-```typescript
-// Fetch media metadata
-const getMedia = async () => {
-  const response = await fetch('/api/media')
-  return await response.json()
-}
-
-// Display images
-// <img src="/uploads/2025/12/image.avif" alt="..." />
-```
-
-## Technology Stack
-
-- **Vue 3**: Progressive JavaScript framework
-- **TypeScript**: Type-safe development
-- **Vite**: Fast build tool and dev server
-- **Tailwind CSS**: Utility-first CSS framework
-
-## Differences from Main Frontend
-
-The main admin frontend (`/frontend`) provides:
-- Full admin interface for content management
-- User authentication and authorization UI
-- Media upload and management
-- SSE-based real-time updates
-- Multi-language admin interface
-
-This example frontend is intentionally minimal to:
-- Serve as a clean starting point
-- Demonstrate basic API integration
-- Be easily customizable for your needs
-
-## API Documentation
-
-For complete API documentation, see:
-- Backend API endpoints: See [docs/developer.md](../docs/developer.md)
-- Route implementations: `/backend/src/api/routes/`
-- Frontend API utilities: `/frontend/src/api/`
-
-## Extending This Example
-
-To build your custom frontend:
-
-1. **Add Vue Router** for navigation between pages
-2. **Add Pinia** for state management (like the main frontend)
-3. **Create API service modules** to organize API calls
-4. **Implement authentication flow** with token refresh
-5. **Add components** for displaying content, forms, etc.
-6. **Style with Tailwind** or your preferred CSS framework
-
-## Running Both Frontends
-
-You can run both the admin and example frontends simultaneously:
+## Running both frontends
 
 ```bash
 # Terminal 1: database
 docker compose up
 
-# Terminal 2: Backend
+# Terminal 2: backend
 cargo run
 
-# Terminal 3: Admin Frontend
+# Terminal 3: admin frontend
 npm run dev
 
-# Terminal 4: Example Frontend
+# Terminal 4: example frontend
 npm run dev:example
 ```
 
-- Admin Frontend: http://127.0.0.1:5757
-- Example Frontend: http://127.0.0.1:5758
-- Backend API: http://127.0.0.1:8777
-
-## Troubleshooting
-
-### Port Already in Use
-
-If port 5758 is already in use, modify `vite.example.config.ts`:
-
-```typescript
-server: {
-  port: 5759, // Change to any available port
-  // ...
-}
-```
-
-### Backend Connection Issues
-
-Ensure the backend is running on port 8777:
-
-```bash
-cargo run
-```
-
-Check the proxy configuration in `vite.example.config.ts` matches your backend URL.
-
-### TypeScript Errors
-
-Make sure TypeScript dependencies are installed:
-
-```bash
-npm install
-```
-
-## Contributing
-
-This example is part of the NUR CMS project. Contributions that improve the example or documentation are welcome!
-
-## License
-
-Same as the main NUR CMS project.
+- Admin frontend: `http://127.0.0.1:5757`
+- Example frontend: `http://127.0.0.1:5758`
+- Backend API: `http://127.0.0.1:8777`
