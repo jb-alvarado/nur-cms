@@ -32,7 +32,7 @@ For two-factor authentication setup email credentials in the configuration. You 
 
 ![Pages](/docs/screenshots/pages.png)
 
-![Pages](/docs/screenshots/edit.png)
+![Edit](/docs/screenshots/edit.png)
 
 ![Media](/docs/screenshots/media.png)
 
