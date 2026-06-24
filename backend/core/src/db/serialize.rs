@@ -253,13 +253,15 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
         let r#type = row
             .try_get::<Option<(i32, String, String, i32, bool)>, _>("type")
             .unwrap_or_default()
-            .map(|(id, name, slug, order_index, use_meta)| ContentTypeSerializer {
-                id: Some(id),
-                name: Some(name),
-                slug: Some(slug),
-                order_index: Some(order_index),
-                use_meta: Some(use_meta),
-            });
+            .map(
+                |(id, name, slug, order_index, use_meta)| ContentTypeSerializer {
+                    id: Some(id),
+                    name: Some(name),
+                    slug: Some(slug),
+                    order_index: Some(order_index),
+                    use_meta: Some(use_meta),
+                },
+            );
 
         for (id, name, slug) in row
             .try_get::<Vec<Option<(i32, String, String)>>, &str>("tags")
