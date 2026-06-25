@@ -3,6 +3,7 @@ use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 use tracing::error;
+use uuid::Uuid;
 
 #[cfg(debug_assertions)]
 use colored::Colorize;
@@ -26,8 +27,20 @@ use crate::db::format_sql;
 type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value>);
 
 const ENTRY_SLUG_UNIQUE_CONSTRAINT: &str = "content_entries_slug_locale_id_type_id_key";
+const SLUG_RANDOM_SUFFIX_LEN: usize = 6;
+const MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS: usize = 8;
 
-fn slug_with_suffix(slug: &str, suffix: u32) -> String {
+fn random_slug_suffix() -> String {
+    Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(SLUG_RANDOM_SUFFIX_LEN)
+        .collect()
+}
+
+fn slug_with_suffix(slug: &str) -> String {
+    let suffix = random_slug_suffix();
     format!("{slug}_{suffix}")
 }
 
@@ -45,14 +58,18 @@ pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurErro
 
     let base_slug = slug.to_string();
     let mut candidate = content.clone();
-    let mut suffix = 0;
+    let mut attempts = 0;
 
     loop {
         match insert_record(pool, &Table::ContentEntries, &candidate).await {
             Ok(id) => return Ok(id),
             Err(error) if is_entry_slug_conflict(&error) => {
-                suffix += 1;
-                candidate["slug"] = slug_with_suffix(&base_slug, suffix).into();
+                if attempts >= MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS {
+                    return Err(error);
+                }
+
+                attempts += 1;
+                candidate["slug"] = slug_with_suffix(&base_slug).into();
             }
             Err(error) => return Err(error),
         }
@@ -1237,14 +1254,18 @@ pub async fn update_entry_with_nodes(
     if let Some(slug) = content.get("slug").and_then(Value::as_str) {
         let base_slug = slug.to_string();
         let mut candidate = content.clone();
-        let mut suffix = 0;
+        let mut attempts = 0;
 
         loop {
             match update_record(pool, &Table::ContentEntries, entry_id, &candidate).await {
                 Ok(()) => break,
                 Err(error) if is_entry_slug_conflict(&error) => {
-                    suffix += 1;
-                    candidate["slug"] = slug_with_suffix(&base_slug, suffix).into();
+                    if attempts >= MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS {
+                        return Err(error);
+                    }
+
+                    attempts += 1;
+                    candidate["slug"] = slug_with_suffix(&base_slug).into();
                 }
                 Err(error) => return Err(error),
             }
@@ -1262,11 +1283,14 @@ pub async fn update_entry_with_nodes(
 
 #[cfg(test)]
 mod tests {
-    use super::slug_with_suffix;
+    use super::{SLUG_RANDOM_SUFFIX_LEN, slug_with_suffix};
 
     #[test]
-    fn appends_incrementing_suffix_to_slug() {
-        assert_eq!(slug_with_suffix("example", 1), "example_1");
-        assert_eq!(slug_with_suffix("example", 2), "example_2");
+    fn appends_short_random_suffix_to_slug() {
+        let slug = slug_with_suffix("example");
+        let suffix = slug.strip_prefix("example_").expect("slug prefix");
+
+        assert_eq!(suffix.len(), SLUG_RANDOM_SUFFIX_LEN);
+        assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }
