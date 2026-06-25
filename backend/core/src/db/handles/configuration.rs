@@ -97,29 +97,31 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
 }
 
 pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, NurError> {
-    const QUERY: &str = "select * from configuration;";
+    const SELECT_QUERY: &str = "select * from configuration;";
 
-    #[cfg(debug_assertions)]
-    debug!("{}", format_sql(QUERY));
-
-    match sqlx::query_as(QUERY).fetch_one(pool).await {
-        Ok(data) => Ok(data),
-        Err(_) => {
-            let secret: String = rand::rng()
-                .sample_iter(&Alphanumeric)
-                .take(80)
-                .map(char::from)
-                .collect();
-
-            const QUERY: &str = "INSERT INTO configuration(jwt_secret, image_extensions, image_resolutions) VALUES($1, ARRAY['jpg', 'avif', 'webp'], ARRAY[2560, 1920, 1280, 1024, 768, 480]);";
-
-            sqlx::query(QUERY).bind(secret).execute(pool).await?;
-
-            let data = sqlx::query_as(QUERY).fetch_one(pool).await?;
-
-            Ok(data)
-        }
+    if let Some(config) = sqlx::query_as::<_, Configuration>(SELECT_QUERY)
+        .persistent(false)
+        .fetch_optional(pool)
+        .await?
+    {
+        return Ok(config);
     }
+
+    let secret: String = rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(80)
+        .map(char::from)
+        .collect();
+
+    const INSERT_QUERY: &str = "INSERT INTO configuration(jwt_secret, image_extensions, image_resolutions) VALUES($1, ARRAY['jpg', 'avif', 'webp'], ARRAY[2560, 1920, 1280, 1024, 768, 480]) RETURNING *;";
+
+    let config = sqlx::query_as::<_, Configuration>(INSERT_QUERY)
+        .bind(secret)
+        .persistent(false)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(config)
 }
 
 pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget, NurError> {
