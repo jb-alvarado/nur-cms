@@ -50,7 +50,8 @@ where
         .unwrap_or(default)
 }
 
-pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 3));
+/// Access-token lifetime in days. Keep it short; refresh tokens are rotated server-side.
+pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 1));
 pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFRESH_LIFETIME", 30));
 pub static STORAGE: LazyLock<String> =
     LazyLock::new(|| env_parse_or("STORAGE", "./uploads".to_string()));

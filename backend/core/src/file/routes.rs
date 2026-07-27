@@ -64,7 +64,6 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "image/jpeg",
     "image/jpg",
     "image/png",
-    "image/svg+xml",
     "image/webp",
     "text/csv",
     "text/plain",
@@ -237,7 +236,7 @@ pub async fn upload_chunk(
     let mut batch_id = String::new();
 
     // Extract multipart fields
-    while let Some(field) = multipart.next_field().await.ok().flatten() {
+    while let Some(field) = multipart.next_field().await? {
         match field.name().unwrap_or_default() {
             "fileName" => file_name = Some(sanitize(&field.text().await?)),
             "start" => start = Some(field.text().await?.parse::<u64>().unwrap_or(0)),

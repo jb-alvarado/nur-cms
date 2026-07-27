@@ -297,10 +297,17 @@ pub async fn login(
 
                     // Start cleanup task for this code
                     let username_cleanup = username.clone();
+                    let verification_code_cleanup = verification_code.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(tokio::time::Duration::from_secs(300)).await; // 5 minutes
-                        VERIFICATION_CODES.lock().await.remove(&username_cleanup);
-                        info!("Verification code for {username_cleanup} expired and removed");
+                        let mut codes = VERIFICATION_CODES.lock().await;
+                        if codes
+                            .get(&username_cleanup)
+                            .is_some_and(|entry| entry.code == verification_code_cleanup)
+                        {
+                            codes.remove(&username_cleanup);
+                            info!("Verification code for {username_cleanup} expired and removed");
+                        }
                     });
 
                     let app_name = frontend_name();

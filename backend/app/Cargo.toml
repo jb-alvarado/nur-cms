@@ -23,6 +23,7 @@ clap = { version = "4", features = ["derive"] }
 colored = "3"
 dotenvy = "0.15"
 include_dir = "0.7"
+ipnet = "2"
 lazy-limit = "1"
 mime_guess = "2"
 protect-axum = "0.2"

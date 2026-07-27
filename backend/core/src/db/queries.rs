@@ -12,6 +12,8 @@ use crate::db::fields::*;
 
 // Default response items limit
 const DEFAULT_LIMIT: i64 = 50;
+const MAX_LIMIT: i64 = 100;
+const MAX_OFFSET: i64 = 1_000_000;
 
 static RE_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"offset=\d+").unwrap());
 
@@ -24,10 +26,10 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub query: String,
 
-    #[serde(default = "default_limit")]
+    #[serde(default = "default_limit", deserialize_with = "bounded_limit")]
     pub limit: i64,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bounded_offset")]
     pub offset: i64,
 
     #[serde(default = "default_ordering", deserialize_with = "generic_ordering")]
@@ -183,6 +185,34 @@ impl<T> ResultObject for QueryObj<T> {}
 
 fn default_limit() -> i64 {
     DEFAULT_LIMIT
+}
+
+fn bounded_limit<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let limit = i64::deserialize(deserializer)?;
+    if (1..=MAX_LIMIT).contains(&limit) {
+        Ok(limit)
+    } else {
+        Err(D::Error::custom(format!(
+            "limit must be between 1 and {MAX_LIMIT}"
+        )))
+    }
+}
+
+fn bounded_offset<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let offset = i64::deserialize(deserializer)?;
+    if (0..=MAX_OFFSET).contains(&offset) {
+        Ok(offset)
+    } else {
+        Err(D::Error::custom(format!(
+            "offset must be between 0 and {MAX_OFFSET}"
+        )))
+    }
 }
 
 fn default_ordering() -> String {

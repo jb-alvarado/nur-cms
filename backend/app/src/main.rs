@@ -1,16 +1,24 @@
-use std::{collections::HashSet, net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashSet,
+    env,
+    net::{IpAddr, SocketAddr},
+    sync::{Arc, LazyLock},
+};
 
 use axum::{
     Router,
+    extract::ConnectInfo,
+    http::Request,
     middleware::{self},
     routing::{get, post},
 };
 use clap::Parser;
 use colored::Colorize;
 use dotenvy::{dotenv, from_filename};
+use ipnet::IpNet;
 use lazy_limit::{Duration as LDuration, HttpMethod, RuleConfig, init_rate_limiter};
 use protect_axum::GrantsLayer;
-use real::RealIpLayer;
+use real::RealIp;
 use tokio::{
     net::TcpListener,
     sync::{Mutex, broadcast},
@@ -41,6 +49,51 @@ use utils::{
     extend_args::AppArgs,
     logging::{init_tracing, log_middleware},
 };
+
+static TRUSTED_PROXY_CIDRS: LazyLock<Vec<IpNet>> = LazyLock::new(|| {
+    env::var("TRUSTED_PROXY_CIDRS")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|cidr| cidr.trim().parse().ok())
+        .collect()
+});
+
+fn forwarded_client_ip(headers: &axum::http::HeaderMap) -> Option<IpAddr> {
+    let value = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))?
+        .to_str()
+        .ok()?;
+
+    value.split(',').next()?.trim().parse().ok()
+}
+
+async fn resolve_real_ip(
+    mut req: Request<axum::body::Body>,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let peer_ip = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|peer| peer.0.ip());
+
+    let client_ip = peer_ip.map(|peer| {
+        if TRUSTED_PROXY_CIDRS
+            .iter()
+            .any(|network| network.contains(&peer))
+        {
+            forwarded_client_ip(req.headers()).unwrap_or(peer)
+        } else {
+            peer
+        }
+    });
+
+    if let Some(client_ip) = client_ip {
+        req.extensions_mut().insert(RealIp(client_ip));
+    }
+
+    next.run(req).await
+}
 
 #[cfg(not(debug_assertions))]
 use serve::routes::admin_ui_routes;
@@ -104,7 +157,7 @@ async fn main() -> Result<(), NurError> {
         .route("/generate-uuid", post(generate_uuid).with_state(sse_state));
 
     let middlewares = ServiceBuilder::new()
-        .layer(RealIpLayer::default())
+        .layer(middleware::from_fn(resolve_real_ip))
         .layer(middleware::from_fn(log_middleware))
         .layer(GrantsLayer::with_extractor(extract))
         .layer(middleware::from_fn(rate_limit));
@@ -156,4 +209,25 @@ async fn main() -> Result<(), NurError> {
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::forwarded_client_ip;
+    use axum::http::{HeaderMap, HeaderValue};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn uses_the_first_forwarded_for_address() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("203.0.113.10, 10.0.0.2"),
+        );
+
+        assert_eq!(
+            forwarded_client_ip(&headers),
+            Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)))
+        );
+    }
 }

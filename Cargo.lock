@@ -2342,6 +2342,7 @@ dependencies = [
  "colored",
  "dotenvy",
  "include_dir",
+ "ipnet",
  "lazy-limit",
  "mime_guess",
  "nur_core",

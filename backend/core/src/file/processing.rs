@@ -10,7 +10,7 @@ use image::{
     },
     imageops::FilterType::Triangle,
 };
-use libwebp_sys::{WebPEncodeRGB, WebPEncodeRGBA};
+use libwebp_sys::{WebPEncodeRGB, WebPEncodeRGBA, WebPFree};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, info, warn};
 
@@ -53,7 +53,13 @@ fn encode_webp(
             )
         };
 
-        Ok(std::slice::from_raw_parts(out_buf, len as usize).into())
+        if len == 0 || out_buf.is_null() {
+            return Err("WebP encoding failed".into());
+        }
+
+        let encoded = std::slice::from_raw_parts(out_buf, len as usize).to_vec();
+        WebPFree(out_buf.cast());
+        Ok(encoded)
     }
 }
 
