@@ -1,3 +1,26 @@
+-- The development seed uses stable IDs for its cross references. Reset only
+-- development content tables so retries after a failed seed stay deterministic.
+TRUNCATE TABLE
+    media,
+    content_categories,
+    content_tags,
+    content_entries,
+    content_nodes,
+    content_authors,
+    content_node_templates,
+    comments
+RESTART IDENTITY CASCADE;
+
+SELECT setval('category_group_seq', 1001, false);
+SELECT setval('entry_group_seq', 1001, false);
+
+INSERT INTO
+    locales (code, name, tsv_dict)
+VALUES
+    ('fr', 'French', 'french'),
+    ('es', 'Spanish', 'spanish')
+ON CONFLICT (code) DO NOTHING;
+
 INSERT INTO
     media (alt, filename, path, type, width, height, size, uploaded_by)
 VALUES

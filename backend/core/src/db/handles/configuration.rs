@@ -41,8 +41,10 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
     let media_resp =
         select_record::<MediaFields, Media>(pool, &crate::db::fields::Table::Media, query).await?;
 
+    let dev_auto_admin = env::var("NUR_DEV_AUTO_ADMIN").as_deref() == Ok("1");
+
     if auth_resp.results.is_empty() {
-        if env::var("NUR_DEV_AUTO_ADMIN").as_deref() != Ok("1") {
+        if !dev_auto_admin {
             warn!(
                 "No development user exists. Use --add-user or set NUR_DEV_AUTO_ADMIN=1 explicitly."
             );
@@ -60,44 +62,44 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
         );
 
         insert_record::<AuthUser, i32>(pool, &crate::db::fields::Table::AuthUsers, &user).await?;
+    }
 
-        if media_resp.results.is_empty() {
-            let mut migrations_path = env::current_dir()?.join("migrations_dev");
+    if dev_auto_admin && media_resp.results.is_empty() {
+        let mut migrations_path = env::current_dir()?.join("migrations_dev");
 
-            if !migrations_path.is_dir() {
-                migrations_path = env::current_dir()?
-                    .join("../migrations_dev")
-                    .canonicalize()?;
+        if !migrations_path.is_dir() {
+            migrations_path = env::current_dir()?
+                .join("../migrations_dev")
+                .canonicalize()?;
+        }
+
+        if migrations_path.is_dir() {
+            let mut rd = fs::read_dir(migrations_path).await?;
+            let mut migrations = Vec::new();
+            while let Some(entry) = rd.next_entry().await? {
+                if entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "sql")
+                    .unwrap_or(false)
+                {
+                    migrations.push(entry);
+                }
             }
 
-            if migrations_path.is_dir() {
-                let mut rd = fs::read_dir(migrations_path).await?;
-                let mut migrations = Vec::new();
-                while let Some(entry) = rd.next_entry().await? {
-                    if entry
-                        .path()
-                        .extension()
-                        .map(|ext| ext == "sql")
-                        .unwrap_or(false)
-                    {
-                        migrations.push(entry);
-                    }
-                }
+            migrations.sort_by_key(fs::DirEntry::path);
 
-                migrations.sort_by_key(fs::DirEntry::path);
+            for entry in migrations {
+                let path = entry.path();
+                let sql = fs::read_to_string(&path).await?;
+                info!("Executing dev migration: {:?}", path.file_name().unwrap());
 
-                for entry in migrations {
-                    let path = entry.path();
-                    let sql = fs::read_to_string(&path).await?;
-                    info!("Executing dev migration: {:?}", path.file_name().unwrap());
-
-                    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
-                        .execute(pool)
-                        .await?;
-                }
-            } else {
-                warn!("Dev migrations folder not found, no migration applied.");
+                sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                    .execute(pool)
+                    .await?;
             }
+        } else {
+            warn!("Dev migrations folder not found, no migration applied.");
         }
     }
 

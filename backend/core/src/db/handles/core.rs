@@ -38,8 +38,17 @@ fn table_field_allowed(table: &Table, field: &str) -> bool {
         Table::Media => field_allowed::<MediaFields>(field),
         Table::ContentNodeTemplates => field_allowed::<ContentNodeTemplateFields>(field),
         Table::ContentEntries => {
-            field_allowed::<ContentEntryFields>(field) || matches!(field, "type_id" | "updated_by")
+            field_allowed::<ContentEntryFields>(field)
+                || matches!(field, "type_id" | "created_by" | "updated_by")
         }
+        Table::ContentNodes => matches!(
+            field,
+            "entry_id" | "order_index" | "name" | "text" | "data" | "media_id" | "parent_id"
+        ),
+        Table::ContentMeta => matches!(field, "entry_id" | "start_time" | "end_time"),
+        Table::ContentEntryTags => matches!(field, "entry_id" | "tag_id"),
+        Table::ContentEntryAuthors => matches!(field, "entry_id" | "author_id"),
+        Table::ContentNodeMedia => matches!(field, "node_id" | "media_id" | "ast_line"),
         _ => false,
     }
 }
@@ -162,6 +171,7 @@ where
             continue;
         }
         if !table_field_allowed(table, key) {
+            warn!(table = %table, field = %key, "Rejected insert field");
             return Err(NurError::InvalidInput);
         }
         keys.push(key.clone());
@@ -298,6 +308,7 @@ where
             continue;
         }
         if !table_field_allowed(table, &key) {
+            warn!(table = %table, field = %key, "Rejected update field");
             return Err(NurError::InvalidInput);
         }
         any_field = true;
@@ -381,4 +392,30 @@ where
     query.execute(pool).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::table_field_allowed;
+    use crate::db::fields::Table;
+
+    #[test]
+    fn content_entry_insert_allows_server_managed_audit_fields() {
+        assert!(table_field_allowed(&Table::ContentEntries, "type_id"));
+        assert!(table_field_allowed(&Table::ContentEntries, "created_by"));
+        assert!(table_field_allowed(&Table::ContentEntries, "updated_by"));
+        assert!(table_field_allowed(&Table::ContentNodes, "entry_id"));
+        assert!(table_field_allowed(&Table::ContentNodes, "text"));
+        assert!(table_field_allowed(&Table::ContentMeta, "entry_id"));
+        assert!(table_field_allowed(&Table::ContentEntryTags, "tag_id"));
+        assert!(table_field_allowed(
+            &Table::ContentEntryAuthors,
+            "author_id"
+        ));
+        assert!(table_field_allowed(&Table::ContentNodeMedia, "media_id"));
+        assert!(!table_field_allowed(
+            &Table::ContentEntries,
+            "unknown_field"
+        ));
+    }
 }

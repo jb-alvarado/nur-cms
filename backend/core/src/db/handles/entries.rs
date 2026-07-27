@@ -51,8 +51,36 @@ fn is_entry_slug_conflict(error: &NurError) -> bool {
         && error.contains(ENTRY_SLUG_UNIQUE_CONSTRAINT)
 }
 
+async fn entry_slug_exists(
+    pool: &PgPool,
+    slug: &str,
+    locale_id: i32,
+    type_id: i32,
+) -> Result<bool, NurError> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM content_entries WHERE slug = $1 AND locale_id = $2 AND type_id = $3)",
+    )
+    .bind(slug)
+    .bind(locale_id)
+    .bind(type_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurError> {
     let Some(slug) = content.get("slug").and_then(Value::as_str) else {
+        return insert_record(pool, &Table::ContentEntries, content).await;
+    };
+    let (Some(locale_id), Some(type_id)) = (
+        content
+            .get("locale_id")
+            .and_then(Value::as_i64)
+            .and_then(|id| i32::try_from(id).ok()),
+        content
+            .get("type_id")
+            .and_then(Value::as_i64)
+            .and_then(|id| i32::try_from(id).ok()),
+    ) else {
         return insert_record(pool, &Table::ContentEntries, content).await;
     };
 
@@ -61,6 +89,22 @@ pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurErro
     let mut attempts = 0;
 
     loop {
+        let candidate_slug = candidate
+            .get("slug")
+            .and_then(Value::as_str)
+            .ok_or(NurError::InvalidInput)?;
+        if entry_slug_exists(pool, candidate_slug, locale_id, type_id).await? {
+            if attempts >= MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS {
+                return Err(NurError::Conflict(
+                    "Could not generate a unique article slug.".into(),
+                ));
+            }
+
+            attempts += 1;
+            candidate["slug"] = slug_with_suffix(&base_slug).into();
+            continue;
+        }
+
         match insert_record(pool, &Table::ContentEntries, &candidate).await {
             Ok(id) => return Ok(id),
             Err(error) if is_entry_slug_conflict(&error) => {
