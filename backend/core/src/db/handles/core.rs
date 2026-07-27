@@ -16,10 +16,33 @@ use strum::IntoEnumIterator;
 use tracing::{debug, warn};
 
 use crate::db::{
-    fields::{ColumnCounter, StrCompare, Table},
+    fields::*,
     queries::{QueryObj, RespondObj, WhereBuilder},
 };
 use crate::utils::errors::NurError;
+
+fn field_allowed<T: FromStr + StrCompare>(field: &str) -> bool {
+    T::from_str(field).is_ok_and(|value| value.is_equal_to_str(field))
+}
+
+fn table_field_allowed(table: &Table, field: &str) -> bool {
+    match table {
+        Table::AuthUsers => field_allowed::<AuthUserFields>(field) || field == "role_id",
+        Table::Locales => field_allowed::<LocaleFields>(field),
+        Table::ContentTypes => field_allowed::<ContentTypeFields>(field),
+        Table::ContentCategories => field_allowed::<ContentCategoryFields>(field),
+        Table::ContentTags => field_allowed::<ContentTagFields>(field),
+        Table::ContentAuthors => field_allowed::<ContentAuthorFields>(field),
+        Table::Comments => field_allowed::<CommentFields>(field),
+        Table::MailTargets => field_allowed::<MailTargetFields>(field),
+        Table::Media => field_allowed::<MediaFields>(field),
+        Table::ContentNodeTemplates => field_allowed::<ContentNodeTemplateFields>(field),
+        Table::ContentEntries => {
+            field_allowed::<ContentEntryFields>(field) || matches!(field, "type_id" | "updated_by")
+        }
+        _ => false,
+    }
+}
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -137,6 +160,9 @@ where
     for key in obj.keys() {
         if type_ignore.contains(&key.as_str()) {
             continue;
+        }
+        if !table_field_allowed(table, key) {
+            return Err(NurError::InvalidInput);
         }
         keys.push(key.clone());
     }
@@ -270,6 +296,9 @@ where
     for (key, val) in obj {
         if type_ignore.contains(&key.as_str()) {
             continue;
+        }
+        if !table_field_allowed(table, &key) {
+            return Err(NurError::InvalidInput);
         }
         any_field = true;
         separated.push(format!("{key} = "));

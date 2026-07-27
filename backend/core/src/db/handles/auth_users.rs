@@ -10,6 +10,14 @@ use crate::db::{
 };
 use crate::utils::errors::NurError;
 
+pub async fn update_last_login(pool: &PgPool, id: i32) -> Result<(), NurError> {
+    sqlx::query("UPDATE auth_users SET last_login = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 

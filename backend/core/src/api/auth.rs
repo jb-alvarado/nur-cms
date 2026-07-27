@@ -8,7 +8,7 @@ use argon2::{
     password_hash::{PasswordHash, SaltString, rand_core::OsRng},
 };
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
-use chrono::{DateTime, Local, TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
 use rand::RngExt;
 use real::RealIp;
@@ -21,9 +21,9 @@ use uuid::Uuid;
 use crate::{
     ACCESS_LIFETIME, CONFIG, REFRESH_LIFETIME,
     db::{
-        fields::{AuthUserFields, Table},
+        fields::AuthUserFields,
         handles,
-        models::{AuthUser, MailTarget, Role},
+        models::{MailTarget, Role},
         queries::QueryObj,
     },
     mail::client::{Msg, message},
@@ -333,12 +333,7 @@ pub async fn login(
                 let user_id = user.id.unwrap();
 
                 let tokens = issue_token_pair(&pool, user_id, role.name.clone()).await?;
-                let auth_user = AuthUser {
-                    last_login: Some(Local::now().into()),
-                    ..Default::default()
-                };
-
-                handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
+                handles::update_last_login(&pool, user_id).await?;
 
                 info!("{ip} User {username} login, with role: {}", role.name);
 
@@ -431,11 +426,7 @@ pub async fn verify(
             let tokens = issue_token_pair(&pool, user_id, role.clone()).await?;
 
             // Update last_login
-            let auth_user = AuthUser {
-                last_login: Some(Local::now().into()),
-                ..Default::default()
-            };
-            handles::update_record(&pool, &Table::AuthUsers, user_id, &auth_user).await?;
+            handles::update_last_login(&pool, user_id).await?;
 
             info!(
                 "{ip} User {username} verified successfully, with role: {}",
