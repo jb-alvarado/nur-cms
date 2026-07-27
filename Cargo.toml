@@ -20,9 +20,12 @@ codegen-units = 1
 opt-level = 3
 
 [profile.release]
-opt-level = 3
-strip = true
+debug = false
 lto = true
+strip = true
+opt-level = 3
+codegen-units = 1
+panic = "abort"
 
 [workspace.lints.clippy]
 correctness = { level = "deny", priority = -1 }
