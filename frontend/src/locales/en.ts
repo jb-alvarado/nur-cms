@@ -33,6 +33,8 @@ export default {
         noChanges: 'No changes to save',
         saveSuccess: 'Content saved successfully',
         language: 'Language',
+        navigation: 'Navigation',
+        closeNavigation: 'Close navigation',
         addLanguage: 'Add Language',
         selectLanguage: 'Select a language',
         deleteSuccess: 'Deleted: {name}',

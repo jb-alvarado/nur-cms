@@ -34,6 +34,8 @@ export default {
         noChanges: 'Keine Änderungen zum Speichern',
         saveSuccess: 'Inhalt erfolgreich gespeichert',
         language: 'Sprache',
+        navigation: 'Navigation',
+        closeNavigation: 'Navigation schließen',
         addLanguage: 'Sprache hinzufügen',
         selectLanguage: 'Sprache auswählen',
         deleteSuccess: 'Gelöscht: {name}',

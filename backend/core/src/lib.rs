@@ -25,7 +25,7 @@ pub mod utils;
 
 use crate::{
     api::{
-        auth::{decode_jwt, login, refresh, verify},
+        auth::{decode_jwt, login, logout, refresh, verify},
         routes::*,
     },
     db::{
@@ -115,6 +115,7 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
     let auth_routes = Router::new()
         .route("/login", post(login))
         .route("/refresh", post(refresh))
+        .route("/logout", post(logout))
         .route("/verify", post(verify));
 
     let auth_user_routes = Router::new()

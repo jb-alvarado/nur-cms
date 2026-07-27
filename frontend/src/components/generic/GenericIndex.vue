@@ -111,9 +111,9 @@ function resetSearch() {
             </RouterLink>
         </div>
 
-        <div class="h-10 mt-4 mb-6 flex gap-2 items-center">
+        <div class="mt-4 mb-6 flex flex-wrap gap-2 items-center">
             <div class="grow join">
-                <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-74'">
+                <label class="input" :class="selectCount > 0 ? 'w-40' : 'w-full md:w-74'">
                     <i class="bi bi-search opacity-45"></i>
                     <input
                         v-model="store.search"

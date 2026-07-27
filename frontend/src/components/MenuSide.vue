@@ -34,8 +34,8 @@ onBeforeMount(async () => {
     store.isLoaded = true
 })
 
-function logout() {
-    auth.removeToken()
+async function logout() {
+    await auth.logout()
     auth.username = ''
     router.push({ name: 'login' })
 }
@@ -71,7 +71,7 @@ function setLanguage(code: string) {
 </script>
 
 <template>
-    <div class="w-38 h-full bg-base-300 flex flex-col">
+    <aside class="flex h-full 38 flex-col bg-base-300 pt-3">
         <div class="flex justify-center">
             <RouterLink class="text-xl font-bold" to="/">{{ $t('app.title') }}</RouterLink>
         </div>
@@ -156,5 +156,5 @@ function setLanguage(code: string) {
         </div>
 
         <SseHandler v-if="auth.uuid" />
-    </div>
+    </aside>
 </template>

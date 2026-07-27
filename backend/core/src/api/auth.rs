@@ -3,7 +3,10 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use argon2::{Argon2, PasswordVerifier, password_hash::PasswordHash};
+use argon2::{
+    Argon2, PasswordHasher, PasswordVerifier,
+    password_hash::{PasswordHash, SaltString, rand_core::OsRng},
+};
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Local, TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
@@ -13,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
 use tokio::{sync::Mutex, task};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::{
     ACCESS_LIFETIME, CONFIG, REFRESH_LIFETIME,
@@ -30,17 +34,50 @@ use crate::{
 pub struct Claims {
     pub id: i32,
     pub role: Role,
+    pub token_type: TokenType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jti: Option<String>,
+    iat: i64,
     exp: i64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenType {
+    Access,
+    Refresh,
+}
+
 impl Claims {
-    pub fn new(id: i32, role: Role, lifetime: i64) -> Self {
+    pub fn access(id: i32, role: Role) -> Self {
+        let now = Utc::now();
         Self {
             id,
             role,
-            exp: (Utc::now() + TimeDelta::try_days(lifetime).unwrap()).timestamp(),
+            token_type: TokenType::Access,
+            jti: None,
+            iat: now.timestamp(),
+            exp: (now + TimeDelta::try_days(*ACCESS_LIFETIME).unwrap()).timestamp(),
         }
     }
+
+    pub fn refresh(id: i32, role: Role, jti: String) -> Self {
+        let now = Utc::now();
+        Self {
+            id,
+            role,
+            token_type: TokenType::Refresh,
+            jti: Some(jti),
+            iat: now.timestamp(),
+            exp: (now + TimeDelta::try_days(*REFRESH_LIFETIME).unwrap()).timestamp(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct TokenPair {
+    access: String,
+    refresh: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -72,6 +109,14 @@ pub struct VerifyRequest {
 pub static VERIFICATION_CODES: LazyLock<Arc<Mutex<HashMap<String, VerificationCode>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(b"nur-cms-dummy-password", &salt)
+        .expect("dummy password hash must be valid")
+        .to_string()
+});
+
 fn frontend_name() -> String {
     option_env!("FRONTEND_NAME")
         .map(str::trim)
@@ -91,11 +136,83 @@ pub async fn encode_jwt(claims: Claims) -> Result<String, NurError> {
 }
 
 /// Decode a json web token (JWT)
-pub async fn decode_jwt(token: &str) -> Result<Claims, NurError> {
+async fn decode_jwt_with_type(token: &str, expected: TokenType) -> Result<Claims, NurError> {
     let decoding_key = DecodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
-    jsonwebtoken::decode::<Claims>(token, &decoding_key, &Validation::default())
+    let claims = jsonwebtoken::decode::<Claims>(token, &decoding_key, &Validation::default())
         .map(|data| data.claims)
-        .map_err(|_| NurError::Unauthorized)
+        .map_err(|_| NurError::Unauthorized)?;
+
+    if claims.token_type != expected || claims.iat <= 0 || claims.exp <= claims.iat {
+        return Err(NurError::Unauthorized);
+    }
+
+    let maximum_lifetime = match expected {
+        TokenType::Access => ACCESS_LIFETIME.saturating_mul(24 * 60 * 60),
+        TokenType::Refresh => REFRESH_LIFETIME.saturating_mul(24 * 60 * 60),
+    };
+    if claims.exp - claims.iat > maximum_lifetime
+        || (expected == TokenType::Refresh && claims.jti.is_none())
+    {
+        return Err(NurError::Unauthorized);
+    }
+
+    Ok(claims)
+}
+
+/// Decode an access token used to authorize API requests.
+pub async fn decode_jwt(token: &str) -> Result<Claims, NurError> {
+    decode_jwt_with_type(token, TokenType::Access).await
+}
+
+/// Decode a refresh token used only by the refresh and logout endpoints.
+pub async fn decode_refresh_jwt(token: &str) -> Result<Claims, NurError> {
+    decode_jwt_with_type(token, TokenType::Refresh).await
+}
+
+async fn issue_token_pair(pool: &PgPool, user_id: i32, role: Role) -> Result<TokenPair, NurError> {
+    let jti = Uuid::new_v4().to_string();
+    let access = encode_jwt(Claims::access(user_id, role.clone())).await?;
+    let refresh_claims = Claims::refresh(user_id, role, jti.clone());
+    let expires_at = refresh_claims.exp;
+    let refresh = encode_jwt(refresh_claims).await?;
+    handles::insert_refresh_token(
+        pool,
+        &jti,
+        &jti,
+        user_id,
+        expires_at,
+        Utc::now().timestamp(),
+    )
+    .await?;
+
+    Ok(TokenPair { access, refresh })
+}
+
+async fn rotate_token_pair(
+    pool: &PgPool,
+    old_claims: &Claims,
+    user_id: i32,
+    role: Role,
+) -> Result<Option<TokenPair>, NurError> {
+    let Some(old_jti) = old_claims.jti.as_deref() else {
+        return Ok(None);
+    };
+    let new_jti = Uuid::new_v4().to_string();
+    let access = encode_jwt(Claims::access(user_id, role.clone())).await?;
+    let refresh_claims = Claims::refresh(user_id, role, new_jti.clone());
+    let expires_at = refresh_claims.exp;
+    let refresh = encode_jwt(refresh_claims).await?;
+    let rotation = handles::rotate_refresh_token(
+        pool,
+        old_jti,
+        &new_jti,
+        user_id,
+        expires_at,
+        Utc::now().timestamp(),
+    )
+    .await?;
+
+    Ok((rotation == handles::RefreshRotation::Rotated).then_some(TokenPair { access, refresh }))
 }
 
 pub async fn login(
@@ -121,6 +238,12 @@ pub async fn login(
     match handles::select_auth_user(&pool, query_obj).await {
         Ok(resp) => {
             if resp.results.is_empty() {
+                let cred_password = password.clone();
+                let _ = task::spawn_blocking(move || {
+                    let hash = PasswordHash::new(&DUMMY_PASSWORD_HASH)?;
+                    Argon2::default().verify_password(cred_password.as_bytes(), &hash)
+                })
+                .await;
                 return Ok((
                     StatusCode::FORBIDDEN,
                     AxumJson(serde_json::json!({
@@ -209,10 +332,7 @@ pub async fn login(
 
                 let user_id = user.id.unwrap();
 
-                let access_claims = Claims::new(user_id, role.name.clone(), *ACCESS_LIFETIME);
-                let access_token = encode_jwt(access_claims).await?;
-                let refresh_claims = Claims::new(user_id, role.name.clone(), *REFRESH_LIFETIME);
-                let refresh_token = encode_jwt(refresh_claims).await?;
+                let tokens = issue_token_pair(&pool, user_id, role.name.clone()).await?;
                 let auth_user = AuthUser {
                     last_login: Some(Local::now().into()),
                     ..Default::default()
@@ -225,8 +345,8 @@ pub async fn login(
                 return Ok((
                     StatusCode::OK,
                     AxumJson(serde_json::json!({
-                        "access": access_token,
-                        "refresh": refresh_token,
+                        "access": tokens.access,
+                        "refresh": tokens.refresh,
                     })),
                 )
                     .into_response());
@@ -308,11 +428,7 @@ pub async fn verify(
             let user_id = verification.user_id;
             let role = verification.role;
 
-            // Generate JWT tokens
-            let access_claims = Claims::new(user_id, role.clone(), *ACCESS_LIFETIME);
-            let access_token = encode_jwt(access_claims).await?;
-            let refresh_claims = Claims::new(user_id, role.clone(), *REFRESH_LIFETIME);
-            let refresh_token = encode_jwt(refresh_claims).await?;
+            let tokens = issue_token_pair(&pool, user_id, role.clone()).await?;
 
             // Update last_login
             let auth_user = AuthUser {
@@ -329,8 +445,8 @@ pub async fn verify(
             Ok((
                 StatusCode::OK,
                 AxumJson(serde_json::json!({
-                    "access": access_token,
-                    "refresh": refresh_token,
+                    "access": tokens.access,
+                    "refresh": tokens.refresh,
                 })),
             )
                 .into_response())
@@ -352,12 +468,9 @@ pub async fn refresh(
     State((pool, _)): State<(PgPool, Args)>,
     AxumJson(data): AxumJson<TokenRefreshRequest>,
 ) -> Result<impl IntoResponse, NurError> {
-    let refresh_token = &data.refresh;
-
-    match decode_jwt(refresh_token).await {
+    match decode_refresh_jwt(&data.refresh).await {
         Ok(claims) => {
             let user_id = claims.id;
-            let claim_role = claims.role;
 
             let query_obj: QueryObj<AuthUserFields> = QueryObj {
                 fields: vec![
@@ -372,31 +485,31 @@ pub async fn refresh(
             if let Ok(resp) = handles::select_auth_user(&pool, query_obj).await
                 && !resp.results.is_empty()
             {
-                let username = resp.results[0].username.clone();
+                let username = resp.results[0].username.clone().unwrap_or_default();
                 let role_name = resp.results[0]
                     .role
                     .clone()
                     .ok_or(NurError::Unauthorized)?
                     .name;
 
-                if role_name != claim_role {
+                let Some(tokens) =
+                    rotate_token_pair(&pool, &claims, user_id, role_name.clone()).await?
+                else {
                     return Ok((
-                        StatusCode::UNAUTHORIZED,
+                        StatusCode::FORBIDDEN,
                         AxumJson(serde_json::json!({
-                            "detail": "Role mismatch in refresh token",
+                            "detail": "Invalid refresh token",
                         })),
                     ));
-                }
+                };
 
-                let access_claims = Claims::new(user_id, role_name.clone(), *ACCESS_LIFETIME);
-                let access_token = encode_jwt(access_claims).await?;
-
-                info!("user {} refresh, with role: {role_name}", username.unwrap());
+                info!("user {username} refresh, with role: {role_name}");
 
                 return Ok((
                     StatusCode::OK,
                     AxumJson(serde_json::json!({
-                        "access": access_token,
+                        "access": tokens.access,
+                        "refresh": tokens.refresh,
                     })),
                 ));
             }
@@ -415,6 +528,20 @@ pub async fn refresh(
             })),
         )),
     }
+}
+
+/// Revoke the refresh-token family for the current session.
+pub async fn logout(
+    State((pool, _)): State<(PgPool, Args)>,
+    AxumJson(data): AxumJson<TokenRefreshRequest>,
+) -> Result<StatusCode, NurError> {
+    if let Ok(claims) = decode_refresh_jwt(&data.refresh).await
+        && let Some(jti) = claims.jti
+    {
+        handles::revoke_refresh_family(&pool, &jti, claims.id, Utc::now().timestamp()).await?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn mail_body(verification_code: &str, add_name: &str) -> String {
@@ -446,7 +573,10 @@ fn mail_body(verification_code: &str, add_name: &str) -> String {
 mod tests {
     use super::*;
 
+    static TEST_JWT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
     async fn with_test_jwt_secret<T>(secret: &str, f: impl std::future::Future<Output = T>) -> T {
+        let _guard = TEST_JWT_LOCK.lock().await;
         let prev = CONFIG.read().await.clone();
         {
             let mut cfg = CONFIG.write().await;
@@ -464,27 +594,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claims_exp_in_expected_range() {
+    async fn access_claims_have_the_configured_lifetime() {
         let now = Utc::now().timestamp();
-        let lifetime_days = 1;
-        let claims = Claims::new(42, Role::Admin, lifetime_days);
-        let exp = claims.exp;
+        let claims = Claims::access(42, Role::Admin);
+        let expected = *ACCESS_LIFETIME * 24 * 60 * 60;
 
-        let max = now + lifetime_days * 24 * 60 * 60 + 5;
-        assert!(exp >= now, "exp should be in the future");
-        assert!(exp <= max, "exp should be within expected range");
+        assert_eq!(claims.token_type, TokenType::Access);
+        assert!(claims.jti.is_none());
+        assert!((claims.exp - claims.iat - expected).abs() <= 1);
+        assert!(claims.iat >= now);
     }
 
     #[tokio::test]
     async fn jwt_encode_decode_roundtrip() {
         with_test_jwt_secret("test-secret", async {
-            let claims = Claims::new(7, Role::Author, 1);
+            let claims = Claims::access(7, Role::Author);
             let token = encode_jwt(claims.clone()).await.expect("encode ok");
             let decoded = decode_jwt(&token).await.expect("decode ok");
 
             assert_eq!(decoded.id, claims.id);
             assert_eq!(decoded.role, claims.role);
             assert_eq!(decoded.exp, claims.exp);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn access_and_refresh_tokens_are_not_interchangeable() {
+        with_test_jwt_secret("test-secret", async {
+            let access = encode_jwt(Claims::access(7, Role::Author))
+                .await
+                .expect("encode access");
+            let refresh = encode_jwt(Claims::refresh(7, Role::Author, Uuid::new_v4().to_string()))
+                .await
+                .expect("encode refresh");
+
+            assert!(decode_jwt(&access).await.is_ok());
+            assert!(decode_refresh_jwt(&refresh).await.is_ok());
+            assert!(decode_jwt(&refresh).await.is_err());
+            assert!(decode_refresh_jwt(&access).await.is_err());
         })
         .await;
     }
@@ -510,12 +658,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claims_new_with_different_roles() {
+    async fn access_claims_preserve_roles() {
         let user_id = 123;
-        let lifetime = 7;
 
-        let admin_claims = Claims::new(user_id, Role::Admin, lifetime);
-        let author_claims = Claims::new(user_id, Role::Author, lifetime);
+        let admin_claims = Claims::access(user_id, Role::Admin);
+        let author_claims = Claims::access(user_id, Role::Author);
 
         assert_eq!(admin_claims.id, user_id);
         assert_eq!(admin_claims.role, Role::Admin);
@@ -526,8 +673,8 @@ mod tests {
     #[tokio::test]
     async fn jwt_different_users_produce_different_tokens() {
         with_test_jwt_secret("test-secret", async {
-            let claims1 = Claims::new(1, Role::Admin, 1);
-            let claims2 = Claims::new(2, Role::Admin, 1);
+            let claims1 = Claims::access(1, Role::Admin);
+            let claims2 = Claims::access(2, Role::Admin);
 
             let token1 = encode_jwt(claims1).await.expect("encode ok");
             let token2 = encode_jwt(claims2).await.expect("encode ok");
@@ -560,7 +707,7 @@ mod tests {
     #[tokio::test]
     async fn jwt_tampered_token_fails_decode() {
         with_test_jwt_secret("test-secret", async {
-            let claims = Claims::new(1, Role::Admin, 1);
+            let claims = Claims::access(1, Role::Admin);
             let token = encode_jwt(claims).await.expect("encode ok");
 
             // Try to decode with different secret
@@ -655,25 +802,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claims_exp_increases_with_lifetime() {
-        let user_id = 1;
-        let role = Role::Admin;
-        let now = Utc::now().timestamp();
+    async fn refresh_claims_have_a_jti_and_longer_lifetime() {
+        let access = Claims::access(1, Role::Admin);
+        let refresh = Claims::refresh(1, Role::Admin, Uuid::new_v4().to_string());
 
-        let claims_1day = Claims::new(user_id, role.clone(), 1);
-        let claims_7day = Claims::new(user_id, role.clone(), 7);
-        let claims_30day = Claims::new(user_id, role.clone(), 30);
-
-        // Verify that longer lifetimes produce later expiration timestamps
-        assert!(claims_1day.exp < claims_7day.exp);
-        assert!(claims_7day.exp < claims_30day.exp);
-
-        // Verify first claim is roughly 1 day from now
-        let expected_1day = now + (24 * 60 * 60);
-        assert!(
-            (claims_1day.exp - expected_1day).abs() < 5,
-            "1-day claim should expire ~24h from now"
-        );
+        assert_eq!(refresh.token_type, TokenType::Refresh);
+        assert!(refresh.jti.is_some());
+        assert_eq!(refresh.exp - refresh.iat, *REFRESH_LIFETIME * 24 * 60 * 60);
+        assert!(refresh.exp > access.exp);
     }
 
     #[tokio::test]
@@ -681,9 +817,7 @@ mod tests {
         with_test_jwt_secret("test-secret", async {
             let original_id = 999;
             let original_role = Role::Author;
-            let lifetime = 10;
-
-            let claims = Claims::new(original_id, original_role.clone(), lifetime);
+            let claims = Claims::access(original_id, original_role.clone());
             let original_exp = claims.exp;
 
             let token = encode_jwt(claims).await.expect("encode ok");

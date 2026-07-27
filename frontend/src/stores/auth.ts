@@ -114,14 +114,29 @@ export const useAuth = defineStore('auth', {
             })
                 .then((resp) => resp.json())
                 .then((response: any) => {
-                    if (response.access) {
-                        this.updateToken(response.access, this.jwtRefresh)
+                    if (response.access && response.refresh) {
+                        this.updateToken(response.access, response.refresh)
                         this.isLogin = true
+                    } else {
+                        this.removeToken()
                     }
                 })
                 .catch(() => {
                     this.removeToken()
                 })
+        },
+
+        async logout() {
+            const refresh = this.jwtRefresh
+            this.removeToken()
+
+            if (!refresh) return
+
+            await fetch('/auth/logout', {
+                method: 'POST',
+                headers: new Headers([['content-type', 'application/json;charset=UTF-8']]),
+                body: JSON.stringify({ refresh }),
+            }).catch(() => undefined)
         },
 
         async obtainUuid() {

@@ -63,11 +63,11 @@ useHead({
 </script>
 
 <template>
-    <div class="relative w-full h-full">
+    <div class="relative h-full w-full overflow-hidden">
         <div class="w-full h-full flex items-center justify-center">
             <div class="flex flex-col items-center text-center opacity-30">
-                <div id="homeLogo" class="w-96 min-w-52 h-96 min-h-52" />
-                <h1 class="font-bold text-5xl mt-5">{{ frontendName }}</h1>
+                <div id="homeLogo" class="size-64 sm:size-96" />
+                <h1 class="mt-3 text-3xl font-bold sm:mt-5 sm:text-5xl">{{ frontendName }}</h1>
             </div>
         </div>
         <div v-if="lastUsers.length > 0" class="absolute bg-base-200 z-10 top-5 right-2 p-3 rounded-md">

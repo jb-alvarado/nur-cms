@@ -535,11 +535,8 @@ fn normalize_media_path(raw_url: &str) -> Option<(String, String)> {
     }
 
     if let Some(pos) = path.find("://") {
-        if let Some(slash_pos) = path[pos + 3..].find('/') {
-            path = path[pos + 3 + slash_pos..].to_string();
-        } else {
-            return None;
-        }
+        let slash_pos = path[pos + 3..].find('/')?;
+        path = path[pos + 3 + slash_pos..].to_string();
     }
 
     if let Some(pos) = path.find('#') {

@@ -16,7 +16,7 @@ const emit = defineEmits(['change'])
 // normalize limit; avoid 0 or negative
 const effectiveLimit = computed(() => (limit.value! > 0 ? Math.floor(limit.value!) : 10))
 const totalPages = computed(() =>
-    effectiveLimit.value > 0 ? Math.max(1, Math.ceil(props.total / effectiveLimit.value)) : 1
+    effectiveLimit.value > 0 ? Math.max(1, Math.ceil(props.total / effectiveLimit.value)) : 1,
 )
 
 const currentPage = computed(() => {
@@ -122,12 +122,12 @@ function emitUpdate(pageVal: number) {
 </script>
 
 <template>
-    <div v-if="!hideStat" class="text-sm text-base-content/70 me-4 mt-1.3 leading-0">
+    <div v-if="!hideStat" class="hidden md:block text-sm text-base-content/70 me-4 mt-1.3 leading-0">
         {{ displayFrom }}–{{ displayTo }} of {{ total }}
     </div>
     <nav class="flex join" aria-label="Pagination">
         <!-- prev -->
-        <button class="btn join-item border-base-content/20" :disabled="isFirst" @click="prev">
+        <button class="btn join-item border-base-content/20 w-10" :disabled="isFirst" @click="prev">
             <i class="bi bi-chevron-left"></i>
         </button>
 
@@ -135,19 +135,19 @@ function emitUpdate(pageVal: number) {
         <template v-for="p in pages" :key="p">
             <button
                 v-if="p !== '...'"
-                class="btn join-item border-base-content/20"
+                class="btn join-item border-base-content/20 w-10"
                 :class="{ 'btn-disabled': p === currentPage }"
                 @click="goto(Number(p))"
             >
                 {{ p }}
             </button>
-            <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20">
+            <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20 w-10">
                 …
             </button>
         </template>
 
         <!-- next -->
-        <button class="btn join-item border border-base-content/20" :disabled="isLast" @click="next">
+        <button class="btn join-item border border-base-content/20 w-10" :disabled="isLast" @click="next">
             <i class="bi bi-chevron-right"></i>
         </button>
         <!-- page size selector -->
