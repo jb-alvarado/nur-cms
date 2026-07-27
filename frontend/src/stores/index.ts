@@ -71,7 +71,7 @@ export const useIndex = defineStore('index', {
         },
 
         async selectAuthors() {
-            await fetch('/api/content/authors?fields=id,first_name,last_name,slug&limit=1000')
+            await fetch('/api/content/authors?fields=id,first_name,last_name,slug&limit=200')
                 .then(async (resp) => {
                     if (resp.status >= 400) {
                         const msg = await errMsg(resp)

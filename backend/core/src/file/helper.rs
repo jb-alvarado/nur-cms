@@ -84,11 +84,95 @@ pub async fn cleanup_stale_uploads() {
     drop(uploads);
 
     for (_, temp_file, metadata_file) in expired {
-        for path in [temp_file, metadata_file] {
-            if let Err(error) = fs::remove_file(&path).await
-                && error.kind() != std::io::ErrorKind::NotFound
+        remove_upload_files(&temp_file, &metadata_file).await;
+    }
+}
+
+async fn remove_upload_files(temp_file: &Path, metadata_file: &Path) {
+    for path in [temp_file, metadata_file] {
+        if let Err(error) = fs::remove_file(path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            error!("Failed to remove stale upload {}: {error}", path.display());
+        }
+    }
+}
+
+/// Remove persisted uploads that cannot be resumed after a process restart.
+///
+/// A metadata file without its temporary data file is always orphaned. Complete
+/// pairs are retained for the configured TTL so interrupted uploads remain
+/// resumable.
+pub async fn cleanup_persisted_uploads() {
+    let root = PathBuf::from(STORAGE.as_str());
+    let now = SystemTime::now();
+    let ttl = Duration::from_secs(*UPLOAD_TTL_SECONDS);
+    let mut directories = vec![root];
+
+    while let Some(directory) = directories.pop() {
+        let mut entries = match fs::read_dir(&directory).await {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                error!(
+                    "Failed to read upload directory {}: {error}",
+                    directory.display()
+                );
+                continue;
+            }
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            let file_type = match entry.file_type().await {
+                Ok(file_type) => file_type,
+                Err(error) => {
+                    error!("Failed to inspect upload path {}: {error}", path.display());
+                    continue;
+                }
+            };
+
+            if file_type.is_dir() {
+                directories.push(path);
+                continue;
+            }
+            if !file_type.is_file()
+                || !path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(".uploading.json"))
             {
-                error!("Failed to remove stale upload {}: {error}", path.display());
+                continue;
+            }
+
+            let Some(temp_file) = path.to_str().and_then(|name| name.strip_suffix(".json")) else {
+                continue;
+            };
+            let temp_file = PathBuf::from(temp_file);
+
+            if !fs::try_exists(&temp_file).await.unwrap_or(false) {
+                remove_upload_files(&temp_file, &path).await;
+                continue;
+            }
+
+            let updated_at = match fs::read(&path).await {
+                Ok(data) => serde_json::from_slice::<PersistedUpload>(&data)
+                    .ok()
+                    .map(|upload| UNIX_EPOCH + Duration::from_secs(upload.updated_at)),
+                Err(_) => None,
+            };
+            let updated_at = match updated_at {
+                Some(updated_at) => Some(updated_at),
+                None => fs::metadata(&path)
+                    .await
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok()),
+            };
+
+            if updated_at
+                .is_some_and(|updated_at| now.duration_since(updated_at).unwrap_or_default() >= ttl)
+            {
+                remove_upload_files(&temp_file, &path).await;
             }
         }
     }
@@ -722,7 +806,7 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> 
         ));
     }
 
-    // Delete only variants recorded for this media row.
+    // Delete variants recorded for this media row.
     for variant in &media.variants {
         if variant.filename == fname {
             continue;
@@ -735,6 +819,33 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> 
         }
     }
 
+    // Older media records may predate `media_variants` rows. In that case,
+    // clean up only files matching the generated `<stem>-<width>.<extension>`
+    // variant convention, never arbitrary siblings in the upload directory.
+    if media.variants.is_empty() {
+        let stem = Path::new(&fname)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or(NurError::InvalidInput)?;
+        let parent = target.parent().ok_or(NurError::InvalidInput)?;
+        let mut entries = fs::read_dir(parent).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if !entry.file_type().await?.is_file()
+                || !path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| is_generated_variant_filename(name, stem))
+            {
+                continue;
+            }
+
+            fs::remove_file(&path).await?;
+            info!("Removed untracked media variant {path:?}");
+        }
+    }
+
     // Delete main file
     fs::remove_file(&target).await?;
     info!("Removed file {:?}", target);
@@ -742,10 +853,22 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> 
     Ok(())
 }
 
+fn is_generated_variant_filename(filename: &str, stem: &str) -> bool {
+    let Some(remainder) = filename.strip_prefix(&format!("{stem}-")) else {
+        return false;
+    };
+    let Some((width, extension)) = remainder.rsplit_once('.') else {
+        return false;
+    };
+
+    !extension.is_empty() && width.parse::<u32>().is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        is_upload_complete, merge_ranges, safe_file_name, storage_relative_path, uploading_path,
+        is_generated_variant_filename, is_upload_complete, merge_ranges, safe_file_name,
+        storage_relative_path, uploading_path,
     };
     use std::{ops::Range, path::Path};
 
@@ -789,5 +912,17 @@ mod tests {
             storage_relative_path("/uploads/2026/07").expect("safe path"),
             Path::new("2026/07")
         );
+    }
+
+    #[test]
+    fn recognizes_only_generated_variant_filenames() {
+        assert!(is_generated_variant_filename("photo-1280.webp", "photo"));
+        assert!(is_generated_variant_filename("photo-320.jpg", "photo"));
+        assert!(!is_generated_variant_filename(
+            "photo-original.jpg",
+            "photo"
+        ));
+        assert!(!is_generated_variant_filename("photo-320", "photo"));
+        assert!(!is_generated_variant_filename("other-320.jpg", "photo"));
     }
 }

@@ -106,6 +106,7 @@ pub async fn init_db() -> Result<PgPool, NurError> {
         .await?;
 
     handles::db_migrate(&pool).await?;
+    file::helper::cleanup_persisted_uploads().await;
 
     Ok(pool)
 }

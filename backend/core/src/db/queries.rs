@@ -12,7 +12,7 @@ use crate::db::fields::*;
 
 // Default response items limit
 const DEFAULT_LIMIT: i64 = 50;
-const MAX_LIMIT: i64 = 100;
+const MAX_LIMIT: i64 = 200;
 const MAX_OFFSET: i64 = 1_000_000;
 
 static RE_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"offset=\d+").unwrap());

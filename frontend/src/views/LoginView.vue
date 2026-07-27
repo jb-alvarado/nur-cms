@@ -70,7 +70,7 @@ async function login() {
 </script>
 
 <template>
-    <div class="w-full h-full flex justify-center items-center">
+    <div class="h-dvh w-full flex justify-center items-center">
         <div class="w-96 min-w-full flex flex-col justify-center items-center px-4">
             <h1 class="text-6xl xs:text-8xl">{{ $t('app.title') }}</h1>
 
