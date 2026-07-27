@@ -73,6 +73,8 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "video/quicktime",
     "video/webm",
 ];
+const MAX_FILENAME_LENGTH: usize = 255;
+const MAX_BATCH_ID_LENGTH: usize = 128;
 
 fn validate_mime_type(filename: &str) -> Result<String, NurError> {
     let mime_type = mime_guess::from_path(filename)
@@ -177,9 +179,16 @@ pub async fn upload_status(
 
     let file_name = sanitize(&query.file_name);
     validate_mime_type(&file_name)?;
-    if query.batch_id.is_empty() || query.size > *MAX_UPLOAD_SIZE {
+    if file_name.is_empty()
+        || file_name.len() > MAX_FILENAME_LENGTH
+        || query.batch_id.is_empty()
+        || query.batch_id.len() > MAX_BATCH_ID_LENGTH
+        || query.size == 0
+        || query.size > *MAX_UPLOAD_SIZE
+    {
         return Err(NurError::BadRequest("Invalid upload metadata".into()));
     }
+    cleanup_stale_uploads().await;
 
     let output_file = upload_output_file(&file_name);
     ensure_upload_directory(&output_file).await?;
@@ -253,15 +262,20 @@ pub async fn upload_chunk(
     let start = start.ok_or_else(|| NurError::BadRequest("Missing start offset".into()))?;
     let end = end.ok_or_else(|| NurError::BadRequest("Missing end offset".into()))?;
     let chunk_data = chunk_data.ok_or_else(|| NurError::BadRequest("Missing chunk".into()))?;
-    if batch_id.is_empty() {
+    if original_filename.is_empty()
+        || original_filename.len() > MAX_FILENAME_LENGTH
+        || batch_id.is_empty()
+        || batch_id.len() > MAX_BATCH_ID_LENGTH
+    {
         return Err(NurError::BadRequest("Missing batch id".into()));
     }
+    cleanup_stale_uploads().await;
 
     // Validate MIME type
     validate_mime_type(&original_filename)?;
 
     // Validate file size limits
-    if size > *MAX_UPLOAD_SIZE {
+    if size == 0 || size > *MAX_UPLOAD_SIZE {
         return Err(NurError::BadRequest(format!(
             "File size {} exceeds maximum allowed size of {}",
             format_bytes(size),

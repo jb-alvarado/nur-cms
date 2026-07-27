@@ -15,6 +15,7 @@ use tokio::sync::broadcast::Sender;
 use tracing::{debug, info, warn};
 
 use crate::{
+    MAX_IMAGE_PIXELS,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
@@ -69,6 +70,13 @@ pub fn save_image(
     input_file: &Path,
     tx: Option<Sender<String>>,
 ) -> Result<VarianceType, Box<dyn std::error::Error>> {
+    let dimensions = image::ImageReader::open(input_file)?
+        .with_guessed_format()?
+        .into_dimensions()?;
+    let pixels = u64::from(dimensions.0) * u64::from(dimensions.1);
+    if pixels == 0 || pixels > *MAX_IMAGE_PIXELS {
+        return Err(format!("Image exceeds the maximum of {} pixels", *MAX_IMAGE_PIXELS).into());
+    }
     let img = image::open(input_file)?;
     let (orig_w, orig_h) = img.dimensions();
     let img_name = input_file

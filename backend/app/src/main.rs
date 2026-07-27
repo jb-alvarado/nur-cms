@@ -23,8 +23,8 @@ use tokio::{
     net::TcpListener,
     sync::{Mutex, broadcast},
 };
-use tower::ServiceBuilder;
-use tower_http::services::ServeDir;
+use tower::{ServiceBuilder, limit::ConcurrencyLimitLayer};
+use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer, timeout::TimeoutLayer};
 use tracing::{debug, error};
 
 #[cfg(not(debug_assertions))]
@@ -58,14 +58,33 @@ static TRUSTED_PROXY_CIDRS: LazyLock<Vec<IpNet>> = LazyLock::new(|| {
         .collect()
 });
 
-fn forwarded_client_ip(headers: &axum::http::HeaderMap) -> Option<IpAddr> {
-    let value = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))?
-        .to_str()
-        .ok()?;
+fn is_trusted_proxy(ip: &IpAddr, trusted_proxies: &[IpNet]) -> bool {
+    trusted_proxies.iter().any(|network| network.contains(ip))
+}
 
-    value.split(',').next()?.trim().parse().ok()
+fn forwarded_client_ip(
+    headers: &axum::http::HeaderMap,
+    peer_ip: IpAddr,
+    trusted_proxies: &[IpNet],
+) -> Option<IpAddr> {
+    if let Some(value) = headers.get("x-forwarded-for") {
+        let mut chain = value
+            .to_str()
+            .ok()?
+            .split(',')
+            .map(str::trim)
+            .map(str::parse::<IpAddr>)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        chain.push(peer_ip);
+
+        return chain
+            .into_iter()
+            .rev()
+            .find(|address| !is_trusted_proxy(address, trusted_proxies));
+    }
+
+    headers.get("x-real-ip")?.to_str().ok()?.trim().parse().ok()
 }
 
 async fn resolve_real_ip(
@@ -78,11 +97,8 @@ async fn resolve_real_ip(
         .map(|peer| peer.0.ip());
 
     let client_ip = peer_ip.map(|peer| {
-        if TRUSTED_PROXY_CIDRS
-            .iter()
-            .any(|network| network.contains(&peer))
-        {
-            forwarded_client_ip(req.headers()).unwrap_or(peer)
+        if is_trusted_proxy(&peer, &TRUSTED_PROXY_CIDRS) {
+            forwarded_client_ip(req.headers(), peer, &TRUSTED_PROXY_CIDRS).unwrap_or(peer)
         } else {
             peer
         }
@@ -148,6 +164,20 @@ async fn main() -> Result<(), NurError> {
     .await;
 
     let (auth_routes, api_routes) = router_entries();
+    let auth_routes =
+        auth_routes
+            .layer(ConcurrencyLimitLayer::new(32))
+            .layer(TimeoutLayer::with_status_code(
+                axum::http::StatusCode::REQUEST_TIMEOUT,
+                std::time::Duration::from_secs(20),
+            ));
+    let api_routes =
+        api_routes
+            .layer(ConcurrencyLimitLayer::new(64))
+            .layer(TimeoutLayer::with_status_code(
+                axum::http::StatusCode::REQUEST_TIMEOUT,
+                std::time::Duration::from_secs(300),
+            ));
 
     let sse_router = Router::new()
         .route(
@@ -157,6 +187,10 @@ async fn main() -> Result<(), NurError> {
         .route("/generate-uuid", post(generate_uuid).with_state(sse_state));
 
     let middlewares = ServiceBuilder::new()
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
         .layer(middleware::from_fn(resolve_real_ip))
         .layer(middleware::from_fn(log_middleware))
         .layer(GrantsLayer::with_extractor(extract))
@@ -215,7 +249,12 @@ async fn main() -> Result<(), NurError> {
 mod tests {
     use super::forwarded_client_ip;
     use axum::http::{HeaderMap, HeaderValue};
+    use ipnet::IpNet;
     use std::net::{IpAddr, Ipv4Addr};
+
+    fn trusted_proxies() -> Vec<IpNet> {
+        vec!["10.0.0.0/8".parse().expect("valid test CIDR")]
+    }
 
     #[test]
     fn uses_the_first_forwarded_for_address() {
@@ -226,8 +265,48 @@ mod tests {
         );
 
         assert_eq!(
-            forwarded_client_ip(&headers),
+            forwarded_client_ip(
+                &headers,
+                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3)),
+                &trusted_proxies(),
+            ),
             Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)))
+        );
+    }
+
+    #[test]
+    fn rejects_a_spoofed_prefix_when_a_proxy_appends() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("198.51.100.99, 203.0.113.10, 10.0.0.2"),
+        );
+
+        assert_eq!(
+            forwarded_client_ip(
+                &headers,
+                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3)),
+                &trusted_proxies(),
+            ),
+            Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)))
+        );
+    }
+
+    #[test]
+    fn malformed_forwarded_chain_falls_back_to_peer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("not-an-ip, 10.0.0.2"),
+        );
+
+        assert_eq!(
+            forwarded_client_ip(
+                &headers,
+                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 3)),
+                &trusted_proxies(),
+            ),
+            None
         );
     }
 }

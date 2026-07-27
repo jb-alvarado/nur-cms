@@ -113,14 +113,15 @@ impl From<markdown::message::Message> for NurError {
 }
 impl From<axum::extract::multipart::MultipartError> for NurError {
     fn from(err: axum::extract::multipart::MultipartError) -> NurError {
-        Self::Conflict(err.to_string())
+        error!("{err:?}");
+        Self::BadRequest("Invalid multipart request.".into())
     }
 }
 
 impl From<io::Error> for NurError {
     fn from(err: io::Error) -> NurError {
         error!("{err:?}");
-        Self::NoContent
+        Self::InternalServerError
     }
 }
 
@@ -134,14 +135,7 @@ impl From<std::string::String> for NurError {
 impl From<serde_json::Error> for NurError {
     fn from(err: serde_json::Error) -> Self {
         error!("{err:?}");
-        Self::Conflict(err.to_string())
-    }
-}
-
-impl From<emval::ValidationError> for NurError {
-    fn from(err: emval::ValidationError) -> Self {
-        error!("{err:?}");
-        Self::Conflict("Invalid email address!".to_string())
+        Self::InvalidInput
     }
 }
 
@@ -196,7 +190,7 @@ impl From<lettre::error::Error> for NurError {
 impl From<sqlx::Error> for NurError {
     fn from(err: sqlx::Error) -> NurError {
         error!("{err:?}");
-        Self::Conflict(err.to_string())
+        Self::InternalServerError
     }
 }
 

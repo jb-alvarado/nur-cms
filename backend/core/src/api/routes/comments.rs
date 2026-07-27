@@ -75,7 +75,7 @@ pub async fn comments_select(
             ));
         }
 
-        params.ordering = "-creating_at".to_string();
+        params.ordering = "-created_at".to_string();
         params.search_status = Some("approved".to_string());
 
         params.fields.retain(|f| {
@@ -106,8 +106,23 @@ pub async fn comment_insert(
     details: AuthDetails<Role>,
     Json(mut content): Json<Comment>,
 ) -> Result<Json<i64>, NurError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author, &Role::User]) {
+    if content
+        .text
+        .as_ref()
+        .is_none_or(|text| text.trim().is_empty() || text.chars().count() > 20_000)
+        || content
+            .author_name
+            .as_ref()
+            .is_some_and(|name| name.chars().count() > 160)
+    {
+        return Err(NurError::BadRequest("Invalid comment.".into()));
+    }
+
+    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
         content.user_id = Some(user.id);
+    } else if details.has_any_authority(&[&Role::User]) {
+        content.user_id = Some(user.id);
+        content.status = Some("pending".to_string());
     } else {
         // require both name and email and ensure they're not empty strings
         if content.author_name.as_ref().is_none_or(String::is_empty)

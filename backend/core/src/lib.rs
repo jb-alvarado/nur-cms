@@ -7,12 +7,12 @@ use std::{
 
 use axum::{
     Router,
-    extract::Request,
+    extract::{DefaultBodyLimit, Request},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
 pub use sqlx::postgres::{PgPool, PgPoolOptions};
-use tokio::sync::{RwLock, broadcast::Sender};
+use tokio::sync::{RwLock, Semaphore, broadcast::Sender};
 use tracing::{error, warn};
 
 pub mod api;
@@ -50,9 +50,28 @@ where
         .unwrap_or(default)
 }
 
-/// Access-token lifetime in days. Keep it short; refresh tokens are rotated server-side.
+fn env_bounded_i64(key: &str, default: i64, minimum: i64, maximum: i64) -> i64 {
+    env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| (minimum..=maximum).contains(value))
+        .unwrap_or(default)
+}
+
+/// Legacy access-token lifetime in days. Prefer `ACCESS_LIFETIME_MINUTES`.
 pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 1));
-pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("REFRESH_LIFETIME", 30));
+/// Access-token lifetime in minutes. The legacy day setting is honored only when explicitly set.
+pub static ACCESS_LIFETIME_MINUTES: LazyLock<i64> = LazyLock::new(|| {
+    if env::var_os("ACCESS_LIFETIME_MINUTES").is_some() {
+        env_bounded_i64("ACCESS_LIFETIME_MINUTES", 15, 5, 1_440)
+    } else if env::var_os("ACCESS_LIFETIME").is_some() {
+        env_bounded_i64("ACCESS_LIFETIME", 1, 1, 30) * 1_440
+    } else {
+        15
+    }
+});
+pub static REFRESH_LIFETIME: LazyLock<i64> =
+    LazyLock::new(|| env_bounded_i64("REFRESH_LIFETIME", 30, 1, 365));
 pub static STORAGE: LazyLock<String> =
     LazyLock::new(|| env_parse_or("STORAGE", "./uploads".to_string()));
 pub static PUBLIC_UPLOADS: &str = "/uploads";
@@ -60,6 +79,15 @@ pub static MAX_UPLOAD_SIZE: LazyLock<u64> =
     LazyLock::new(|| env_parse_or("MAX_UPLOAD_SIZE", 800 * 1024 * 1024)); // 800MB default
 pub static MAX_CHUNK_SIZE: LazyLock<u64> =
     LazyLock::new(|| env_parse_or("MAX_CHUNK_SIZE", 10 * 1024 * 1024)); // 10MB default
+pub static MAX_IMAGE_PIXELS: LazyLock<u64> =
+    LazyLock::new(|| env_parse_or("MAX_IMAGE_PIXELS", 40_000_000));
+pub static MAX_ACTIVE_UPLOADS_PER_USER: LazyLock<usize> =
+    LazyLock::new(|| env_parse_or("MAX_ACTIVE_UPLOADS_PER_USER", 4));
+pub static UPLOAD_TTL_SECONDS: LazyLock<u64> =
+    LazyLock::new(|| env_parse_or("UPLOAD_TTL_SECONDS", 24 * 60 * 60));
+pub static IMAGE_PROCESSING_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| {
+    Semaphore::new(env_parse_or("IMAGE_PROCESSING_CONCURRENCY", 2usize).clamp(1, 16))
+});
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
@@ -117,7 +145,16 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .route("/login", post(login))
         .route("/refresh", post(refresh))
         .route("/logout", post(logout))
-        .route("/verify", post(verify));
+        .route("/verify", post(verify))
+        .layer(DefaultBodyLimit::max(16 * 1024));
+
+    let upload_routes = Router::new()
+        .route("/upload", get(upload_status).post(upload_chunk))
+        .layer(DefaultBodyLimit::max(
+            usize::try_from(*MAX_CHUNK_SIZE)
+                .unwrap_or(10 * 1024 * 1024)
+                .saturating_add(64 * 1024),
+        ));
 
     let auth_user_routes = Router::new()
         .route("/", get(auth_user_select).post(auth_user_insert))
@@ -173,7 +210,7 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
     let api_routes = Router::new()
         .route("/ts-language", get(ts_language_select))
         .route("/auth-role", get(auth_role_select))
-        .route("/upload", get(upload_status).post(upload_chunk))
+        .merge(upload_routes)
         .nest("/auth-user", auth_user_routes)
         .nest("/configuration", config_routes)
         .nest("/contact", contact_routes)

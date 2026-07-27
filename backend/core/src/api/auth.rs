@@ -19,7 +19,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    ACCESS_LIFETIME, CONFIG, REFRESH_LIFETIME,
+    ACCESS_LIFETIME_MINUTES, CONFIG, REFRESH_LIFETIME,
     db::{
         fields::AuthUserFields,
         handles,
@@ -57,7 +57,10 @@ impl Claims {
             token_type: TokenType::Access,
             jti: None,
             iat: now.timestamp(),
-            exp: (now + TimeDelta::try_days(*ACCESS_LIFETIME).unwrap()).timestamp(),
+            exp: (now
+                + TimeDelta::try_minutes(*ACCESS_LIFETIME_MINUTES)
+                    .expect("access-token lifetime is bounded"))
+            .timestamp(),
         }
     }
 
@@ -69,7 +72,10 @@ impl Claims {
             token_type: TokenType::Refresh,
             jti: Some(jti),
             iat: now.timestamp(),
-            exp: (now + TimeDelta::try_days(*REFRESH_LIFETIME).unwrap()).timestamp(),
+            exp: (now
+                + TimeDelta::try_days(*REFRESH_LIFETIME)
+                    .expect("refresh-token lifetime is bounded"))
+            .timestamp(),
         }
     }
 }
@@ -97,6 +103,7 @@ pub struct VerificationCode {
     pub user_id: i32,
     pub role: Role,
     pub created_at: DateTime<Utc>,
+    pub failed_attempts: u8,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -147,7 +154,7 @@ async fn decode_jwt_with_type(token: &str, expected: TokenType) -> Result<Claims
     }
 
     let maximum_lifetime = match expected {
-        TokenType::Access => ACCESS_LIFETIME.saturating_mul(24 * 60 * 60),
+        TokenType::Access => ACCESS_LIFETIME_MINUTES.saturating_mul(60),
         TokenType::Refresh => REFRESH_LIFETIME.saturating_mul(24 * 60 * 60),
     };
     if claims.exp - claims.iat > maximum_lifetime
@@ -223,21 +230,13 @@ pub async fn login(
     let ip = real_ip.ip();
     let username = credentials.username.clone();
     let password = credentials.password.clone();
-    let query_obj: QueryObj<AuthUserFields> = QueryObj {
-        fields: vec![
-            AuthUserFields::ID,
-            AuthUserFields::Username,
-            AuthUserFields::Email,
-            AuthUserFields::Password,
-            AuthUserFields::Role,
-        ],
-        search: Some(username.clone()),
-        ..Default::default()
-    };
-
-    match handles::select_auth_user(&pool, query_obj).await {
-        Ok(resp) => {
-            if resp.results.is_empty() {
+    if username.is_empty() || username.len() > 150 || password.is_empty() || password.len() > 1_024
+    {
+        return Err(NurError::BadRequest("Invalid credentials.".into()));
+    }
+    match handles::select_auth_user_for_login(&pool, &username).await {
+        Ok(user) => {
+            let Some(mut user) = user else {
                 let cred_password = password.clone();
                 let _ = task::spawn_blocking(move || {
                     let hash = PasswordHash::new(&DUMMY_PASSWORD_HASH)?;
@@ -251,10 +250,10 @@ pub async fn login(
                     })),
                 )
                     .into_response());
-            }
+            };
 
-            let mut user = resp.results[0].clone();
-            let role = user.role.clone().unwrap();
+            let role = user.role.clone().ok_or(NurError::Unauthorized)?;
+            let user_id = user.id.ok_or(NurError::Unauthorized)?;
 
             let pass_hash = user.password.unwrap_or_default().clone();
             let cred_password = password.clone();
@@ -270,24 +269,45 @@ pub async fn login(
             if verified_password.is_ok() {
                 let config = CONFIG.read().await.clone();
 
-                if let Some(email) = user.email.clone()
-                    && config.mail_user.as_ref().is_some_and(|u| !u.is_empty())
-                    && config.mail_password.as_ref().is_some_and(|p| !p.is_empty())
-                    && config.mail_smtp.as_ref().is_some_and(|s| !s.is_empty())
-                    && !args.disable_two_factor
-                {
+                if !args.disable_two_factor {
+                    let email = user
+                        .email
+                        .clone()
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            NurError::ServiceUnavailable(
+                                "Two-factor authentication is not configured.".into(),
+                            )
+                        })?;
+                    let mail_user = config
+                        .mail_user
+                        .clone()
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| {
+                            NurError::ServiceUnavailable(
+                                "Two-factor authentication is not configured.".into(),
+                            )
+                        })?;
+                    if config.mail_password.as_ref().is_none_or(String::is_empty)
+                        || config.mail_smtp.as_ref().is_none_or(String::is_empty)
+                    {
+                        return Err(NurError::ServiceUnavailable(
+                            "Two-factor authentication is not configured.".into(),
+                        ));
+                    }
+
                     // Generate 7-digit random code
                     let verification_code: String = (0..7)
                         .map(|_| rand::rng().random_range(0..10).to_string())
                         .collect();
 
                     // Store code with timestamp
-                    let user_id = user.id.unwrap();
                     let verification_entry = VerificationCode {
                         code: verification_code.clone(),
                         user_id,
                         role: role.name.clone(),
                         created_at: Utc::now(),
+                        failed_attempts: 0,
                     };
 
                     VERIFICATION_CODES
@@ -315,14 +335,23 @@ pub async fn login(
 
                     let target = MailTarget::new(email, true);
                     let msg = Msg::new(
-                        config.mail_user.unwrap(),
+                        mail_user,
                         app_name.clone(),
                         Some(format!("Your {app_name} code is: {verification_code}")),
                         text,
                         target,
                     );
 
-                    message(msg).await?;
+                    if let Err(error) = message(msg).await {
+                        let mut codes = VERIFICATION_CODES.lock().await;
+                        if codes
+                            .get(&username)
+                            .is_some_and(|entry| entry.code == verification_code)
+                        {
+                            codes.remove(&username);
+                        }
+                        return Err(error);
+                    }
 
                     info!("{ip} Send verification code");
 
@@ -335,9 +364,7 @@ pub async fn login(
                         .into_response());
                 }
 
-                warn!("Two-factor authentication is not possible!");
-
-                let user_id = user.id.unwrap();
+                warn!("Two-factor authentication is explicitly disabled");
 
                 let tokens = issue_token_pair(&pool, user_id, role.name.clone()).await?;
                 handles::update_last_login(&pool, user_id).await?;
@@ -386,16 +413,22 @@ pub async fn verify(
     let ip = real_ip.ip();
     let username = request.username;
     let provided_code = request.code;
+    if username.is_empty()
+        || username.len() > 150
+        || provided_code.len() != 7
+        || !provided_code.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(NurError::BadRequest("Invalid verification request.".into()));
+    }
 
     // Check if code exists
     let verification_data = {
         let mut codes = VERIFICATION_CODES.lock().await;
 
-        if let Some(verification) = codes.get(&username) {
+        if let Some(mut verification) = codes.remove(&username) {
             // Check if code is still valid (max 5 minutes)
             let elapsed = Utc::now().signed_duration_since(verification.created_at);
-            if elapsed.num_minutes() > 5 {
-                codes.remove(&username);
+            if elapsed >= TimeDelta::minutes(5) {
                 return Ok((
                     StatusCode::BAD_REQUEST,
                     AxumJson(serde_json::json!({
@@ -407,6 +440,10 @@ pub async fn verify(
 
             // Check if code is correct
             if verification.code != provided_code {
+                verification.failed_attempts = verification.failed_attempts.saturating_add(1);
+                if verification.failed_attempts < 5 {
+                    codes.insert(username.clone(), verification);
+                }
                 return Ok((
                     StatusCode::FORBIDDEN,
                     AxumJson(serde_json::json!({
@@ -417,9 +454,7 @@ pub async fn verify(
             }
 
             // Code is valid, remove it and return data
-            let data = verification.clone();
-            codes.remove(&username);
-            Some(data)
+            Some(verification)
         } else {
             None
         }
@@ -595,7 +630,7 @@ mod tests {
     async fn access_claims_have_the_configured_lifetime() {
         let now = Utc::now().timestamp();
         let claims = Claims::access(42, Role::Admin);
-        let expected = *ACCESS_LIFETIME * 24 * 60 * 60;
+        let expected = *ACCESS_LIFETIME_MINUTES * 60;
 
         assert_eq!(claims.token_type, TokenType::Access);
         assert!(claims.jti.is_none());
@@ -726,12 +761,14 @@ mod tests {
             user_id: 42,
             role: Role::Author,
             created_at: now,
+            failed_attempts: 0,
         };
 
         assert_eq!(code.code, "1234567");
         assert_eq!(code.user_id, 42);
         assert_eq!(code.role, Role::Author);
         assert_eq!(code.created_at, now);
+        assert_eq!(code.failed_attempts, 0);
     }
 
     #[tokio::test]
@@ -742,6 +779,7 @@ mod tests {
             user_id: 42,
             role: Role::Author,
             created_at: now,
+            failed_attempts: 0,
         };
 
         let elapsed = Utc::now().signed_duration_since(code.created_at);
@@ -759,11 +797,12 @@ mod tests {
             user_id: 42,
             role: Role::Author,
             created_at: far_past,
+            failed_attempts: 0,
         };
 
         let elapsed = Utc::now().signed_duration_since(code.created_at);
         assert!(
-            elapsed.num_minutes() > 5,
+            elapsed >= chrono::Duration::minutes(5),
             "Code older than 5 minutes should be expired"
         );
     }

@@ -6,6 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use serde::Serialize;
 use tokio::sync::Mutex;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -39,7 +40,8 @@ impl Default for UuidData {
     }
 }
 
-#[derive(Debug, Default, Clone, TS)]
+#[derive(Debug, Default, Clone, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "sse.d.ts")]
 pub enum SSELevel {
     Error,
@@ -74,7 +76,7 @@ impl fmt::Display for SSELevel {
     }
 }
 
-#[derive(Debug, Clone, TS)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "sse.d.ts")]
 pub struct SSEMessage {
     pub variance: SSELevel,
@@ -92,11 +94,8 @@ impl SSEMessage {
 
 impl fmt::Display for SSEMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            r#"{{ "variance": "{}", "text": "{}"}}"#,
-            self.variance, self.text
-        )
+        let json = serde_json::to_string(self).map_err(|_| fmt::Error)?;
+        f.write_str(&json)
     }
 }
 

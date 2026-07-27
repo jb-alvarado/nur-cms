@@ -1,6 +1,8 @@
-use emval::{ValidationError, validate_email};
+use crate::utils::errors::NurError;
 
 const HUMAN_TEXT_SCORE: i32 = 10;
+const MAX_EMAIL_LENGTH: usize = 254;
+const MAX_LOCAL_PART_LENGTH: usize = 64;
 
 /// Result of the text evaluation
 #[derive(Debug)]
@@ -9,11 +11,70 @@ pub struct TextScore {
     pub passed: bool,
 }
 
-pub async fn validate_email_address(email: String) -> Result<String, ValidationError> {
-    let val_email = validate_email(email).await?;
-    let normalized_email = val_email.normalized;
+pub async fn validate_email_address(email: String) -> Result<String, NurError> {
+    let email = email.trim();
+    if email.is_empty() || email.len() > MAX_EMAIL_LENGTH || email.chars().any(char::is_whitespace)
+    {
+        return Err(NurError::BadRequest("Invalid email address.".into()));
+    }
 
-    Ok(normalized_email)
+    let Some((local, domain)) = email.rsplit_once('@') else {
+        return Err(NurError::BadRequest("Invalid email address.".into()));
+    };
+
+    if local.is_empty()
+        || local.len() > MAX_LOCAL_PART_LENGTH
+        || local.contains('@')
+        || local.starts_with('.')
+        || local.ends_with('.')
+        || local.contains("..")
+        || !local.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'.' | b'!'
+                        | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'/'
+                        | b'='
+                        | b'?'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'{'
+                        | b'|'
+                        | b'}'
+                        | b'~'
+                )
+        })
+    {
+        return Err(NurError::BadRequest("Invalid email address.".into()));
+    }
+
+    let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+    if domain.is_empty()
+        || domain.len() > 253
+        || !domain.contains('.')
+        || domain.split('.').any(|label| {
+            label.is_empty()
+                || label.len() > 63
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+    {
+        return Err(NurError::BadRequest("Invalid email address.".into()));
+    }
+
+    Ok(format!("{local}@{domain}"))
 }
 
 /// Public API: evaluate whether a text looks like meaningful human input
@@ -344,14 +405,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn domain_does_not_accept_email() {
-        let email = "user@example.org".to_string();
-        let result = validate_email_address(email).await;
+    async fn normalizes_domain_case_and_whitespace() {
+        let email = " User.Name+tag@EXAMPLE.ORG ".to_string();
+        let normalized = validate_email_address(email)
+            .await
+            .expect("valid email should pass");
 
-        assert!(
-            result.is_err(),
-            "The domain does not accept email due to a null MX record"
-        );
+        assert_eq!(normalized, "User.Name+tag@example.org");
     }
 
     #[tokio::test]
@@ -360,5 +420,17 @@ mod tests {
         let result = validate_email_address(email).await;
 
         assert!(result.is_err(), "invalid email should be rejected");
+    }
+
+    #[tokio::test]
+    async fn validate_email_address_rejects_ambiguous_local_part() {
+        for email in [
+            ".user@example.org",
+            "user.@example.org",
+            "user..name@example.org",
+            "user@@example.org",
+        ] {
+            assert!(validate_email_address(email.to_string()).await.is_err());
+        }
     }
 }

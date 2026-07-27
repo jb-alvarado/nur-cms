@@ -126,6 +126,16 @@ pub async fn mailer(
     Path(target): Path<String>,
     ApiJson(contact): ApiJson<Contact>,
 ) -> Result<(), NurError> {
+    if contact.name.trim().is_empty()
+        || contact.name.chars().count() > 160
+        || contact
+            .subject
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > 255)
+        || contact.text.chars().count() > 20_000
+    {
+        return Err(NurError::BadRequest("Invalid contact request.".into()));
+    }
     let norm_email = validate_email_address(contact.email).await?;
     let result = evaluate_text(&contact.text, None);
 

@@ -59,7 +59,7 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub entry_id: Option<i32>,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bounded_character_limit")]
     pub character_limit: Option<i32>,
 
     #[serde(default)]
@@ -110,7 +110,7 @@ pub struct QueryObj<T> {
     )]
     pub fields: Vec<T>,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bounded_blocks_limit")]
     pub blocks_limit: Option<i32>,
     #[serde(default)]
     pub blocks_random: bool,
@@ -212,6 +212,32 @@ where
         Err(D::Error::custom(format!(
             "offset must be between 0 and {MAX_OFFSET}"
         )))
+    }
+}
+
+fn bounded_character_limit<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<i32>::deserialize(deserializer)?;
+    if value.is_none_or(|limit| (1..=100_000).contains(&limit)) {
+        Ok(value)
+    } else {
+        Err(D::Error::custom(
+            "character_limit must be between 1 and 100000",
+        ))
+    }
+}
+
+fn bounded_blocks_limit<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<i32>::deserialize(deserializer)?;
+    if value.is_none_or(|limit| (1..=1_000).contains(&limit)) {
+        Ok(value)
+    } else {
+        Err(D::Error::custom("blocks_limit must be between 1 and 1000"))
     }
 }
 
@@ -527,5 +553,39 @@ impl WhereBuilder {
 
     pub fn into_inner(self) -> QueryBuilder<Postgres> {
         self.builder
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::QueryObj;
+    use crate::db::fields::MediaFields;
+
+    #[test]
+    fn rejects_unbounded_query_work() {
+        for value in [
+            serde_json::json!({"limit": 101}),
+            serde_json::json!({"offset": 1_000_001}),
+            serde_json::json!({"character_limit": -1}),
+            serde_json::json!({"blocks_limit": 1_001}),
+        ] {
+            assert!(serde_json::from_value::<QueryObj<MediaFields>>(value).is_err());
+        }
+    }
+
+    #[test]
+    fn accepts_query_values_within_bounds() {
+        let query = serde_json::from_value::<QueryObj<MediaFields>>(serde_json::json!({
+            "limit": 100,
+            "offset": 1_000_000,
+            "character_limit": 100_000,
+            "blocks_limit": 1_000
+        }))
+        .expect("bounded query");
+
+        assert_eq!(query.limit, 100);
+        assert_eq!(query.offset, 1_000_000);
+        assert_eq!(query.character_limit, Some(100_000));
+        assert_eq!(query.blocks_limit, Some(1_000));
     }
 }

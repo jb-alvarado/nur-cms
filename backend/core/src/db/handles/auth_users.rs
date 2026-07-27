@@ -117,3 +117,27 @@ pub async fn select_auth_user(
 
     Ok(RespondObj::new(&query_obj, data))
 }
+
+pub async fn select_auth_user_for_login(
+    pool: &PgPool,
+    login: &str,
+) -> Result<Option<AuthUserSerializer>, NurError> {
+    let user = sqlx::query_as::<_, AuthUserSerializer>(
+        r#"SELECT
+               u.id,
+               u.username,
+               u.email,
+               u.password,
+               (r.id, r.name) AS "auth_role",
+               1::bigint AS total_count
+           FROM auth_users u
+           JOIN auth_roles r ON r.id = u.role_id
+           WHERE lower(u.username) = lower($1) OR lower(u.email) = lower($1)
+           LIMIT 1"#,
+    )
+    .bind(login)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(user)
+}

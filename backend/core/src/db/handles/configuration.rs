@@ -42,6 +42,14 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
         select_record::<MediaFields, Media>(pool, &crate::db::fields::Table::Media, query).await?;
 
     if auth_resp.results.is_empty() {
+        if env::var("NUR_DEV_AUTO_ADMIN").as_deref() != Ok("1") {
+            warn!(
+                "No development user exists. Use --add-user or set NUR_DEV_AUTO_ADMIN=1 explicitly."
+            );
+            return Ok(());
+        }
+
+        warn!("Creating insecure development-only admin because NUR_DEV_AUTO_ADMIN=1");
         let user = AuthUser::new(
             "admin@example.org".to_string(),
             "admin".to_string(),
