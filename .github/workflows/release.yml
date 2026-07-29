@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  release:
+    types: [released, prereleased]
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_BUILD_JOBS: 1
+      TARGET: x86_64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install Linux packaging dependencies
+        run: sudo apt-get update && sudo apt-get install -y musl-tools rpm
+      - name: Build frontend
+        run: npm ci && npm run build
+      - name: Build release binary
+        run: cargo build --release --target "$TARGET" -p nur-cms
+      - name: Build packages
+        run: |
+          cargo install cargo-deb --locked
+          cargo install cargo-generate-rpm --locked
+          mkdir -p dist
+          version="${GITHUB_REF_NAME#v}"
+          cargo deb --no-build --target "$TARGET" -p nur-cms --manifest-path backend/app/Cargo.toml \
+            -o "dist/nur-cms_${version}-1_amd64.deb"
+          cargo generate-rpm --target "$TARGET" -p nur-cms \
+            -o "dist/nur-cms-${version}-1.x86_64.rpm"
+          tar -C "target/$TARGET/release" -czf "dist/nur-cms-${version}_$TARGET.tar.gz" nur-cms
+      - name: Upload release assets
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: dist/*
+          tag: ${{ github.ref_name }}
+          overwrite: true
+          file_glob: true
