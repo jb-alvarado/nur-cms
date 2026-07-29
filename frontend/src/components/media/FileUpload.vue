@@ -15,11 +15,11 @@ const emit = defineEmits<{ completed: [] }>()
 const uploading = ref(false)
 const input = ref()
 const error = ref('')
-const batchId = ref(shortID())
 const completedFiles = new Set<string>()
 
 const MAX_PARALLEL_UPLOADS = 4
 const DEFAULT_CHUNK_SIZE = 1024 * 512 // 512 kb
+const UPLOAD_BATCH_STORAGE_PREFIX = 'nur-cms:upload-batch:'
 
 const speedHistory: number[] = []
 const MAX_HISTORY = 5
@@ -49,6 +49,28 @@ function updateProgress(completedChunks: number, fileSize: number, currentIndex:
     store.progress = Math.round(totalProgress * 100)
     lastLoaded = loadedBytes
     lastTime.value = now
+}
+
+function fileKey(file: File): string {
+    return `${file.name}:${file.size}:${file.lastModified}`
+}
+
+function uploadBatchStorageKey(file: File): string {
+    return `${UPLOAD_BATCH_STORAGE_PREFIX}${encodeURIComponent(fileKey(file))}`
+}
+
+function uploadBatchId(file: File): string {
+    const storageKey = uploadBatchStorageKey(file)
+    const existing = localStorage.getItem(storageKey)
+    if (existing) return existing
+
+    const batchId = shortID()
+    localStorage.setItem(storageKey, batchId)
+    return batchId
+}
+
+function clearUploadBatchId(file: File) {
+    localStorage.removeItem(uploadBatchStorageKey(file))
 }
 
 async function uploadFile(
@@ -150,15 +172,16 @@ async function runJob() {
     try {
         for (const [i, file] of Array.from(input.value.files as FileList).entries()) {
             const currentFile = file as File
-            const fileKey = `${currentFile.name}:${currentFile.size}:${currentFile.lastModified}`
-            if (completedFiles.has(fileKey)) {
+            const key = fileKey(currentFile)
+            if (completedFiles.has(key)) {
                 store.progress = Math.round(((i + 1) / length) * 100)
                 continue
             }
 
             try {
-                await uploadFile(currentFile, batchId.value, i, length)
-                completedFiles.add(fileKey)
+                await uploadFile(currentFile, uploadBatchId(currentFile), i, length)
+                completedFiles.add(key)
+                clearUploadBatchId(currentFile)
             } catch (err: any) {
                 error.value = err.message || t('upload.failed')
                 store.msgAlert('error', error.value)
@@ -171,7 +194,6 @@ async function runJob() {
             store.progress = 100
             store.msgAlert('success', t('upload.complete'))
             emit('completed')
-            batchId.value = shortID()
             completedFiles.clear()
         }
     } finally {
@@ -185,7 +207,6 @@ async function runJob() {
 
 async function onFileChange(e: Event) {
     input.value = e.target as HTMLInputElement
-    batchId.value = shortID()
     completedFiles.clear()
     error.value = ''
 }
