@@ -11,7 +11,7 @@ use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use sanitize_filename::sanitize;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPool;
-use tokio::{fs, sync::broadcast::Sender};
+use tokio::{fs, sync::broadcast::Sender, task};
 use tracing::{error, info};
 
 use crate::{
@@ -345,24 +345,40 @@ pub async fn upload_chunk(
                 return Err(error.into());
             }
 
+            let pool = pool.clone();
             let config = CONFIG.read().await.clone();
-            if let Err(error) = process_variants(
-                &pool,
-                &config,
-                &output_file,
-                media_id,
-                &stored_mime_type,
-                processable_image,
-                &tx,
-            )
-            .await
-            {
-                delete_media_record(&pool, media_id).await;
-                if let Err(rename_error) = fs::rename(&output_file, &upload.temp_file).await {
-                    error!("Failed to restore incomplete upload: {rename_error}");
+            let output_file = output_file.clone();
+            let tx = tx.clone();
+            let completed_file_name = file_name.clone();
+            task::spawn(async move {
+                match process_variants(
+                    &pool,
+                    &config,
+                    &output_file,
+                    media_id,
+                    &stored_mime_type,
+                    processable_image,
+                    &tx,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        let msg = SSEMessage::new(
+                            Level::Success,
+                            &format!("Variants done: {completed_file_name}"),
+                        );
+                        let _ = tx.send(msg.to_string());
+                    }
+                    Err(error) => {
+                        error!("Variant generation failed for {completed_file_name}: {error}");
+                        let msg = SSEMessage::new(
+                            Level::Error,
+                            &format!("Variant generation failed: {completed_file_name}"),
+                        );
+                        let _ = tx.send(msg.to_string());
+                    }
                 }
-                return Err(error);
-            }
+            });
 
             Ok::<_, NurError>(())
         }

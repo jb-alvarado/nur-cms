@@ -10,6 +10,7 @@ import { authFetchRaw } from '@/composables/authFetch'
 const { t } = useI18n()
 const auth = useAuth()
 const store = useIndex()
+const emit = defineEmits<{ completed: [] }>()
 
 const uploading = ref(false)
 const input = ref()
@@ -169,6 +170,7 @@ async function runJob() {
         if (!hasError) {
             store.progress = 100
             store.msgAlert('success', t('upload.complete'))
+            emit('completed')
             batchId.value = shortID()
             completedFiles.clear()
         }

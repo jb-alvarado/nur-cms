@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import dayjs from 'dayjs'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
@@ -58,6 +58,10 @@ watch(
 )
 
 selectMedia()
+
+const refreshMediaAfterVariants = () => selectMedia()
+onMounted(() => window.addEventListener('nur-cms:media-variants-ready', refreshMediaAfterVariants))
+onBeforeUnmount(() => window.removeEventListener('nur-cms:media-variants-ready', refreshMediaAfterVariants))
 
 const openDeleteModal = () => {
     deleteModal.value.showModal()
@@ -264,7 +268,7 @@ function resetUpload() {
             :cancel-action="resetUpload"
             :ok-action="runUpload"
         >
-            <FileUpload ref="uploader" :key="uploadKey" />
+            <FileUpload ref="uploader" :key="uploadKey" @completed="selectMedia" />
         </GenericModal>
 
         <GenericProgress />

@@ -47,6 +47,9 @@ watch([data], () => {
         try {
             const msg = JSON.parse(data.value) as SSEMessage
             store.msgAlert(msg.variance, msg.text)
+            if (msg.text.startsWith('Variants done:')) {
+                window.dispatchEvent(new Event('nur-cms:media-variants-ready'))
+            }
         } catch {
             store.msgAlert('error', data.value)
             sseConnected.value = true
