@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import dayjs from 'dayjs'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import { errMsg } from '@/utils/error'
+import { authFetch } from '@/composables/authFetch'
 import { formatBytes, shortID, mediaPath, iconFrom } from '@/utils/helper'
 
 import FileUpload from '@/components/media/FileUpload.vue'
@@ -12,7 +11,6 @@ import GenericPagination from '@/components/generic/GenericPagination.vue'
 import GenericProgress from '@/components/generic/GenericProgress.vue'
 import EditMedia from '@/components/edit/EditMedia.vue'
 
-const auth = useAuth()
 const store = useIndex()
 const deleteModal = ref()
 const uploadModal = ref()
@@ -56,7 +54,7 @@ watch(
                 selectMedia()
             }, 3000)
         }
-    }
+    },
 )
 
 selectMedia()
@@ -77,14 +75,7 @@ async function selectMedia(u: string | null = null) {
         ? u
         : apiURL.value + `?limit=${limit.value}${searchVar.value}${offsetVar.value}&ordering=${ordering.value}`
 
-    await fetch(url, { headers: auth.authHeader })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>(url)
         .then(async (res) => {
             if (res.results?.length > 0) {
                 total.value = res.count
@@ -101,17 +92,11 @@ async function selectMedia(u: string | null = null) {
 async function contentMedia() {
     for (const item of medias.value) {
         if (item.check) {
-            await fetch(`/api/media/${item.id}`, {
+            await authFetch(`/api/media/${item.id}`, {
                 method: 'DELETE',
-                headers: auth.authHeader,
             })
-                .then(async (resp) => {
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    } else {
-                        store.msgAlert('success', `Deleted: ${item.filename ?? item.id}`)
-                    }
+                .then(() => {
+                    store.msgAlert('success', `Deleted: ${item.filename ?? item.id}`)
                 })
                 .catch((e) => {
                     store.msgAlert('error', e)

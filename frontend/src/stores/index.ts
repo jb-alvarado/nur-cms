@@ -1,7 +1,7 @@
 import { nextTick } from 'vue'
 import { defineStore } from 'pinia'
-import { useAuth } from '@/stores/auth'
 import { errMsg } from '@/utils/error'
+import { authFetch } from '@/composables/authFetch'
 
 export const useIndex = defineStore('index', {
     state: () => ({
@@ -209,7 +209,6 @@ export const useIndex = defineStore('index', {
         },
 
         async contentSelect(u: string | null = null) {
-            const auth = useAuth()
             const fields = this.visibleRows
                 .map((r: any) => r.field)
                 .map((field: string) => {
@@ -240,16 +239,7 @@ export const useIndex = defineStore('index', {
                 url = `${url}&search=${this.search}`
             }
 
-            await fetch(url, {
-                headers: auth.authHeader,
-            })
-                .then(async (resp) => {
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    }
-                    return resp.json()
-                })
+            await authFetch<RespondObj>(url)
                 .then((response: RespondObj) => {
                     if (response.results?.length > 0) {
                         this.next = response.next
@@ -266,8 +256,6 @@ export const useIndex = defineStore('index', {
         },
 
         async updateStatus(status: string, updateGroup: boolean = false) {
-            const auth = useAuth()
-
             for (const item of this.tableCols) {
                 if (item.check) {
                     let ids = [item.id!]
@@ -276,18 +264,13 @@ export const useIndex = defineStore('index', {
                     }
 
                     for (const id of ids) {
-                        await fetch(`/api/${this.suffix}/${id}`, {
+                        await authFetch(`/api/${this.suffix}/${id}`, {
                             method: 'PUT',
-                            headers: { ...this.contentType, ...auth.authHeader },
+                            headers: this.contentType,
                             body: JSON.stringify({ status }),
                         })
-                            .then(async (resp) => {
-                                if (resp.status >= 400) {
-                                    const msg = await errMsg(resp)
-                                    throw new Error(msg)
-                                } else {
-                                    this.msgAlert('success', `Update: ${item.title ?? id}`)
-                                }
+                            .then(() => {
+                                this.msgAlert('success', `Update: ${item.title ?? id}`)
                             })
                             .catch((e) => {
                                 this.msgAlert('error', e)
@@ -300,8 +283,6 @@ export const useIndex = defineStore('index', {
         },
 
         async contentDelete(deleteGroup: boolean = false) {
-            const auth = useAuth()
-
             for (const item of this.tableCols) {
                 if (item.check) {
                     let ids = [item.id!]
@@ -310,17 +291,11 @@ export const useIndex = defineStore('index', {
                     }
 
                     for (const id of ids) {
-                        await fetch(`/api/${this.suffix}/${id}`, {
+                        await authFetch(`/api/${this.suffix}/${id}`, {
                             method: 'DELETE',
-                            headers: auth.authHeader,
                         })
-                            .then(async (resp) => {
-                                if (resp.status >= 400) {
-                                    const msg = await errMsg(resp)
-                                    throw new Error(msg)
-                                } else {
-                                    this.msgAlert('success', `Deleted: ${item.title ?? id}`)
-                                }
+                            .then(() => {
+                                this.msgAlert('success', `Deleted: ${item.title ?? id}`)
                             })
                             .catch((e) => {
                                 this.msgAlert('error', e)

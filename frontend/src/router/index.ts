@@ -131,6 +131,10 @@ router.beforeEach(async (to, from) => {
 
     const isPublicRoute = to.meta.public === true
 
+    if (to.name === 'verification' && !auth.isLogin && !auth.verificationPending) {
+        return { name: 'login' }
+    }
+
     if (!auth.isLogin && !isPublicRoute) {
         return { name: 'login' }
     }

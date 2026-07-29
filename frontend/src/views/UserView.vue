@@ -4,6 +4,7 @@ import { useHead } from '@unhead/vue'
 import { useAuth } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores'
+import { authFetch } from '@/composables/authFetch'
 
 const { t } = useI18n()
 const auth = useAuth()
@@ -23,17 +24,17 @@ async function saveUser() {
 
     await auth.inspectToken()
 
-    await fetch(`/api/auth-user/${auth.id}`, {
+    await authFetch(`/api/auth-user/${auth.id}`, {
         method: 'PUT',
-        headers: { ...store.contentType, ...auth.authHeader },
+        headers: store.contentType,
         body: JSON.stringify(auth.user),
-    }).then((resp) => {
-        if (resp.status === 200) {
-            store.msgAlert('success', t('user.updateSuccess'))
-        } else {
-            store.msgAlert('error', t('user.updateFailed'))
-        }
     })
+        .then(() => {
+            store.msgAlert('success', t('user.updateSuccess'))
+        })
+        .catch(() => {
+            store.msgAlert('error', t('user.updateFailed'))
+        })
 }
 </script>
 

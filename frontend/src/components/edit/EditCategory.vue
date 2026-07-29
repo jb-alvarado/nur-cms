@@ -9,6 +9,7 @@ import { useIndex } from '@/stores/index'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
 import { slugify } from '@/utils/slugify.js'
+import { authFetch, authFetchRaw } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
@@ -48,17 +49,7 @@ const status = ['draft', 'published']
 if (categoryId > 0) {
     selectCategory()
 } else if (groupID > 0) {
-    fetch(`/api/content/categories?group_id=${groupID}&fields=locale_id,group_members`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
+    authFetch<RespondObj>(`/api/content/categories?group_id=${groupID}&fields=locale_id,group_members`)
         .then((response: RespondObj) => {
             const groupMemberLocales = new Set(
                 response.results.flatMap(
@@ -86,17 +77,7 @@ const openMediaBrowser = () => {
 }
 
 async function selectCategory() {
-    await fetch(`/api/content/categories?id=${categoryId}`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
+    await authFetch<RespondObj>(`/api/content/categories?id=${categoryId}`)
         .then((response: RespondObj) => {
             category.value = response.results[0]
             categoryOriginal.value = cloneDeep(category.value)
@@ -119,17 +100,7 @@ async function selectCategory() {
 }
 
 async function selectMedia() {
-    await fetch(`/api/media?id=${category.value.media_id}`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
+    await authFetch<RespondObj>(`/api/media?id=${category.value.media_id}`)
         .then((response: RespondObj) => {
             media.value = response.results[0]
         })
@@ -155,7 +126,7 @@ function memberLink(code: string): string {
 
 function contentDelete() {
     if (categoryId > 0) {
-        fetch(`/api/content/categories/${categoryId}`, {
+        authFetchRaw(`/api/content/categories/${categoryId}`, {
             method: 'DELETE',
             headers: auth.authHeader,
         })
@@ -195,7 +166,7 @@ async function save() {
         return
     }
 
-    fetch(`/api/content/categories${categoryId > 0 ? `/${categoryId}` : ''}`, {
+    authFetchRaw(`/api/content/categories${categoryId > 0 ? `/${categoryId}` : ''}`, {
         method: categoryId > 0 ? 'PUT' : 'POST',
         headers: {
             ...auth.authHeader,
@@ -231,12 +202,9 @@ function addMedia(m: Media) {
     <div class="flex flex-col md:h-96 pb-6">
         <div class="flex">
             <h1 class="grow text-2xl h-8">{{ category?.name ?? '' }}</h1>
-             <button
-            class="btn btn-sm text-base"
-            @click="router.back()"
-        >
-            <i class="bi bi-chevron-left" />
-        </button>
+            <button class="btn btn-sm text-base" @click="router.back()">
+                <i class="bi bi-chevron-left" />
+            </button>
         </div>
 
         <!-- Form + Editor Container -->

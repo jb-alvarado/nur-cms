@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { errMsg } from '@/utils/error'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { authFetch } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
-const auth = useAuth()
 const store = useIndex()
 
 const keyInput = ref('')
@@ -32,16 +30,7 @@ const templateRows = computed(() => [
 ])
 
 async function selectTemplates() {
-    await fetch(`/api/content/node/templates?ordering=${ordering.value}`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>(`/api/content/node/templates?ordering=${ordering.value}`)
         .then((response: RespondObj) => {
             if (response.results?.length > 0) {
                 templates.value = response.results.map((o: any) => ({ check: false, ...o }))
@@ -95,17 +84,11 @@ function openCreateModal() {
 async function deleteTemplate() {
     for (const item of templates.value) {
         if (item.check) {
-            await fetch(`/api/content/node/templates/${item.id}`, {
+            await authFetch(`/api/content/node/templates/${item.id}`, {
                 method: 'DELETE',
-                headers: auth.authHeader,
             })
-                .then(async (resp) => {
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    } else {
-                        store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
-                    }
+                .then(() => {
+                    store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
                 })
                 .catch((e) => {
                     store.msgAlert('error', e)
@@ -126,10 +109,9 @@ function saveTemplate() {
     const url = isEditing.value ? `/api/content/node/templates/${template.value.id}` : `/api/content/node/templates`
     const method = isEditing.value ? 'PUT' : 'POST'
 
-    fetch(url, {
+    authFetch(url, {
         method,
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -137,20 +119,15 @@ function saveTemplate() {
             data: template.value.data,
         }),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                const action = isEditing.value ? 'Updated' : 'Created'
-                store.msgAlert('success', `${action} template: ${template.value.name}`)
-                templateModal.value.close()
-                template.value.id = 0
-                template.value.name = ''
-                template.value.data = {}
+        .then(async () => {
+            const action = isEditing.value ? 'Updated' : 'Created'
+            store.msgAlert('success', `${action} template: ${template.value.name}`)
+            templateModal.value.close()
+            template.value.id = 0
+            template.value.name = ''
+            template.value.data = {}
 
-                await selectTemplates()
-            }
+            await selectTemplates()
         })
         .catch((e) => {
             store.msgAlert('error', e)

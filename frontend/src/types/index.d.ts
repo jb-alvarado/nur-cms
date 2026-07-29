@@ -50,6 +50,7 @@ declare global {
     interface JwtPayloadExt extends JwtPayload {
         id: number
         role: Role
+        token_type: 'access' | 'refresh'
     }
 
     interface Media extends MediaSerializer {

@@ -8,6 +8,7 @@ import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { closeDropdown } from '@/utils/helper'
 import { errMsg } from '@/utils/error'
+import { authFetchRaw } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
@@ -43,7 +44,7 @@ const openDeleteModal = () => {
 }
 
 async function getComment() {
-    await fetch(
+    await authFetchRaw(
         `/api/comments?id=${commentId}&fields=id,entry_id,parent_id,user_id,author_name,author_email,text,status,entry`,
         {
             headers: auth.authHeader,
@@ -68,7 +69,7 @@ async function getComment() {
 
 function commentDelete() {
     if (commentId > 0) {
-        fetch(`/api/comments/${commentId}`, {
+        authFetchRaw(`/api/comments/${commentId}`, {
             method: 'DELETE',
             headers: auth.authHeader,
         })
@@ -100,7 +101,7 @@ async function save() {
         return
     }
 
-    fetch(`/api/comments${commentId > 0 ? `/${commentId}` : ''}`, {
+    authFetchRaw(`/api/comments${commentId > 0 ? `/${commentId}` : ''}`, {
         method: commentId > 0 ? 'PUT' : 'POST',
         headers: {
             ...auth.authHeader,

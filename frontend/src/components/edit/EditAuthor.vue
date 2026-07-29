@@ -9,6 +9,7 @@ import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
+import { authFetchRaw } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
@@ -49,7 +50,7 @@ const openMediaBrowser = () => {
 }
 
 async function getAuthor() {
-    await fetch(`/api/content/authors?id=${authorId}&fields=id,first_name,bio,last_name,slug,media_id`, {
+    await authFetchRaw(`/api/content/authors?id=${authorId}&fields=id,first_name,bio,last_name,slug,media_id`, {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -74,7 +75,7 @@ async function getAuthor() {
 }
 
 async function selectMedia() {
-    await fetch(`/api/media?id=${author.value.media_id}`, {
+    await authFetchRaw(`/api/media?id=${author.value.media_id}`, {
         headers: auth.authHeader,
     })
         .then(async (resp) => {
@@ -102,7 +103,7 @@ async function savePhoto() {
         const formData = new FormData()
         formData.append(imageFile.value.name, imageFile.value)
 
-        await fetch('/api/v2/file/upload/?type=thumbnail', {
+        await authFetchRaw('/api/v2/file/upload/?type=thumbnail', {
             method: 'PUT',
             headers: auth.authHeader,
             body: formData,
@@ -132,7 +133,7 @@ function removeMedia() {
 
 function contentDelete() {
     if (authorId > 0) {
-        fetch(`/api/content/authors/${authorId}`, {
+        authFetchRaw(`/api/content/authors/${authorId}`, {
             method: 'DELETE',
             headers: auth.authHeader,
         })
@@ -166,7 +167,7 @@ async function save() {
         return
     }
 
-    fetch(`/api/content/authors${authorId > 0 ? `/${authorId}` : ''}`, {
+    authFetchRaw(`/api/content/authors${authorId > 0 ? `/${authorId}` : ''}`, {
         method: authorId > 0 ? 'PUT' : 'POST',
         headers: {
             ...auth.authHeader,

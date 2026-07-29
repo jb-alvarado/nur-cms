@@ -2,13 +2,12 @@
 import { ref, onMounted } from 'vue'
 import { cloneDeep } from 'es-toolkit/object'
 import { mediaPath } from '@/utils/helper'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { authFetch } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
 
-const auth = useAuth()
 const store = useIndex()
 
 const modal = ref<InstanceType<typeof GenericModal>>()
@@ -21,19 +20,9 @@ const emit = defineEmits(['add-block', 'template-count'])
 
 const selectTemplates = async () => {
     try {
-        const response: RespondObj = await fetch('/api/content/node/templates?ordering=id', {
-            headers: auth.authHeader,
-        })
-
-        if (!response.ok) {
-            throw new Error(`API error: ${response.status}`)
-        }
-
-        const resp = await response.json()
-
-        emit('template-count', resp.count)
-
-        templates.value = resp.results
+        const response = await authFetch<RespondObj>('/api/content/node/templates?ordering=id')
+        emit('template-count', response.count)
+        templates.value = response.results
     } catch (err) {
         store.msgAlert('error', `Error fetching templates: ${err}`)
     }
@@ -44,7 +33,10 @@ onMounted(async () => {
 })
 
 const saveBlock = () => {
-    emit('add-block', cloneDeep({ name: selectedTemplate.value.name, media: media.value ?? null, data: selectedTemplate.value.data }))
+    emit(
+        'add-block',
+        cloneDeep({ name: selectedTemplate.value.name, media: media.value ?? null, data: selectedTemplate.value.data }),
+    )
     resetModal()
     modal.value?.close?.()
 }

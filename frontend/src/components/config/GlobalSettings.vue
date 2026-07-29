@@ -3,12 +3,10 @@ import { ref, computed } from 'vue'
 import { cloneDeep } from 'es-toolkit/object'
 import { isEqual } from 'es-toolkit/predicate'
 import { useI18n } from 'vue-i18n'
-import { errMsg } from '@/utils/error'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { authFetch } from '@/composables/authFetch'
 
 const { t } = useI18n()
-const auth = useAuth()
 const store = useIndex()
 
 const config = ref<Configuration>()
@@ -33,16 +31,7 @@ const settingsFields = computed(() => [
 ])
 
 async function configSelect() {
-    await fetch(`/api/configuration`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<Configuration>(`/api/configuration`)
         .then((response: RespondObj) => {
             if (response) {
                 config.value = response
@@ -63,38 +52,31 @@ function configUpdate() {
         Object.entries(config.value).filter(([key, value]) => {
             if (!configOriginal.value) return true
             return !isEqual(value, (configOriginal.value as Record<string, unknown>)[key])
-        })
+        }),
     )
 
     if (payload.image_extensions && typeof payload.image_extensions === 'string') {
-        payload.image_extensions = payload.image_extensions.split(/[,;]/).map(e => e.trim())
+        payload.image_extensions = payload.image_extensions.split(/[,;]/).map((e) => e.trim())
     }
 
     if (payload.image_resolutions && typeof payload.image_resolutions === 'string') {
-        payload.image_resolutions = payload.image_resolutions.split(/[,;]/).map(e => Number(e.trim()))
+        payload.image_resolutions = payload.image_resolutions.split(/[,;]/).map((e) => Number(e.trim()))
     }
 
     if (payload.notification_emails && typeof payload.notification_emails === 'string') {
-        payload.notification_emails = payload.notification_emails.split(/[,;]/).map(e => e.trim())
+        payload.notification_emails = payload.notification_emails.split(/[,;]/).map((e) => e.trim())
     }
 
-    fetch('/api/configuration', {
+    authFetch('/api/configuration', {
         method: 'PUT',
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                store.msgAlert('success', 'Update configuration')
-
-                await configSelect()
-            }
+        .then(async () => {
+            store.msgAlert('success', 'Update configuration')
+            await configSelect()
         })
         .catch((e) => {
             store.msgAlert('error', e)

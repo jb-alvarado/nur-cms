@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { errMsg } from '@/utils/error'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { authFetch } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
-const auth = useAuth()
 const store = useIndex()
 
 const targets = ref<MailTargetExt[]>([])
@@ -35,16 +33,7 @@ const targetRows = computed(() => [
 ])
 
 async function selectTargets() {
-    await fetch(`/api/contact/targets?ordering=${ordering.value}`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>(`/api/contact/targets?ordering=${ordering.value}`)
         .then((response: RespondObj) => {
             if (response.results?.length > 0) {
                 targets.value = response.results.map((o: any) => ({ check: false, ...o }))
@@ -98,17 +87,11 @@ function openCreateModal() {
 async function deleteTarget() {
     for (const item of targets.value) {
         if (item.check) {
-            await fetch(`/api/contact/targets/${item.id}`, {
+            await authFetch(`/api/contact/targets/${item.id}`, {
                 method: 'DELETE',
-                headers: auth.authHeader,
             })
-                .then(async (resp) => {
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    } else {
-                        store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
-                    }
+                .then(() => {
+                    store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
                 })
                 .catch((e) => {
                     store.msgAlert('error', e)
@@ -129,10 +112,9 @@ function saveTarget() {
     const url = isEditing.value ? `/api/contact/targets/${formTarget.value.id}` : `/api/contact/targets`
     const method = isEditing.value ? 'PUT' : 'POST'
 
-    fetch(url, {
+    authFetch(url, {
         method,
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -142,21 +124,16 @@ function saveTarget() {
             allow_html: formTarget.value.allow_html,
         }),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                const action = isEditing.value ? 'Updated' : 'Created'
-                store.msgAlert('success', `${action} mail target: ${formTarget.value.name}`)
-                formTarget.value.id = 0
-                formTarget.value.name = ''
-                formTarget.value.subject = ''
-                formTarget.value.recipients = []
-                formTarget.value.allow_html = false
+        .then(async () => {
+            const action = isEditing.value ? 'Updated' : 'Created'
+            store.msgAlert('success', `${action} mail target: ${formTarget.value.name}`)
+            formTarget.value.id = 0
+            formTarget.value.name = ''
+            formTarget.value.subject = ''
+            formTarget.value.recipients = []
+            formTarget.value.allow_html = false
 
-                await selectTargets()
-            }
+            await selectTargets()
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -260,7 +237,9 @@ function saveTarget() {
                     class="badge badge-lg badge-primary pe-0"
                 >
                     {{ recipient }}
-                    <button type="button" @click="removeRecipient(index)" class="btn btn-ghost btn-xs rounded-box">✕</button>
+                    <button type="button" @click="removeRecipient(index)" class="btn btn-ghost btn-xs rounded-box">
+                        ✕
+                    </button>
                 </div>
             </div>
         </fieldset>

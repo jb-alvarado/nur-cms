@@ -7,6 +7,7 @@ import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { mediaPath } from '@/utils/helper'
+import { authFetchRaw } from '@/composables/authFetch'
 
 const { t } = useI18n()
 const auth = useAuth()
@@ -32,7 +33,7 @@ selectMedia()
 async function selectMedia() {
     const url = `/api/media?id=${props.id}`
 
-    await fetch(url, { headers: auth.authHeader })
+    await authFetchRaw(url, { headers: auth.authHeader })
         .then(async (resp) => {
             if (resp.status >= 400) {
                 const msg = await errMsg(resp)
@@ -59,7 +60,7 @@ async function updateMedia() {
     const payload = Object.fromEntries(
         Object.entries(media.value).filter(([key, value]) => {
             return !isEqual(value, mediaOriginal.value[key as keyof Media])
-        })
+        }),
     )
 
     if (Object.keys(payload).length === 0) {
@@ -67,7 +68,7 @@ async function updateMedia() {
         return
     }
 
-    await fetch(url, {
+    await authFetchRaw(url, {
         method: 'PUT',
         headers: {
             ...auth.authHeader,

@@ -7,9 +7,9 @@ import { useClipboard } from '@vueuse/core'
 import { cloneDeep } from 'es-toolkit/object'
 import { isEqual } from 'es-toolkit/predicate'
 import Multiselect from 'vue-multiselect'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
+import { authFetch } from '@/composables/authFetch'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 import { genericEditConfigKey, type GenericEditField, type GenericEditStatus } from '@/types/generic-edit'
@@ -24,7 +24,6 @@ import TextEditor from '@/components/TextEditor.vue'
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const auth = useAuth()
 const store = useIndex()
 const genericEditConfig = inject(genericEditConfigKey, {})
 
@@ -184,20 +183,9 @@ autoSelectSingleStoreLocale()
 if (contentId > 0) {
     selectContent()
 } else if (groupID > 0) {
-    fetch(
+    authFetch<RespondObj>(
         `/api/content/entries?type_slug=${store.routeType}&group_id=${groupID}&fields=locale_id,group_members&output_type=markdown`,
-        {
-            headers: auth.authHeader,
-        },
     )
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
         .then((response: RespondObj) => {
             addTextNode()
             const groupMemberLocales = new Set(
@@ -228,17 +216,7 @@ if (isFieldEnabled('tags')) {
 }
 
 function selectContent() {
-    fetch(`/api/content/entries?type_slug=${store.routeType}&id=${contentId}&output_type=markdown`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
+    authFetch<RespondObj>(`/api/content/entries?type_slug=${store.routeType}&id=${contentId}&output_type=markdown`)
         .then((response: RespondObj) => {
             if (response.results.length > 0) {
                 content.value = response.results[0]
@@ -280,17 +258,7 @@ function selectContent() {
 }
 
 async function selectMedia() {
-    await fetch(`/api/media?id=${content.value.media_id}`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
+    await authFetch<RespondObj>(`/api/media?id=${content.value.media_id}`)
         .then((response: RespondObj) => {
             media.value = response.results[0]
         })
@@ -556,6 +524,8 @@ async function save() {
         })
     }
 
+    let saved = false
+
     try {
         // Handle tag and author changes for existing entries
         if (contentId > 0) {
@@ -565,42 +535,38 @@ async function save() {
                 ...deletedAuthors.map((author) => deleteEntryAuthor(contentId, author.id!)),
                 ...newAuthors.map((author) => insertEntryAuthor(contentId, author.id!)),
             ])
+            saved = deletedTags.length + newTags.length + deletedAuthors.length + newAuthors.length > 0
         } else {
             payload.type_id = store.types.find((t) => t.slug === store.routeType)?.id
         }
 
         // Save entry if there are payload changes
         if (Object.keys(payload).length > 0) {
-            const resp = await fetch(`/api/content/entries${contentId > 0 ? `/${contentId}` : ''}`, {
+            const newId = await authFetch<number>(`/api/content/entries${contentId > 0 ? `/${contentId}` : ''}`, {
                 method: contentId > 0 ? 'PUT' : 'POST',
                 headers: {
-                    ...auth.authHeader,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(payload),
             })
-
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            store.msgAlert('success', t('common.saveSuccess'))
+            saved = true
 
             // Handle new entry creation
             if (contentId === 0) {
-                const newId = await resp.json()
-
                 await Promise.all([
                     ...newTags.map((tag) => insertEntryTag(newId, tag.id!)),
                     ...newAuthors.map((author) => insertEntryAuthor(newId, author.id!)),
                 ])
 
+                store.msgAlert('success', t('common.saveSuccess'))
                 router.push(rootPath)
                 return
             }
         }
 
+        if (saved) {
+            store.msgAlert('success', t('common.saveSuccess'))
+        }
         selectContent()
     } catch (e) {
         store.msgAlert('error', String(e))
@@ -609,22 +575,13 @@ async function save() {
 
 function deleteContent() {
     if (contentId > 0) {
-        fetch(`/api/content/entries/${contentId}`, {
+        authFetch(`/api/content/entries/${contentId}`, {
             method: 'DELETE',
-            headers: auth.authHeader,
         })
-            .then(async (resp) => {
-                if (resp.status >= 400) {
-                    const msg = await errMsg(resp)
-                    throw new Error(msg)
-                } else {
-                    store.msgAlert(
-                        'success',
-                        t('common.deleteSuccess', { name: content.value.title ?? content.value.id }),
-                    )
+            .then(() => {
+                store.msgAlert('success', t('common.deleteSuccess', { name: content.value.title ?? content.value.id }))
 
-                    router.push(rootPath)
-                }
+                router.push(rootPath)
             })
             .catch((e) => {
                 store.msgAlert('error', e)
@@ -675,23 +632,16 @@ function insertTag(tag: string) {
         slug: slugify(tag),
     }
 
-    fetch('/api/content/tags', {
+    authFetch<number>('/api/content/tags', {
         method: 'POST',
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            store.msgAlert('success', t('tag.saveSuccess'))
-
+        .then(async (id) => {
             await selectTags()
-            payload.id = await resp.json()
+            payload.id = id
 
             content.value.tags?.push(payload)
         })
@@ -701,21 +651,9 @@ function insertTag(tag: string) {
 }
 
 async function deleteEntryTag(entry_id: number, tag_id: number) {
-    await fetch(`/api/content/entries/${entry_id}/tag/${tag_id}`, {
+    await authFetch(`/api/content/entries/${entry_id}/tag/${tag_id}`, {
         method: 'DELETE',
-        headers: auth.authHeader,
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                store.msgAlert('success', t('tag.deleteSuccess', { id: tag_id }))
-            }
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
 }
 
 async function insertEntryTag(entry: number, tag: number) {
@@ -724,42 +662,19 @@ async function insertEntryTag(entry: number, tag: number) {
         tag_id: tag,
     }
 
-    await fetch('/api/content/entries/tag', {
+    await authFetch('/api/content/entries/tag', {
         method: 'POST',
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            store.msgAlert('success', t('tag.entrySaveSuccess'))
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
 }
 
 async function deleteEntryAuthor(entry_id: number, author_id: number) {
-    await fetch(`/api/content/entries/${entry_id}/author/${author_id}`, {
+    await authFetch(`/api/content/entries/${entry_id}/author/${author_id}`, {
         method: 'DELETE',
-        headers: auth.authHeader,
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                store.msgAlert('success', t('author.deleteSuccess', { id: author_id }))
-            }
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
 }
 
 async function insertEntryAuthor(entry: number, author: number) {
@@ -768,24 +683,13 @@ async function insertEntryAuthor(entry: number, author: number) {
         author_id: author,
     }
 
-    await fetch('/api/content/entries/author', {
+    await authFetch('/api/content/entries/author', {
         method: 'POST',
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            store.msgAlert('success', t('author.entrySaveSuccess'))
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
 }
 </script>
 

@@ -5,6 +5,7 @@ import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { shortID } from '@/utils/helper'
+import { authFetchRaw } from '@/composables/authFetch'
 
 const { t } = useI18n()
 const auth = useAuth()
@@ -66,7 +67,7 @@ async function uploadFile(
         size: fileSize.toString(),
         batch_id,
     })
-    const statusResponse = await fetch(`/api/upload?${statusParams}`, {
+    const statusResponse = await authFetchRaw(`/api/upload?${statusParams}`, {
         headers: auth.authHeader,
     })
     if (!statusResponse.ok) {
@@ -108,7 +109,7 @@ async function uploadFile(
             form.append('chunk', blob)
             form.append('batch_id', batch_id)
 
-            const resp = await fetch('/api/upload', {
+            const resp = await authFetchRaw('/api/upload', {
                 method: 'POST',
                 headers: auth.authHeader,
                 body: form,

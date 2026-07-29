@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import { errMsg } from '@/utils/error'
+import { authFetch } from '@/composables/authFetch'
 import { formatBytes, mediaPath, iconFrom } from '@/utils/helper'
 
 import GenericPagination from '@/components/generic/GenericPagination.vue'
 
-const auth = useAuth()
 const store = useIndex()
 
 const mediaModal = ref()
@@ -73,14 +71,7 @@ async function selectMedia(u: string | null = null) {
         ? u
         : apiURL.value + `?limit=${limit.value}${searchVar.value}${offsetVar.value}&ordering=${ordering.value}`
 
-    await fetch(url, { headers: auth.authHeader })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>(url)
         .then(async (res) => {
             if (res.results?.length > 0) {
                 total.value = res.count

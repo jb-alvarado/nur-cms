@@ -2,15 +2,13 @@
 import { ref, computed, useTemplateRef, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSortable } from '@vueuse/integrations/useSortable'
-import { errMsg } from '@/utils/error'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { authFetch } from '@/composables/authFetch'
 import { slugify } from '@/utils/slugify.js'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
-const auth = useAuth()
 const store = useIndex()
 
 const types = ref<ContentTypeExt[]>([])
@@ -61,19 +59,13 @@ async function saveTypeOrder() {
 
             await Promise.all(
                 orderedTypes.map(async (type) => {
-                    const resp = await fetch(`/api/content/types/${type.id}`, {
+                    await authFetch(`/api/content/types/${type.id}`, {
                         method: 'PUT',
                         headers: {
-                            ...auth.authHeader,
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({ order_index: type.order_index }),
                     })
-
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    }
                 }),
             )
         } while (hasPendingOrderSave.value)
@@ -100,16 +92,7 @@ useSortable(typeEL, types, {
 } as any)
 
 async function typeSelect() {
-    await fetch('/api/content/types?ordering=order_index,id', {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>('/api/content/types?ordering=order_index,id')
         .then((response: RespondObj) => {
             if (response.results?.length > 0) {
                 types.value = response.results.map((o: any) => ({ check: false, ...o }))
@@ -152,17 +135,11 @@ function openCreateModal() {
 async function deleteType() {
     for (const item of types.value) {
         if (item.check) {
-            await fetch(`/api/content/types/${item.id}`, {
+            await authFetch(`/api/content/types/${item.id}`, {
                 method: 'DELETE',
-                headers: auth.authHeader,
             })
-                .then(async (resp) => {
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    } else {
-                        store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
-                    }
+                .then(() => {
+                    store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
                 })
                 .catch((e) => {
                     store.msgAlert('error', e)
@@ -185,10 +162,9 @@ function saveType() {
     const method = isEditing.value ? 'PUT' : 'Post'
     const nextOrderIndex = types.value.reduce((max, type) => Math.max(max, Number(type.order_index) || 0), 0) + 1
 
-    fetch(url, {
+    authFetch(url, {
         method,
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -198,21 +174,16 @@ function saveType() {
             ...(!isEditing.value ? { order_index: nextOrderIndex } : {}),
         }),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                const action = isEditing.value ? 'Updated' : 'Created'
-                store.msgAlert('success', `${action} type: ${formType.value.name}`)
-                formType.value.id = 0
-                formType.value.name = ''
-                formType.value.slug = ''
-                formType.value.use_meta = false
+        .then(async () => {
+            const action = isEditing.value ? 'Updated' : 'Created'
+            store.msgAlert('success', `${action} type: ${formType.value.name}`)
+            formType.value.id = 0
+            formType.value.name = ''
+            formType.value.slug = ''
+            formType.value.use_meta = false
 
-                store.selectTypes()
-                await typeSelect()
-            }
+            store.selectTypes()
+            await typeSelect()
         })
         .catch((e) => {
             store.msgAlert('error', e)

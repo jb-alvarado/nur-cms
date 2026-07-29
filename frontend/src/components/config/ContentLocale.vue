@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { errMsg } from '@/utils/error'
-import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { authFetch } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
 const { t } = useI18n()
-const auth = useAuth()
 const store = useIndex()
 
 const locales = ref<Array<Locale & { check?: boolean }>>([])
@@ -35,16 +33,7 @@ const localeRows = computed(() => [
 ])
 
 async function selectLocales() {
-    await fetch(`/api/locales?ordering=${ordering.value}`, {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>(`/api/locales?ordering=${ordering.value}`)
         .then((response: RespondObj) => {
             if (response.results?.length > 0) {
                 locales.value = response.results.map((o: any) => ({ check: false, ...o }))
@@ -58,16 +47,7 @@ async function selectLocales() {
 }
 
 async function selectTsLanguage() {
-    await fetch('/api/ts-language', {
-        headers: auth.authHeader,
-    })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-            return resp.json()
-        })
+    await authFetch<RespondObj>('/api/ts-language')
         .then((response: RespondObj) => {
             if (response.results?.length > 0) {
                 tsLanguages.value = response.results
@@ -109,17 +89,11 @@ function openCreateModal() {
 async function deleteLocale() {
     for (const item of locales.value) {
         if (item.check) {
-            await fetch(`/api/locales/${item.id}`, {
+            await authFetch(`/api/locales/${item.id}`, {
                 method: 'DELETE',
-                headers: auth.authHeader,
             })
-                .then(async (resp) => {
-                    if (resp.status >= 400) {
-                        const msg = await errMsg(resp)
-                        throw new Error(msg)
-                    } else {
-                        store.msgAlert('success', `Deleted: ${item.code ?? item.id}`)
-                    }
+                .then(() => {
+                    store.msgAlert('success', `Deleted: ${item.code ?? item.id}`)
                 })
                 .catch((e) => {
                     store.msgAlert('error', e)
@@ -141,10 +115,9 @@ function saveLocale() {
     const url = isEditing.value ? `/api/locales/${formLocale.value.id}` : `/api/locales`
     const method = isEditing.value ? 'PUT' : 'POST'
 
-    fetch(url, {
+    authFetch(url, {
         method,
         headers: {
-            ...auth.authHeader,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -153,21 +126,16 @@ function saveLocale() {
             tsv_dict: formLocale.value.tsv_dict,
         }),
     })
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            } else {
-                const action = isEditing.value ? 'Updated' : 'Created'
-                store.msgAlert('success', `${action} locale: ${formLocale.value.code}`)
-                formLocale.value.id = 0
-                formLocale.value.code = ''
-                formLocale.value.name = ''
-                formLocale.value.tsv_dict = ''
+        .then(async () => {
+            const action = isEditing.value ? 'Updated' : 'Created'
+            store.msgAlert('success', `${action} locale: ${formLocale.value.code}`)
+            formLocale.value.id = 0
+            formLocale.value.code = ''
+            formLocale.value.name = ''
+            formLocale.value.tsv_dict = ''
 
-                await store.selectLocales()
-                await selectLocales()
-            }
+            await store.selectLocales()
+            await selectLocales()
         })
         .catch((e) => {
             store.msgAlert('error', e)
@@ -251,10 +219,7 @@ function saveLocale() {
         </fieldset>
         <fieldset class="fieldset">
             <legend class="fieldset-legend">{{ $t('locale.tsvDict') }}</legend>
-            <select
-                v-model="formLocale.tsv_dict"
-                class="select w-full"
-            >
+            <select v-model="formLocale.tsv_dict" class="select w-full">
                 <option value="" disabled>{{ $t('locale.selectTsvDict') }}</option>
                 <option v-for="cfg in tsLanguages" :key="cfg" :value="cfg">{{ cfg }}</option>
             </select>

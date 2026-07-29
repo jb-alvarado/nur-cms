@@ -8,7 +8,7 @@ import { useHead } from '@unhead/vue'
 import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import { errMsg } from '@/utils/error'
+import { authFetch } from '@/composables/authFetch'
 
 dayjs.extend(localizedFormat)
 
@@ -29,20 +29,9 @@ watch(
 )
 
 async function selectLatestLogins() {
-    await fetch(
+    await authFetch<RespondObj>(
         '/api/auth-user?last_login=true&fields=id,first_name,last_name,last_login&ordering=-last_login&limit=5',
-        {
-            headers: auth.authHeader,
-        },
     )
-        .then(async (resp) => {
-            if (resp.status >= 400) {
-                const msg = await errMsg(resp)
-                throw new Error(msg)
-            }
-
-            return resp.json()
-        })
         .then((response: RespondObj) => {
             lastUsers.value = response.results
         })
