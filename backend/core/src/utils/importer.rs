@@ -651,14 +651,14 @@ async fn lookup_or_create_author(
     created_at: DateTime<Utc>,
 ) -> Result<Option<i32>, sqlx::Error> {
     let parts: Vec<&str> = name.rsplitn(2, ' ').collect();
-    let (last_name, first_name) = match parts.as_slice() {
-        [first, last] => (*first, *last),
-        [single] => (*single, ""),
-        _ => (name, ""),
+    let (first_name, last_name) = match parts.as_slice() {
+        [last, first] => (*first, Some(*last)),
+        [single] => (*single, None),
+        _ => (name, None),
     };
 
     let existing: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM content_authors WHERE first_name = $1 AND last_name = $2 LIMIT 1",
+        "SELECT id FROM content_authors WHERE first_name = $1 AND last_name IS NOT DISTINCT FROM $2 LIMIT 1",
     )
     .bind(first_name)
     .bind(last_name)

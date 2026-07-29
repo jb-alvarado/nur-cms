@@ -27,7 +27,7 @@ const authorId = Number(route.params.id ?? 0)
 const author = ref({
     id: 0,
     first_name: '',
-    last_name: '',
+    last_name: null,
     slug: '',
     bio: undefined,
     media_id: undefined,
@@ -95,7 +95,7 @@ async function selectMedia() {
 }
 
 function updateSlug() {
-    author.value.slug = slugify(`${author.value.first_name} ${author.value.last_name}`)
+    author.value.slug = slugify(`${author.value.first_name} ${author.value.last_name ?? ''}`)
 }
 
 async function savePhoto() {
@@ -165,6 +165,10 @@ async function save() {
     if (Object.keys(payload).length === 0) {
         store.msgAlert('warning', t('common.noChanges'))
         return
+    }
+
+    if (payload.last_name === '') {
+        payload.last_name = null
     }
 
     authFetchRaw(`/api/content/authors${authorId > 0 ? `/${authorId}` : ''}`, {

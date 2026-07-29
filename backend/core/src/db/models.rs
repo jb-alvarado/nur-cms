@@ -426,8 +426,8 @@ pub struct ContentAuthor {
     pub id: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub first_name: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub last_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub slug: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

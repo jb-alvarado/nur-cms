@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS content_nodes (
 CREATE TABLE IF NOT EXISTS content_authors (
     id SERIAL PRIMARY KEY,
     first_name VARCHAR(160) NOT NULL,
-    last_name VARCHAR(160) NOT NULL,
+    last_name VARCHAR(160),
     slug VARCHAR(320) NOT NULL UNIQUE,
     bio TEXT,
     media_id INT REFERENCES media (id) ON DELETE SET NULL,
@@ -248,6 +248,23 @@ CREATE TABLE IF NOT EXISTS mail_targets (
     recipients TEXT[] NOT NULL,
     allow_html BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+
+CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+    jti UUID PRIMARY KEY,
+    family_id UUID NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES auth_users (id) ON DELETE CASCADE,
+    expires_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    revoked_at BIGINT,
+    replaced_by UUID
+);
+
+
+CREATE INDEX IF NOT EXISTS auth_refresh_tokens_family_id_idx ON auth_refresh_tokens (family_id);
+
+
+CREATE INDEX IF NOT EXISTS auth_refresh_tokens_expires_at_idx ON auth_refresh_tokens (expires_at);
 
 
 CREATE OR REPLACE FUNCTION content_node_tsv_update () RETURNS trigger AS $$

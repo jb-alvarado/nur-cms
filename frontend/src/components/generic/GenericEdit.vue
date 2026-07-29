@@ -143,7 +143,7 @@ const showMetaFields = computed(() => {
 const authorsFormatted = computed(() =>
     store.authors.map((a) => ({
         ...a,
-        displayName: `${a.first_name} ${a.last_name}`.trim(),
+        displayName: `${a.first_name} ${a.last_name ?? ''}`.trim(),
     })),
 )
 
@@ -151,7 +151,7 @@ const selectedAuthorsFormatted = computed({
     get: () =>
         content.value.authors?.map((a) => ({
             ...a,
-            displayName: `${a.first_name} ${a.last_name}`.trim(),
+            displayName: `${a.first_name} ${a.last_name ?? ''}`.trim(),
         })) ?? [],
     set: (value) => {
         content.value.authors = value.map((v: any) => {

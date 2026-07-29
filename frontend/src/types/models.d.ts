@@ -11,7 +11,7 @@ export type Comment = { id?: number, entry_id?: number | null, parent_id?: numbe
 
 export type Configuration = { id: number, jwt_secret?: string, output_type: OutputType, mail_smtp: string | null, mail_port: number | null, mail_user: string | null, mail_password?: string | null, mail_starttls: boolean, notification_emails: Array<string> | null, image_extensions: Array<string> | null, image_resolutions: Array<number> | null, };
 
-export type ContentAuthor = { id?: number, first_name?: string, last_name?: string, slug?: string, bio?: string | null, media_id?: number | null, created_at?: string | null, updated_at?: string | null, };
+export type ContentAuthor = { id?: number, first_name?: string, last_name?: string | null, slug?: string, bio?: string | null, media_id?: number | null, created_at?: string | null, updated_at?: string | null, };
 
 export type ContentCategory = { id?: number, group_id?: number, locale_id?: number, name?: string, slug?: string, status?: string, media_id?: number | null, };
 
