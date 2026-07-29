@@ -42,6 +42,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
         select_record::<MediaFields, Media>(pool, &crate::db::fields::Table::Media, query).await?;
 
     let dev_auto_admin = env::var("NUR_DEV_AUTO_ADMIN").as_deref() == Ok("1");
+    let dev_seed_database = env::var("NUR_DEV_SEED_DATABASE").as_deref() == Ok("1");
 
     if auth_resp.results.is_empty() {
         if !dev_auto_admin {
@@ -64,7 +65,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
         insert_record::<AuthUser, i32>(pool, &crate::db::fields::Table::AuthUsers, &user).await?;
     }
 
-    if dev_auto_admin && media_resp.results.is_empty() {
+    if dev_seed_database && media_resp.results.is_empty() {
         let mut migrations_path = env::current_dir()?.join("migrations_dev");
 
         if !migrations_path.is_dir() {
