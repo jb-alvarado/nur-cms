@@ -37,7 +37,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           cargo deb --no-build --target "$TARGET" -p nur-cms --manifest-path backend/app/Cargo.toml \
             -o "dist/nur-cms_${version}-1_amd64.deb"
-          cargo generate-rpm --target "$TARGET" -p nur-cms \
+          cargo generate-rpm --target "$TARGET" -p backend/app \
             -o "dist/nur-cms-${version}-1.x86_64.rpm"
           tar -C "target/$TARGET/release" -czf "dist/nur-cms-${version}_$TARGET.tar.gz" nur-cms
       - name: Upload release assets
