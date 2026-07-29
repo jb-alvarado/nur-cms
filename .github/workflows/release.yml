@@ -31,8 +31,8 @@ jobs:
         run: cargo build --release --target "$TARGET" -p nur-cms
       - name: Build packages
         run: |
-          cargo install cargo-deb --locked
-          cargo install cargo-generate-rpm --locked
+          cargo install cargo-deb
+          cargo install cargo-generate-rpm
           mkdir -p dist
           version="${GITHUB_REF_NAME#v}"
           cargo deb --no-build --target "$TARGET" -p nur-cms --manifest-path backend/app/Cargo.toml \
