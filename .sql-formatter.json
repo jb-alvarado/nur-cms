@@ -2,6 +2,6 @@
     "language": "postgresql",
     "tabWidth": 4,
     "keywordCase": "upper",
-    "linesBetweenQueries": 2,
+    "linesBetweenQueries": 1,
     "expressionWidth": 80
 }

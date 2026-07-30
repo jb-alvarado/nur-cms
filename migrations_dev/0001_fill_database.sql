@@ -1,18 +1,19 @@
 -- The development seed uses stable IDs for its cross references. Reset only
 -- development content tables so retries after a failed seed stay deterministic.
-TRUNCATE TABLE
-    media,
-    content_categories,
-    content_tags,
-    content_entries,
-    content_nodes,
-    content_authors,
-    content_node_templates,
-    comments
-RESTART IDENTITY CASCADE;
+TRUNCATE TABLE media,
+content_categories,
+content_tags,
+content_entries,
+content_nodes,
+content_authors,
+content_node_templates,
+comments RESTART IDENTITY CASCADE;
 
-SELECT setval('category_group_seq', 1001, false);
-SELECT setval('entry_group_seq', 1001, false);
+SELECT
+    setval('category_group_seq', 1001, FALSE);
+
+SELECT
+    setval('entry_group_seq', 1001, FALSE);
 
 INSERT INTO
     locales (code, name, tsv_dict)
@@ -24,46 +25,10 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO
     media (alt, filename, path, type, width, height, size, uploaded_by)
 VALUES
-    (
-        'cover',
-        'cover.jpg',
-        '/uploads/2025/11',
-        'image/jpeg',
-        1280,
-        853,
-        63976,
-        1
-    ),
-    (
-        'block',
-        'block.jpg',
-        '/uploads/2025/11',
-        'image/jpeg',
-        1280,
-        867,
-        57116,
-        1
-    ),
-    (
-        'Cat',
-        'cat.jpg',
-        '/uploads/2025/11',
-        'image/jpeg',
-        233,
-        233,
-        11414,
-        1
-    ),
-    (
-        'Flower',
-        'flower.jpg',
-        '/uploads/2025/11',
-        'image/jpeg',
-        233,
-        233,
-        22812,
-        1
-    );
+    ('cover', 'cover.jpg', '/uploads/2025/11', 'image/jpeg', 1280, 853, 63976, 1),
+    ('block', 'block.jpg', '/uploads/2025/11', 'image/jpeg', 1280, 867, 57116, 1),
+    ('Cat', 'cat.jpg', '/uploads/2025/11', 'image/jpeg', 233, 233, 11414, 1),
+    ('Flower', 'flower.jpg', '/uploads/2025/11', 'image/jpeg', 233, 233, 22812, 1);
 
 INSERT INTO
     media_variants (media_id, width, height, filename)
@@ -149,18 +114,7 @@ VALUES
         1,
         1
     ),
-    (
-        1001,
-        1,
-        2,
-        2,
-        1,
-        'first-article',
-        'Welcome to my blog',
-        'published',
-        1,
-        1
-    ),
+    (1001, 1, 2, 2, 1, 'first-article', 'Welcome to my blog', 'published', 1, 1),
     (
         nextval('entry_group_seq'),
         2,
@@ -221,18 +175,7 @@ VALUES
         1,
         1
     ),
-    (
-        nextval('entry_group_seq'),
-        2,
-        NULL,
-        3,
-        NULL,
-        'faq',
-        'FAQ',
-        'published',
-        1,
-        1
-    ),
+    (nextval('entry_group_seq'), 2, NULL, 3, NULL, 'faq', 'FAQ', 'published', 1, 1),
     (
         nextval('entry_group_seq'),
         2,
@@ -408,38 +351,10 @@ VALUES
         NULL,
         NULL
     ),
-    (
-        7,
-        1,
-        E'# Nutzungsbedingungen\nAlle rechtlichen Hinweise.',
-        NULL,
-        NULL,
-        NULL
-    ),
-    (
-        8,
-        1,
-        E'# FAQ\nNous répondons aux questions fréquentes.',
-        NULL,
-        NULL,
-        NULL
-    ),
-    (
-        9,
-        1,
-        E'# Equipo\nDetalles sobre los miembros del equipo.',
-        NULL,
-        NULL,
-        NULL
-    ),
-    (
-        10,
-        1,
-        E'# Contact\nInformation to reach us.',
-        NULL,
-        NULL,
-        NULL
-    ),
+    (7, 1, E'# Nutzungsbedingungen\nAlle rechtlichen Hinweise.', NULL, NULL, NULL),
+    (8, 1, E'# FAQ\nNous répondons aux questions fréquentes.', NULL, NULL, NULL),
+    (9, 1, E'# Equipo\nDetalles sobre los miembros del equipo.', NULL, NULL, NULL),
+    (10, 1, E'# Contact\nInformation to reach us.', NULL, NULL, NULL),
     (
         11,
         1,
@@ -448,14 +363,7 @@ VALUES
         NULL,
         NULL
     ),
-    (
-        12,
-        1,
-        E'# Rust Meetup #2\nDétails du second meetup.',
-        NULL,
-        NULL,
-        NULL
-    ),
+    (12, 1, E'# Rust Meetup #2\nDétails du second meetup.', NULL, NULL, NULL),
     (
         13,
         1,
@@ -481,14 +389,7 @@ VALUES
         NULL
     ),
     (16, 1, 'Just a random text', NULL, NULL, NULL),
-    (
-        16,
-        2,
-        NULL,
-        '{"text":"This is the first block of content."}',
-        NULL,
-        NULL
-    ),
+    (16, 2, NULL, '{"text":"This is the first block of content."}', NULL, NULL),
     (
         16,
         3,
@@ -497,31 +398,14 @@ VALUES
         NULL,
         17
     ),
-    (
-        16,
-        4,
-        NULL,
-        '{"author":"The Cat", "url": "https://example.org"}',
-        3,
-        17
-    ),
-    (
-        16,
-        5,
-        NULL,
-        '{"text":"Yet another text block with italic text."}',
-        NULL,
-        17
-    ),
+    (16, 4, NULL, '{"author":"The Cat", "url": "https://example.org"}', 3, 17),
+    (16, 5, NULL, '{"text":"Yet another text block with italic text."}', NULL, 17),
     (16, 6, NULL, '{"text":"Last item"}', NULL, NULL);
 
 INSERT INTO
     content_node_templates (name, data)
 VALUES
-    (
-        'employee',
-        '{"first_name": "", "last_name": "", "position": ""}'
-    ),
+    ('employee', '{"first_name": "", "last_name": "", "position": ""}'),
     ('text', '{"text": ""}'),
     ('author', '{"author": "", "url": ""}');
 
@@ -545,25 +429,9 @@ VALUES
     (2, 2, 10);
 
 INSERT INTO
-    comments (
-        entry_id,
-        parent_id,
-        user_id,
-        author_name,
-        author_email,
-        text,
-        status
-    )
+    comments (entry_id, parent_id, user_id, author_name, author_email, text, status)
 VALUES
-    (
-        1,
-        NULL,
-        1,
-        NULL,
-        NULL,
-        'Great article! Thanks for sharing this.',
-        'approved'
-    ),
+    (1, NULL, 1, NULL, NULL, 'Great article! Thanks for sharing this.', 'approved'),
     (
         1,
         NULL,
@@ -582,15 +450,7 @@ VALUES
         'I agree, this is really helpful.',
         'approved'
     ),
-    (
-        2,
-        NULL,
-        1,
-        NULL,
-        NULL,
-        'Excellent content, keep up the good work!',
-        'approved'
-    ),
+    (2, NULL, 1, NULL, NULL, 'Excellent content, keep up the good work!', 'approved'),
     (
         2,
         NULL,
@@ -609,15 +469,7 @@ VALUES
         'Très bon article, merci!',
         'approved'
     ),
-    (
-        10,
-        NULL,
-        1,
-        NULL,
-        NULL,
-        'Looking forward to the meetup!',
-        'approved'
-    ),
+    (10, NULL, 1, NULL, NULL, 'Looking forward to the meetup!', 'approved'),
     (
         10,
         7,
