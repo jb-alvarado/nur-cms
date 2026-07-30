@@ -4,7 +4,7 @@ After=network.target remote-fs.target
 
 [Service]
 WorkingDirectory=/home/nur-cms
-ExecStart=/usr/bin/nur-cms -l 0.0.0.0:8777
+ExecStart=/usr/bin/nur-cms -l 127.0.0.1:8777
 Restart=always
 StartLimitInterval=20
 RestartSec=1
