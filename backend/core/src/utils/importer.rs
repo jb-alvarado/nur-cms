@@ -287,21 +287,6 @@ async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<()
     Ok(())
 }
 
-/// Creates the editable template shape from imported values. Templates use empty
-/// values as their defaults, while the actual values are stored on the node.
-fn template_schema(value: &Value) -> Value {
-    match value {
-        Value::Object(values) => Value::Object(
-            values
-                .iter()
-                .map(|(key, value)| (key.clone(), template_schema(value)))
-                .collect(),
-        ),
-        Value::Array(_) => Value::Array(Vec::new()),
-        _ => Value::String(String::new()),
-    }
-}
-
 /// Applies an existing template's defaults without discarding values supplied by
 /// the imported frontmatter. This mirrors creating a block in the admin UI and
 /// then filling in its fields.
@@ -319,6 +304,21 @@ fn apply_template_defaults(template: &Value, values: &Value) -> Value {
             Value::Object(data)
         }
         (_, value) => value.clone(),
+    }
+}
+
+/// Creates the editable template shape from imported values. Templates use empty
+/// values as their defaults, while the actual values are stored on the node.
+fn template_schema(value: &Value) -> Value {
+    match value {
+        Value::Object(values) => Value::Object(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), template_schema(value)))
+                .collect(),
+        ),
+        Value::Array(_) => Value::Array(Vec::new()),
+        _ => Value::String(String::new()),
     }
 }
 
@@ -590,7 +590,7 @@ async fn extract_body_and_title(
         }
 
         if in_frontmatter {
-            frontmatter_raw.push(trimmed);
+            frontmatter_raw.push(line);
             continue;
         }
 
@@ -1001,6 +1001,7 @@ async fn insert_entry_tag(pool: &PgPool, entry_id: i32, tag_id: i32) -> Result<(
 mod tests {
     use super::*;
     use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
 
     #[test]
     fn parses_data_as_named_content_nodes() {
@@ -1010,6 +1011,30 @@ mod tests {
 
         assert_eq!(
             frontmatter.data,
+            Some(BTreeMap::from([(
+                "book".to_string(),
+                json!({ "name": "Test book", "pages": 320 })
+            )]))
+        );
+    }
+
+    #[tokio::test]
+    async fn preserves_frontmatter_indentation_for_content_node_data() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/nur_cms")
+            .expect("lazy pool should be valid");
+        let (frontmatter, _, _, _) = extract_body_and_title(
+            "---\ndata:\n  book:\n    name: Test book\n    pages: 320\n---\n# Heading\n",
+            &pool,
+            None,
+            Path::new("."),
+            1,
+        )
+        .await
+        .expect("frontmatter should parse");
+
+        assert_eq!(
+            frontmatter.and_then(|frontmatter| frontmatter.data),
             Some(BTreeMap::from([(
                 "book".to_string(),
                 json!({ "name": "Test book", "pages": 320 })

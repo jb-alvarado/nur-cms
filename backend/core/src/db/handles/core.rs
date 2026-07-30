@@ -28,6 +28,7 @@ fn field_allowed<T: FromStr + StrCompare>(field: &str) -> bool {
 fn table_field_allowed(table: &Table, field: &str) -> bool {
     match table {
         Table::AuthUsers => field_allowed::<AuthUserFields>(field) || field == "role_id",
+        Table::Configuration => field_allowed::<ConfigurationFields>(field),
         Table::Locales => field_allowed::<LocaleFields>(field),
         Table::ContentTypes => field_allowed::<ContentTypeFields>(field),
         Table::ContentCategories => field_allowed::<ContentCategoryFields>(field),
@@ -403,6 +404,8 @@ mod tests {
 
     #[test]
     fn content_entry_insert_allows_server_managed_audit_fields() {
+        assert!(table_field_allowed(&Table::Configuration, "mail_password"));
+        assert!(table_field_allowed(&Table::Configuration, "mail_smtp"));
         assert!(table_field_allowed(&Table::ContentEntries, "type_id"));
         assert!(table_field_allowed(&Table::ContentEntries, "created_by"));
         assert!(table_field_allowed(&Table::ContentEntries, "updated_by"));
