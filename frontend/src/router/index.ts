@@ -117,6 +117,20 @@ const router = createRouter({
 router.beforeEach(async (to, from) => {
     const auth = useAuth()
     const store = useIndex()
+
+    // A successful password check starts the 2FA flow without issuing tokens.
+    // Do not inspect tokens here: that would clear verificationPending because
+    // there is deliberately no access or refresh token yet.
+    if (to.name === 'verification') {
+        if (auth.isLogin) {
+            return { name: 'home' }
+        }
+        if (auth.verificationPending) {
+            return
+        }
+        return { name: 'login' }
+    }
+
     await auth.inspectToken()
 
     if (
@@ -130,10 +144,6 @@ router.beforeEach(async (to, from) => {
     }
 
     const isPublicRoute = to.meta.public === true
-
-    if (to.name === 'verification' && !auth.isLogin && !auth.verificationPending) {
-        return { name: 'login' }
-    }
 
     if (!auth.isLogin && !isPublicRoute) {
         return { name: 'login' }
