@@ -23,7 +23,7 @@ use crate::{
     db::{
         fields::AuthUserFields,
         handles,
-        models::{MailTarget, Role},
+        models::{Configuration, MailTarget, Role},
         queries::QueryObj,
     },
     mail::client::{Msg, message},
@@ -130,6 +130,16 @@ fn frontend_name() -> String {
         .filter(|name| !name.is_empty())
         .map(ToString::to_string)
         .unwrap_or_else(|| "NUR CMS".to_string())
+}
+
+fn email_two_factor_is_configured(config: &Configuration) -> bool {
+    [
+        config.mail_smtp.as_deref(),
+        config.mail_user.as_deref(),
+        config.mail_password.as_deref(),
+    ]
+    .into_iter()
+    .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
 }
 
 /// Create a json web token (JWT)
@@ -269,7 +279,7 @@ pub async fn login(
             if verified_password.is_ok() {
                 let config = CONFIG.read().await.clone();
 
-                if !args.disable_two_factor {
+                if !args.disable_two_factor && email_two_factor_is_configured(&config) {
                     let email = user
                         .email
                         .clone()
@@ -288,14 +298,6 @@ pub async fn login(
                                 "Two-factor authentication is not configured.".into(),
                             )
                         })?;
-                    if config.mail_password.as_ref().is_none_or(String::is_empty)
-                        || config.mail_smtp.as_ref().is_none_or(String::is_empty)
-                    {
-                        return Err(NurError::ServiceUnavailable(
-                            "Two-factor authentication is not configured.".into(),
-                        ));
-                    }
-
                     // Generate 7-digit random code
                     let verification_code: String = (0..7)
                         .map(|_| rand::rng().random_range(0..10).to_string())
@@ -364,7 +366,13 @@ pub async fn login(
                         .into_response());
                 }
 
-                warn!("Two-factor authentication is explicitly disabled");
+                if args.disable_two_factor {
+                    warn!("Two-factor authentication is explicitly disabled");
+                } else {
+                    warn!(
+                        "Email two-factor authentication is disabled because SMTP is not configured"
+                    );
+                }
 
                 let tokens = issue_token_pair(&pool, user_id, role.name.clone()).await?;
                 handles::update_last_login(&pool, user_id).await?;
@@ -688,6 +696,20 @@ mod tests {
             let body = mail_body(code, "NUR CMS");
             assert!(body.contains(code), "Code {} should be in mail body", code);
         }
+    }
+
+    #[test]
+    fn email_two_factor_requires_complete_mail_configuration() {
+        let mut config = Configuration::default();
+        assert!(!email_two_factor_is_configured(&config));
+
+        config.mail_smtp = Some("smtp.example.org".into());
+        config.mail_user = Some("noreply@example.org".into());
+        config.mail_password = Some("secret".into());
+        assert!(email_two_factor_is_configured(&config));
+
+        config.mail_password = Some("  ".into());
+        assert!(!email_two_factor_is_configured(&config));
     }
 
     #[tokio::test]
