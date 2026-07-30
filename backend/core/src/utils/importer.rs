@@ -18,6 +18,7 @@
 /// 7. Inserts associated metadata: category, thumbnail, authors, tags, event dates
 ///
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -94,6 +95,9 @@ struct Frontmatter {
     event_start: Option<String>,
     #[serde(default)]
     event_end: Option<String>,
+    /// Named content-node values, for example `data: { book: { name: "…" } }`.
+    #[serde(default)]
+    data: Option<BTreeMap<String, Value>>,
 }
 
 pub async fn import_markdown(
@@ -283,6 +287,93 @@ async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<()
     Ok(())
 }
 
+/// Creates the editable template shape from imported values. Templates use empty
+/// values as their defaults, while the actual values are stored on the node.
+fn template_schema(value: &Value) -> Value {
+    match value {
+        Value::Object(values) => Value::Object(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), template_schema(value)))
+                .collect(),
+        ),
+        Value::Array(_) => Value::Array(Vec::new()),
+        _ => Value::String(String::new()),
+    }
+}
+
+/// Applies an existing template's defaults without discarding values supplied by
+/// the imported frontmatter. This mirrors creating a block in the admin UI and
+/// then filling in its fields.
+fn apply_template_defaults(template: &Value, values: &Value) -> Value {
+    match (template, values) {
+        (Value::Object(defaults), Value::Object(values)) => {
+            let mut data = defaults.clone();
+            for (key, value) in values {
+                let merged = data
+                    .get(key)
+                    .map(|default| apply_template_defaults(default, value))
+                    .unwrap_or_else(|| value.clone());
+                data.insert(key.clone(), merged);
+            }
+            Value::Object(data)
+        }
+        (_, value) => value.clone(),
+    }
+}
+
+async fn insert_meta_nodes(
+    pool: &PgPool,
+    entry_id: i32,
+    data: &BTreeMap<String, Value>,
+) -> Result<(), NurError> {
+    for (index, (name, values)) in data.iter().enumerate() {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(NurError::BadRequest(
+                "Frontmatter field 'data' cannot contain an empty template name.".into(),
+            ));
+        }
+        if !values.is_object() {
+            return Err(NurError::BadRequest(format!(
+                "Frontmatter field 'data.{name}' must be a key-value object."
+            )));
+        }
+
+        let template: Option<Value> = sqlx::query_scalar(
+            "SELECT data FROM content_node_templates WHERE name = $1 ORDER BY id LIMIT 1",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await?;
+
+        let data = match template {
+            Some(template) => apply_template_defaults(&template, values),
+            None => {
+                let schema = template_schema(values);
+                sqlx::query("INSERT INTO content_node_templates (name, data) VALUES ($1, $2)")
+                    .bind(name)
+                    .bind(schema)
+                    .execute(pool)
+                    .await?;
+                values.clone()
+            }
+        };
+
+        sqlx::query(
+            "INSERT INTO content_nodes (entry_id, order_index, name, data) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(entry_id)
+        .bind((index + 1) as i32)
+        .bind(name)
+        .bind(data)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
 async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result<(), NurError> {
     let content = fs::read_to_string(path).await?;
 
@@ -380,8 +471,13 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
         }
     }
 
-    let entry_id =
-        handles::insert_record::<ContentEntry, i32>(pool, &Table::ContentEntries, &entry).await?;
+    // Use the same collision-safe slug handling as the regular entry API.
+    // `insert_entry` appends a short random suffix if this slug is already in
+    // use for the selected locale and content type.
+    let entry_value = serde_json::to_value(&entry).map_err(|error| {
+        NurError::BadRequest(format!("Could not serialize imported entry: {error}"))
+    })?;
+    let entry_id = handles::insert_entry(pool, &entry_value).await?;
 
     // Insert content_node with the markdown body
     let node_id: i64 = sqlx::query_scalar(
@@ -397,10 +493,14 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
     persist_content_media(pool, node_id, &tree).await?;
 
-    // Insert authors/meta/tags if present
+    // Insert authors, content-node metadata and tags if present.
     if let Some(ref fm) = frontmatter {
         if entry.type_id == 3 {
             insert_meta(pool, entry_id, fm).await?;
+        }
+
+        if let Some(data) = &fm.data {
+            insert_meta_nodes(pool, entry_id, data).await?;
         }
 
         if let Some(ref authors) = fm.author {
@@ -896,3 +996,41 @@ async fn insert_entry_tag(pool: &PgPool, entry_id: i32, tag_id: i32) -> Result<(
 }
 
 // content_media linking is handled via utils::ast_serialize::persist_content_media
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_data_as_named_content_nodes() {
+        let frontmatter: Frontmatter =
+            serde_yaml::from_str("data:\n  book:\n    name: Test book\n    pages: 320\n")
+                .expect("frontmatter should parse");
+
+        assert_eq!(
+            frontmatter.data,
+            Some(BTreeMap::from([(
+                "book".to_string(),
+                json!({ "name": "Test book", "pages": 320 })
+            )]))
+        );
+    }
+
+    #[test]
+    fn builds_empty_template_schema_and_keeps_template_defaults() {
+        let imported = json!({ "name": "Test book", "details": { "pages": 320 } });
+        assert_eq!(
+            template_schema(&imported),
+            json!({ "name": "", "details": { "pages": "" } })
+        );
+
+        assert_eq!(
+            apply_template_defaults(
+                &json!({ "name": "", "isbn": "" }),
+                &json!({ "name": "Test book" })
+            ),
+            json!({ "name": "Test book", "isbn": "" })
+        );
+    }
+}

@@ -32,7 +32,9 @@ fn table_field_allowed(table: &Table, field: &str) -> bool {
         Table::ContentTypes => field_allowed::<ContentTypeFields>(field),
         Table::ContentCategories => field_allowed::<ContentCategoryFields>(field),
         Table::ContentTags => field_allowed::<ContentTagFields>(field),
-        Table::ContentAuthors => field_allowed::<ContentAuthorFields>(field),
+        Table::ContentAuthors => {
+            field_allowed::<ContentAuthorFields>(field) || field == "updated_at"
+        }
         Table::Comments => field_allowed::<CommentFields>(field),
         Table::MailTargets => field_allowed::<MailTargetFields>(field),
         Table::Media => field_allowed::<MediaFields>(field),
