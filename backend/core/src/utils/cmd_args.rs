@@ -31,10 +31,10 @@ pub struct Args {
     #[clap(long, help = "Ignore files from import by its names")]
     pub ignore_files: Option<Vec<PathBuf>>,
 
-    #[clap(short, long, help = "Listen on IP:PORT, like: 127.0.0.1:7777")]
+    #[clap(short, env, long, help = "Listen on IP:PORT, like: 127.0.0.1:7777")]
     pub listen: Option<String>,
 
-    #[clap(long, help = "Disabling two-factor authentication")]
+    #[clap(long, env, help = "Disabling two-factor authentication")]
     pub disable_two_factor: bool,
 }
 
