@@ -364,29 +364,48 @@ pub fn generic_ordering<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let mut s: String = Deserialize::deserialize(deserializer)?;
-    let re = Regex::new(r"[^\w,-_]+").unwrap();
-    let mut order_clause = vec![];
-
-    s = re.replace_all(&s, "").to_string();
-
-    for mut field in s.split(',') {
-        field = field.trim();
-
-        if field.starts_with('-') {
-            order_clause.push(format!("{} DESC", remove_first_char(field)));
-        } else if !field.is_empty() {
-            order_clause.push(format!("{field} ASC"));
-        }
-    }
-
-    Ok(order_clause.join(", "))
+    let value: String = Deserialize::deserialize(deserializer)?;
+    Ok(parse_ordering(&value))
 }
 
-fn remove_first_char(value: &str) -> &str {
-    let mut chars = value.chars();
-    chars.next();
-    chars.as_str()
+fn parse_ordering(value: &str) -> String {
+    value
+        .split(',')
+        .filter_map(|part| {
+            let mut parts = part.split_whitespace();
+            let raw_field = parts.next()?;
+            let explicit_direction = parts.next();
+
+            // More than a field and an optional direction is not valid ordering
+            // syntax. Keeping this strict also prevents SQL fragments here.
+            if parts.next().is_some() {
+                return None;
+            }
+
+            let (field, direction) = if let Some(field) = raw_field.strip_prefix('-') {
+                (field, "DESC")
+            } else {
+                let direction = match explicit_direction {
+                    Some(direction) if direction.eq_ignore_ascii_case("asc") => "ASC",
+                    Some(direction) if direction.eq_ignore_ascii_case("desc") => "DESC",
+                    Some(_) => return None,
+                    None => "ASC",
+                };
+                (raw_field, direction)
+            };
+
+            if field.is_empty()
+                || !field.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || character == '_' || character == '.'
+                })
+            {
+                return None;
+            }
+
+            Some(format!("{field} {direction}"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Response object:
@@ -558,13 +577,60 @@ impl WhereBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::QueryObj;
-    use crate::db::fields::MediaFields;
+    use axum::{extract::Query, http::Uri};
+
+    use super::{QueryObj, parse_ordering};
+    use crate::db::fields::{ContentEntryFields, MediaFields};
+
+    #[test]
+    fn accepts_all_supported_ordering_forms() {
+        for (input, expected) in [
+            ("created_at", "created_at ASC"),
+            ("-created_at", "created_at DESC"),
+            ("created_at ASC", "created_at ASC"),
+            ("created_at DESC", "created_at DESC"),
+            ("created_at desc", "created_at DESC"),
+            ("author.first_name DESC", "author.first_name DESC"),
+            (
+                "-created_at,title ASC,author.last_name DESC",
+                "created_at DESC, title ASC, author.last_name DESC",
+            ),
+        ] {
+            assert_eq!(parse_ordering(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn ignores_invalid_ordering_fragments() {
+        for input in [
+            "created_at DESC DROP TABLE content_entries",
+            "created_at sideways",
+            "created_at;DROP",
+            "-",
+        ] {
+            assert!(parse_ordering(input).is_empty(), "{input}");
+        }
+    }
+
+    #[test]
+    fn parses_reported_entry_request_with_explicit_desc_ordering() {
+        let uri: Uri = "/api/content/entries?type=note&locale=de&fields=id%2Ctitle%2Cslug%2Ccreated_at%2Cupdated_at%2Cmedia%2Ccategory.name%2Ccategory.slug%2Ctags%2Cauthor.first_name%2Cauthor.last_name%2Cauthor.slug%2Cnode.text%2Cnode.ast&ordering=created_at+DESC&character_limit=420&blocks_limit=1&limit=18&offset=0"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(query.ordering, "created_at DESC");
+        assert_eq!(query.limit, 18);
+        assert_eq!(query.offset, 0);
+        assert_eq!(query.character_limit, Some(420));
+        assert_eq!(query.blocks_limit, Some(1));
+    }
 
     #[test]
     fn rejects_unbounded_query_work() {
         for value in [
-            serde_json::json!({"limit": 101}),
+            serde_json::json!({"limit": 201}),
             serde_json::json!({"offset": 1_000_001}),
             serde_json::json!({"character_limit": -1}),
             serde_json::json!({"blocks_limit": 1_001}),

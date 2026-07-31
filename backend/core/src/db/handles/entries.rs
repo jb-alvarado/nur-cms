@@ -823,7 +823,7 @@ pub async fn select_content_entries(
 
         qb.push(" f.created_at DESC ) picked ORDER BY");
     } else {
-        qb.push(" ), page AS ( SELECT f.* FROM filtered f ORDER BY");
+        qb.push(" ), page AS ( SELECT f.* FROM filtered f");
     };
     if query_obj.search.is_some() {
         if query_obj.grouped {
@@ -844,7 +844,10 @@ pub async fn select_content_entries(
             qb.push(format!(" {}", picked_ordering));
         }
     } else if !page_ordering.is_empty() {
-        qb.push(format!(" {}", page_ordering));
+        qb.push(format!(" ORDER BY {page_ordering}"));
+    } else {
+        // Ignore unsupported ordering fields without producing `ORDER BY LIMIT`.
+        qb.push(" ORDER BY f.created_at DESC");
     }
     qb.push(format!(
         " LIMIT {} OFFSET {}",
