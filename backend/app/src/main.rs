@@ -116,8 +116,20 @@ use serve::routes::admin_ui_routes;
 
 #[tokio::main]
 async fn main() -> Result<(), NurError> {
-    if dotenv().is_err() {
-        from_filename("./assets/.env.example").ok();
+    match dotenv() {
+        Ok(_) => {}
+        Err(error) if error.not_found() => {
+            if let Err(error) = from_filename("./assets/.env.example")
+                && !error.not_found()
+            {
+                error!("Failed to load fallback environment file: {error}");
+                return Err(NurError::InternalServerError);
+            }
+        }
+        Err(error) => {
+            error!("Failed to load .env: {error}");
+            return Err(NurError::InternalServerError);
+        }
     }
 
     let args = AppArgs::parse();
