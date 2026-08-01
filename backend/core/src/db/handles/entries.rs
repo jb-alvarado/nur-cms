@@ -1,4 +1,5 @@
 use markdown::{ParseOptions, to_mdast};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
@@ -17,7 +18,10 @@ use crate::db::{
     },
     handles::core::{insert_record, update_record},
     queries::{QueryObj, RespondObj, WhereBuilder},
-    serialize::ContentEntrySerializer,
+    serialize::{
+        ContentAuthorFacet, ContentCategoryFacet, ContentEntryFacets, ContentEntrySerializer,
+        ContentTagFacet, LocaleFacet,
+    },
 };
 use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
 
@@ -29,6 +33,140 @@ type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value
 const ENTRY_SLUG_UNIQUE_CONSTRAINT: &str = "content_entries_slug_locale_id_type_id_key";
 const SLUG_RANDOM_SUFFIX_LEN: usize = 6;
 const MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS: usize = 8;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ContentEntryFacetQuery {
+    #[serde(default, alias = "type")]
+    pub type_slug: Option<String>,
+    #[serde(default, alias = "locale")]
+    pub locale_code: Option<String>,
+    #[serde(default, alias = "category")]
+    pub category_slug: Option<String>,
+    #[serde(default, alias = "tag")]
+    pub tag_slug: Option<String>,
+    #[serde(default, alias = "author")]
+    pub author_slug: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FacetKind {
+    Category,
+    Tag,
+    Author,
+    Locale,
+}
+
+fn push_facet_filters(
+    qb: &mut QueryBuilder<Postgres>,
+    query: &ContentEntryFacetQuery,
+    omitted: FacetKind,
+) {
+    qb.push(" WHERE ce.status = 'published'");
+
+    if omitted != FacetKind::Category
+        && let Some(slug) = &query.category_slug
+    {
+        qb.push(" AND EXISTS (SELECT 1 FROM content_categories cc_filter WHERE cc_filter.id = ce.category_id AND cc_filter.slug = ");
+        qb.push_bind(slug);
+        qb.push(")");
+    }
+    if omitted != FacetKind::Tag
+        && let Some(slug) = &query.tag_slug
+    {
+        qb.push(" AND EXISTS (SELECT 1 FROM content_entry_tags cet_filter JOIN content_tags t_filter ON t_filter.id = cet_filter.tag_id WHERE cet_filter.entry_id = ce.id AND t_filter.slug = ");
+        qb.push_bind(slug);
+        qb.push(")");
+    }
+    if omitted != FacetKind::Author
+        && let Some(slug) = &query.author_slug
+    {
+        qb.push(" AND EXISTS (SELECT 1 FROM content_entry_authors cea_filter JOIN content_authors ca_filter ON ca_filter.id = cea_filter.author_id WHERE cea_filter.entry_id = ce.id AND ca_filter.slug = ");
+        qb.push_bind(slug);
+        qb.push(")");
+    }
+    if omitted != FacetKind::Locale
+        && let Some(code) = &query.locale_code
+    {
+        qb.push(" AND EXISTS (SELECT 1 FROM locales l_filter WHERE l_filter.id = ce.locale_id AND l_filter.code = ");
+        qb.push_bind(code);
+        qb.push(")");
+    }
+    if let Some(slug) = &query.type_slug {
+        qb.push(" AND EXISTS (SELECT 1 FROM content_types ct_filter WHERE ct_filter.id = ce.type_id AND ct_filter.slug = ");
+        qb.push_bind(slug);
+        qb.push(")");
+    }
+    if let Some(search) = query.search.as_deref().map(str::trim) {
+        qb.push(" AND (ce.title ILIKE '%' || ");
+        qb.push_bind(search);
+        qb.push(" || '%' OR EXISTS (SELECT 1 FROM content_entry_authors cea_search JOIN content_authors ca_search ON ca_search.id = cea_search.author_id WHERE cea_search.entry_id = ce.id AND (ca_search.first_name ILIKE '%' || ");
+        qb.push_bind(search);
+        qb.push(" || '%' OR ca_search.last_name ILIKE '%' || ");
+        qb.push_bind(search);
+        qb.push(" || '%')) OR EXISTS (SELECT 1 FROM content_nodes cn_search JOIN locales l_search ON l_search.id = ce.locale_id WHERE cn_search.entry_id = ce.id AND (cn_search.text_vector @@ phraseto_tsquery(l_search.tsv_dict::regconfig, ");
+        qb.push_bind(search);
+        qb.push(") OR (make_phrase_prefix_tsquery(l_search.tsv_dict::regconfig, ");
+        qb.push_bind(search);
+        qb.push(") IS NOT NULL AND cn_search.text_vector @@ make_phrase_prefix_tsquery(l_search.tsv_dict::regconfig, ");
+        qb.push_bind(search);
+        qb.push(") ) OR (make_last_term_prefix_tsquery(l_search.tsv_dict::regconfig, ");
+        qb.push_bind(search);
+        qb.push(") IS NOT NULL AND cn_search.text_vector @@ make_last_term_prefix_tsquery(l_search.tsv_dict::regconfig, ");
+        qb.push_bind(search);
+        qb.push(") ))))");
+    }
+}
+
+pub async fn select_content_entry_facets(
+    pool: &PgPool,
+    query: &ContentEntryFacetQuery,
+) -> Result<ContentEntryFacets, NurError> {
+    let mut categories = QueryBuilder::new(
+        "SELECT cc.name, cc.slug, COUNT(DISTINCT ce.id)::bigint AS count FROM content_entries ce JOIN content_categories cc ON cc.id = ce.category_id",
+    );
+    push_facet_filters(&mut categories, query, FacetKind::Category);
+    categories.push(
+        " GROUP BY cc.id, cc.name, cc.slug HAVING COUNT(DISTINCT ce.id) > 0 ORDER BY cc.name",
+    );
+
+    let mut tags = QueryBuilder::new(
+        "SELECT t.name, t.slug, COUNT(DISTINCT ce.id)::bigint AS count FROM content_entries ce JOIN content_entry_tags cet ON cet.entry_id = ce.id JOIN content_tags t ON t.id = cet.tag_id",
+    );
+    push_facet_filters(&mut tags, query, FacetKind::Tag);
+    tags.push(" GROUP BY t.id, t.name, t.slug HAVING COUNT(DISTINCT ce.id) > 0 ORDER BY t.name");
+
+    let mut authors = QueryBuilder::new(
+        "SELECT ca.first_name, ca.last_name, ca.slug, COUNT(DISTINCT ce.id)::bigint AS count FROM content_entries ce JOIN content_entry_authors cea ON cea.entry_id = ce.id JOIN content_authors ca ON ca.id = cea.author_id",
+    );
+    push_facet_filters(&mut authors, query, FacetKind::Author);
+    authors.push(" GROUP BY ca.id, ca.first_name, ca.last_name, ca.slug HAVING COUNT(DISTINCT ce.id) > 0 ORDER BY ca.last_name NULLS FIRST, ca.first_name");
+
+    let mut locales = QueryBuilder::new(
+        "SELECT l.code, l.name, COUNT(DISTINCT ce.id)::bigint AS count FROM content_entries ce JOIN locales l ON l.id = ce.locale_id",
+    );
+    push_facet_filters(&mut locales, query, FacetKind::Locale);
+    locales.push(" GROUP BY l.id, l.code, l.name HAVING COUNT(DISTINCT ce.id) > 0 ORDER BY l.name");
+
+    let (categories, tags, authors, locales) = tokio::try_join!(
+        categories
+            .build_query_as::<ContentCategoryFacet>()
+            .fetch_all(pool),
+        tags.build_query_as::<ContentTagFacet>().fetch_all(pool),
+        authors
+            .build_query_as::<ContentAuthorFacet>()
+            .fetch_all(pool),
+        locales.build_query_as::<LocaleFacet>().fetch_all(pool),
+    )?;
+
+    Ok(ContentEntryFacets {
+        categories,
+        tags,
+        authors,
+        locales,
+    })
+}
 
 fn random_slug_suffix() -> String {
     Uuid::new_v4()

@@ -19,7 +19,7 @@ use crate::{
     CONFIG,
     db::{
         fields::{ContentEntryFields as CEF, ContentNodeFields as CNF, OutputType, Table},
-        handles,
+        handles::{self, ContentEntryFacetQuery},
         models::{AuthUserMeta, Role},
         queries::{QueryObj, RespondObj},
         serialize::*,
@@ -29,6 +29,15 @@ use crate::{
         errors::NurError,
     },
 };
+
+pub async fn entry_facets_select(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Query(params): Query<ContentEntryFacetQuery>,
+) -> Result<Json<ContentEntryFacets>, NurError> {
+    Ok(Json(
+        handles::select_content_entry_facets(&pool, &params).await?,
+    ))
+}
 
 pub async fn entries_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,

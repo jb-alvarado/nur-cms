@@ -593,3 +593,50 @@ pub struct MediaVariantSerializer {
     pub height: i32,
     pub filename: String,
 }
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct ContentCategoryFacet {
+    pub name: String,
+    pub slug: String,
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct ContentTagFacet {
+    pub name: String,
+    pub slug: String,
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct ContentAuthorFacet {
+    pub first_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    pub slug: String,
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct LocaleFacet {
+    pub code: String,
+    pub name: String,
+    #[ts(type = "number")]
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct ContentEntryFacets {
+    pub categories: Vec<ContentCategoryFacet>,
+    pub tags: Vec<ContentTagFacet>,
+    pub authors: Vec<ContentAuthorFacet>,
+    pub locales: Vec<LocaleFacet>,
+}

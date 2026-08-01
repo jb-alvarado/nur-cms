@@ -185,6 +185,7 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .route("/entries/{e_id}/author/{a_id}", delete(entry_author_delete))
         .route("/entries/tag", post(entry_tag_insert))
         .route("/entries/{e_id}/tag/{t_id}", delete(entry_tag_delete))
+        .route("/entries/facets", get(entry_facets_select))
         .route("/entries", get(entries_select).post(entry_insert))
         .route("/entries/{id}", put(entry_update).delete(entry_delete))
         .route("/entries/{param}/{slug}", get(entry_select))

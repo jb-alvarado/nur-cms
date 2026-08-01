@@ -234,6 +234,10 @@ CREATE INDEX IF NOT EXISTS auth_refresh_tokens_family_id_idx ON auth_refresh_tok
 
 CREATE INDEX IF NOT EXISTS auth_refresh_tokens_expires_at_idx ON auth_refresh_tokens (expires_at);
 
+CREATE INDEX IF NOT EXISTS idx_entry_tags_tag_entry ON content_entry_tags (tag_id, entry_id);
+
+CREATE INDEX IF NOT EXISTS idx_entry_authors_author_entry ON content_entry_authors (author_id, entry_id);
+
 CREATE OR REPLACE FUNCTION content_node_tsv_update () RETURNS trigger AS $$
 DECLARE
     dict TEXT;
