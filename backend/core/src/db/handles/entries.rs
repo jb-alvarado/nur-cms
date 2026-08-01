@@ -663,10 +663,7 @@ fn comment_count_join(entry_alias: &str) -> String {
     )
 }
 
-pub async fn select_content_entries(
-    pool: &PgPool,
-    query_obj: &QueryObj<CF>,
-) -> Result<RespondObj<ContentEntrySerializer>, NurError> {
+fn build_content_entries_query(query_obj: &QueryObj<CF>) -> QueryBuilder<Postgres> {
     let ordering_with_alias = |entry_alias: &str| {
         query_obj
             .ordering
@@ -971,9 +968,9 @@ pub async fn select_content_entries(
                 qb.push(format!(" picked.search_score DESC, {}", picked_ordering));
             }
         } else if page_ordering.is_empty() {
-            qb.push(" f.search_score DESC, f.id DESC");
+            qb.push(" ORDER BY f.search_score DESC, f.id DESC");
         } else {
-            qb.push(format!(" f.search_score DESC, {}", page_ordering));
+            qb.push(format!(" ORDER BY f.search_score DESC, {}", page_ordering));
         }
     } else if query_obj.grouped {
         if picked_ordering.is_empty() {
@@ -1009,9 +1006,6 @@ pub async fn select_content_entries(
     let mut add_author = true;
     let mut add_category = true;
     let mut add_node = true;
-
-    #[cfg(debug_assertions)]
-    let timer = std::time::Instant::now();
 
     for f in &query_obj.fields {
         match *f {
@@ -1115,8 +1109,18 @@ pub async fn select_content_entries(
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(qb.sql()));
 
-    let query = qb.build_query_as::<ContentEntrySerializer>();
+    qb
+}
 
+pub async fn select_content_entries(
+    pool: &PgPool,
+    query_obj: &QueryObj<CF>,
+) -> Result<RespondObj<ContentEntrySerializer>, NurError> {
+    #[cfg(debug_assertions)]
+    let timer = std::time::Instant::now();
+
+    let mut query_builder = build_content_entries_query(query_obj);
+    let query = query_builder.build_query_as::<ContentEntrySerializer>();
     let mut data: Vec<ContentEntrySerializer> = query.fetch_all(pool).await?;
 
     if query_obj.search_slug.is_some() && data.len() == 1 {
@@ -1468,7 +1472,22 @@ pub async fn update_entry_with_nodes(
 
 #[cfg(test)]
 mod tests {
-    use super::{SLUG_RANDOM_SUFFIX_LEN, slug_with_suffix};
+    use axum::{extract::Query, http::Uri};
+
+    use super::{SLUG_RANDOM_SUFFIX_LEN, build_content_entries_query, slug_with_suffix};
+    use crate::db::fields::ContentEntryFields;
+
+    fn query_from_uri(uri: &str) -> crate::db::queries::QueryObj<ContentEntryFields> {
+        let uri: Uri = uri.parse().expect("request URI");
+        let Query(query) = Query::try_from_uri(&uri).expect("request query");
+        query
+    }
+
+    fn sql_for(uri: &str) -> String {
+        let query = query_from_uri(uri);
+        let query_builder = build_content_entries_query(&query);
+        query_builder.sql().as_str().to_string()
+    }
 
     #[test]
     fn appends_short_random_suffix_to_slug() {
@@ -1477,5 +1496,53 @@ mod tests {
 
         assert_eq!(suffix.len(), SLUG_RANDOM_SUFFIX_LEN);
         assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn builds_sql_for_the_reported_search_request() {
+        let query = query_from_uri(
+            "/api/content/entries?type=note&fields=id%2Ctitle%2Cslug%2Ccreated_at%2Cupdated_at%2Cmedia%2Ccategory.name%2Ccategory.slug%2Ctags%2Cauthor.first_name%2Cauthor.last_name%2Cauthor.slug%2Cnode.text%2Cnode.ast&ordering=created_at+DESC&character_limit=420&blocks_limit=1&limit=18&offset=0&search=g%C3%B6au",
+        );
+        let query_builder = build_content_entries_query(&query);
+        let sql_string = query_builder.sql();
+        let sql = sql_string.as_str();
+
+        assert!(sql.contains("FROM base_entries be"));
+        assert!(sql.contains("ORDER BY f.search_score DESC, f.created_at DESC LIMIT 18 OFFSET 0"));
+        assert!(sql.contains("LIMIT 1\n            ) AS node_data"));
+    }
+
+    #[test]
+    fn search_queries_have_a_valid_page_ordering_with_or_without_explicit_sorting() {
+        let default_ordering = sql_for("/api/content/entries?search=rust");
+        assert!(default_ordering.contains("ORDER BY f.search_score DESC, f.created_at DESC"));
+
+        let explicit_ordering = sql_for("/api/content/entries?search=rust&ordering=title+ASC");
+        assert!(explicit_ordering.contains("ORDER BY f.search_score DESC, f.title ASC"));
+    }
+
+    #[test]
+    fn grouped_search_queries_keep_locale_preference_and_search_ordering() {
+        let sql = sql_for(
+            "/api/content/entries?search=rust&grouped=true&locale=de&ordering=updated_at+DESC",
+        );
+
+        assert!(sql.contains("SELECT DISTINCT ON (f.group_id)"));
+        assert!(sql.contains("(f.locale_slug = $2) DESC"));
+        assert!(sql.contains("picked.search_score DESC, picked.updated_at DESC"));
+    }
+
+    #[test]
+    fn entry_filter_combinations_use_parameterized_exists_clauses() {
+        let sql = sql_for(
+            "/api/content/entries?type=note&locale=de&category=ideas&tag=rust&author=ada&status=published&exclude_types=2%2C3&created_after=2026-01-01T00%3A00%3A00Z&created_before=2026-02-01T00%3A00%3A00Z",
+        );
+
+        assert!(sql.contains("JOIN content_types ct ON ct.id = ce.type_id"));
+        assert!(sql.contains("content_categories cc WHERE cc.id = ce.category_id"));
+        assert!(sql.contains("content_entry_tags cet"));
+        assert!(sql.contains("content_entry_authors cea"));
+        assert!(sql.contains("NOT (ce.type_id = ANY($"));
+        assert!(sql.contains("ORDER BY f.created_at DESC"));
     }
 }
