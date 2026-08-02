@@ -52,7 +52,7 @@ useHead({
 </script>
 
 <template>
-    <div class="relative h-full w-full overflow-hidden">
+    <div class="relative h-[calc(100vh-90px)] w-full overflow-hidden">
         <div class="w-full h-full flex items-center justify-center">
             <div class="flex flex-col items-center text-center opacity-30">
                 <div id="homeLogo" class="size-64 sm:size-96" />
