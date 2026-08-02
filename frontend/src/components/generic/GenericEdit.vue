@@ -696,7 +696,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 <template>
     <div class="flex flex-col h-full">
         <div class="flex">
-            <h1 class="grow text-2xl h-8">{{ content?.title ?? '' }}</h1>
+            <h1 class="grow text-xl lg:text-2xl lin">{{ content?.title ?? '' }}</h1>
             <button class="btn btn-sm text-base" @click="router.back()">
                 <i class="bi bi-chevron-left" />
             </button>
@@ -739,7 +739,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </fieldset>
                         </div>
 
-                        <div class="mt-3 md:mt-8 w-full lg:w-auto flex gap-2 flex-none">
+                        <div class="mt-3 md:mt-8 w-full lg:w-auto flex gap-2 flex-wrap md:flex-none">
                             <div class="join">
                                 <template v-if="store.locales.length > 1">
                                     <details v-if="content.id === 0" class="dropdown">
@@ -805,7 +805,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </details>
                             </div>
 
-                            <div class="join ms-auto">
+                            <div class="join xs:ms-auto">
                                 <button
                                     v-if="isFieldEnabled('delete')"
                                     class="btn text-warning join-item"

@@ -11,6 +11,7 @@
 @theme {
     --font-body: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', 'Arial', 'sans-serif';
     --default-font-family: 'Source Sans 3', 'Segoe UI', 'Helvetica Neue', 'Arial', 'sans-serif';
+    --breakpoint-xs: 414px;
 }
 
 :root {
