@@ -702,12 +702,12 @@ async function insertEntryAuthor(entry: number, author: number) {
             </button>
         </div>
 
-        <div class="flex gap-2 h-[calc(100%-32px)]">
+        <div class="flex md:gap-2 h-[calc(100%-32px)]">
             <div class="flex flex-col h-full">
                 <!-- Form + Editor Container -->
                 <div
                     v-if="content"
-                    class="flex flex-col flex-1 max-w-5xl bg-base-300 px-4 pt-1 mt-4 rounded"
+                    class="flex flex-col flex-1 w-full md:w-auto md:max-w-5xl bg-base-300 px-4 pt-1 mt-4 rounded"
                     :class="templateCount > 0 ? 'pb-2' : 'pb-4'"
                 >
                     <!-- Form inputs -->
@@ -716,30 +716,30 @@ async function insertEntryAuthor(entry: number, author: number) {
                             v-if="isFieldEnabled('title') || isFieldEnabled('slug')"
                             class="grow flex flex-col md:flex-row gap-2"
                         >
-                            <fieldset v-if="isFieldEnabled('title')" class="fieldset w-64">
+                            <fieldset v-if="isFieldEnabled('title')" class="fieldset w-full md:w-64">
                                 <legend class="fieldset-legend">{{ $t('table.title') }}</legend>
                                 <input
                                     v-model="content.title"
                                     type="text"
-                                    class="input"
+                                    class="input w-full"
                                     name="title"
                                     :placeholder="$t('table.title')"
                                     @input="updateSlug()"
                                 />
                             </fieldset>
 
-                            <fieldset v-if="isFieldEnabled('slug')" class="fieldset w-64">
+                            <fieldset v-if="isFieldEnabled('slug')" class="fieldset w-full md:w-64">
                                 <legend class="fieldset-legend">{{ $t('article.slug') }}</legend>
                                 <input
                                     v-model="content.slug"
                                     type="text"
-                                    class="input"
+                                    class="input w-full"
                                     :placeholder="$t('article.slug')"
                                 />
                             </fieldset>
                         </div>
 
-                        <div class="mt-3 md:mt-8 flex gap-2 flex-none">
+                        <div class="mt-3 md:mt-8 w-full lg:w-auto flex gap-2 flex-none">
                             <div class="join">
                                 <template v-if="store.locales.length > 1">
                                     <details v-if="content.id === 0" class="dropdown">
@@ -805,7 +805,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </details>
                             </div>
 
-                            <div class="join">
+                            <div class="join ms-auto">
                                 <button
                                     v-if="isFieldEnabled('delete')"
                                     class="btn text-warning join-item"
@@ -821,9 +821,9 @@ async function insertEntryAuthor(entry: number, author: number) {
                     </div>
 
                     <div class="flex flex-col md:flex-row gap-2 mt-1">
-                        <div class="w-64 flex gap-1">
+                        <div class="w-full md:w-64 flex gap-1">
                             <div
-                                class="bg-checker w-53 aspect-video flex justify-center items-center border border-base-content/20"
+                                class="bg-checker w-full md:w-53 aspect-video flex justify-center items-center border border-base-content/20"
                             >
                                 <img
                                     v-if="media"
@@ -844,7 +844,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                         <div class="grow flex flex-col gap-2">
                             <div class="flex flex-wrap w-full gap-2">
-                                <fieldset v-if="isFieldEnabled('author')" class="fieldset py-0 grow min-w-64">
+                                <fieldset v-if="isFieldEnabled('author')" class="fieldset py-0 grow w-full md:w-auto md:min-w-64">
                                     <legend class="fieldset-legend pt-0">{{ $t('article.authors') }}</legend>
                                     <Multiselect
                                         v-model="selectedAuthorsFormatted"
@@ -857,7 +857,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     >
                                     </Multiselect>
                                 </fieldset>
-                                <fieldset v-if="isFieldEnabled('category')" class="fieldset py-0 grow min-w-46">
+                                <fieldset v-if="isFieldEnabled('category')" class="fieldset py-0 grow w-full md:w-auto md:min-w-46">
                                     <legend class="fieldset-legend pt-0">{{ $t('article.category') }}</legend>
                                     <Multiselect
                                         v-model="selectedCategory"
@@ -872,7 +872,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 </fieldset>
                             </div>
 
-                            <fieldset v-if="isFieldEnabled('tags')" class="fieldset py-0">
+                            <fieldset v-if="isFieldEnabled('tags')" class="fieldset py-0 w-full md:w-auto">
                                 <legend class="fieldset-legend pt-0">{{ $t('article.tags') }}</legend>
                                 <Multiselect
                                     v-model="content.tags"

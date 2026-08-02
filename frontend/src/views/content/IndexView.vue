@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
+import { useResponsiveIndexColumns } from '@/composables/useResponsiveIndexColumns'
 import GenericIndex from '@/components/generic/GenericIndex.vue'
 
 const route = useRoute()
@@ -35,6 +36,7 @@ store.visibleRows.push(
 )
 
 store.initContent('content/entries', true)
+useResponsiveIndexColumns(store, ['id', 'created_at', 'locale_id', 'group_id'])
 
 onMounted(() => {
     store.contentSelect()

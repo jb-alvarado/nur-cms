@@ -136,7 +136,7 @@ function saveTemplate() {
 </script>
 
 <template>
-    <div class="bg-base-200 p-2 max-w-full border border-base-content/25 rounded-sm">
+    <div class="bg-base-200 p-2 border border-base-content/25 rounded-sm w-full md:w-auto">
         <div class="flex">
             <div class="grow font-bold">{{ $t('nodeTemplates.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="openCreateModal()">{{ $t('button.new') }}</button>

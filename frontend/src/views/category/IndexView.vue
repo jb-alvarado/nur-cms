@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
+import { useResponsiveIndexColumns } from '@/composables/useResponsiveIndexColumns'
 import GenericIndex from '@/components/generic/GenericIndex.vue'
 
 const { t } = useI18n()
@@ -21,6 +22,7 @@ store.visibleRows = [
 ]
 
 store.initContent('content/categories', true)
+useResponsiveIndexColumns(store, ['id', 'locale_id', 'group_id'])
 
 onMounted(() => {
     store.contentSelect()

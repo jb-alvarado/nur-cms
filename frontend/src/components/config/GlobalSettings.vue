@@ -85,7 +85,7 @@ function configUpdate() {
 </script>
 
 <template>
-    <div v-if="config" class="bg-base-200 p-2 border border-base-content/25 rounded-sm max-w-xl">
+    <div v-if="config" class="bg-base-200 p-2 border border-base-content/25 rounded-sm max-w-xl w-full">
         <div class="flex mb-4">
             <div class="grow font-bold">{{ $t('globalSettings.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="configUpdate()">{{ $t('button.save') }}</button>

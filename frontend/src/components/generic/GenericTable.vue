@@ -106,6 +106,10 @@ function shouldShowColumn(field: string) {
     if (field === 'end_time') return hasMetaValue('end_time')
     return true
 }
+
+function shouldShowLanguages() {
+    return !['author', 'comment'].includes(props.type) && store.visibleRows.some((row) => row.field === 'locale_id')
+}
 </script>
 
 <template>
@@ -140,7 +144,7 @@ function shouldShowColumn(field: string) {
                         </div>
                     </label>
                 </th>
-                <th v-if="type !== 'author' && type !== 'comment'">{{ $t('common.languages') }}</th>
+                <th v-if="shouldShowLanguages()">{{ $t('common.languages') }}</th>
                 <th class="w-10"></th>
             </tr>
         </thead>
@@ -195,9 +199,10 @@ function shouldShowColumn(field: string) {
                         {{ formatField(col, row.field) }}
                     </span>
                 </td>
-                <td v-if="col.locale_id">
+                <td v-if="shouldShowLanguages()">
                     <template
                         v-if="
+                            col.locale_id &&
                             Array.isArray(col.group_members) &&
                             col.group_members.filter((gm) => gm.id !== col.id).length > 0
                         "
