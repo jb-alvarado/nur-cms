@@ -101,6 +101,7 @@ function hasMetaValue(field: 'start_time' | 'end_time') {
 }
 
 function shouldShowColumn(field: string) {
+    if (store.responsiveHiddenFields.includes(field)) return false
     if (field === 'locale_id' || field === 'group_id') return false
     if (field === 'start_time') return hasMetaValue('start_time')
     if (field === 'end_time') return hasMetaValue('end_time')
@@ -108,7 +109,11 @@ function shouldShowColumn(field: string) {
 }
 
 function shouldShowLanguages() {
-    return !['author', 'comment'].includes(props.type) && store.visibleRows.some((row) => row.field === 'locale_id')
+    return (
+        !['author', 'comment'].includes(props.type) &&
+        !store.responsiveHiddenFields.includes('locale_id') &&
+        store.visibleRows.some((row) => row.field === 'locale_id')
+    )
 }
 </script>
 

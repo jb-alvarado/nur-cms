@@ -37,6 +37,7 @@ export const useIndex = defineStore('index', {
             { active: false, up: false, name: 'Language', field: 'locale_id' },
             { active: false, up: false, name: 'Group ID', field: 'group_id' },
         ] as TableRow[],
+        responsiveHiddenFields: [] as string[],
         suffix: 'content/entries',
         search: '',
         tableCols: [] as Content[],

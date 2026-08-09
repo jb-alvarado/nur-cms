@@ -127,7 +127,7 @@ function emitUpdate(pageVal: number) {
     </div>
     <nav class="flex join" aria-label="Pagination">
         <!-- prev -->
-        <button class="btn join-item border-base-content/20 w-10" :disabled="isFirst" @click="prev">
+        <button class="btn join-item border-base-content/20 w-9" :disabled="isFirst" @click="prev">
             <i class="bi bi-chevron-left"></i>
         </button>
 
@@ -135,19 +135,19 @@ function emitUpdate(pageVal: number) {
         <template v-for="p in pages" :key="p">
             <button
                 v-if="p !== '...'"
-                class="btn join-item border-base-content/20 w-10"
+                class="btn join-item border-base-content/20 w-9"
                 :class="{ 'btn-disabled': p === currentPage }"
                 @click="goto(Number(p))"
             >
-                {{ p }}
+                1{{ p }}
             </button>
-            <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20 w-10">
+            <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20 w-9">
                 …
             </button>
         </template>
 
         <!-- next -->
-        <button class="btn join-item border border-base-content/20 w-10" :disabled="isLast" @click="next">
+        <button class="btn join-item border border-base-content/20 w-9" :disabled="isLast" @click="next">
             <i class="bi bi-chevron-right"></i>
         </button>
         <!-- page size selector -->

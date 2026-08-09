@@ -1,9 +1,8 @@
-import { watch } from 'vue'
+import { onScopeDispose, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 
 type IndexStore = {
-    visibleRows: TableRow[]
-    contentSelect: () => Promise<void>
+    responsiveHiddenFields: string[]
 }
 
 /**
@@ -12,20 +11,16 @@ type IndexStore = {
  */
 export function useResponsiveIndexColumns(store: IndexStore, mobileHiddenFields: string[]) {
     const isMobile = useMediaQuery('(max-width: 767px)')
-    const hiddenFields = new Set(mobileHiddenFields)
-    const desktopVisibleRows = store.visibleRows.map((row) => ({ ...row }))
 
     watch(
         isMobile,
-        (mobile, previousMobile) => {
-            store.visibleRows = mobile
-                ? desktopVisibleRows.filter((row) => !hiddenFields.has(row.field))
-                : desktopVisibleRows.map((row) => ({ ...row }))
-
-            if (previousMobile !== undefined) {
-                store.contentSelect()
-            }
+        (mobile) => {
+            store.responsiveHiddenFields = mobile ? [...mobileHiddenFields] : []
         },
         { immediate: true },
     )
+
+    onScopeDispose(() => {
+        store.responsiveHiddenFields = []
+    })
 }
