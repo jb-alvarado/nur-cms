@@ -39,6 +39,16 @@ use crate::{
 type AuthRouter = Router<(PgPool, Args)>;
 type ApiRouter = Router<(PgPool, Sender<String>)>;
 
+/// Compact rejection type for the authorization middleware.
+#[derive(Clone, Copy, Debug)]
+pub struct AuthorizationError;
+
+impl From<AuthorizationError> for Response {
+    fn from(_: AuthorizationError) -> Self {
+        NurError::Unauthorized.into_response()
+    }
+}
+
 // Small helper to parse env vars with a typed default.
 fn env_parse_or<T>(key: &str, default: T) -> T
 where
@@ -111,7 +121,7 @@ pub async fn init_db() -> Result<PgPool, NurError> {
     Ok(pool)
 }
 
-pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
+pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, AuthorizationError> {
     let Some(auth) = req.headers().get("authorization") else {
         req.extensions_mut().insert(AuthUserMeta::new(-1));
         return Ok(HashSet::from([Role::Guest]));
@@ -119,12 +129,12 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
 
     let Some((scheme, token)) = auth.to_str().ok().and_then(|s| s.trim().split_once(' ')) else {
         warn!("Malformed or invalid authorization header");
-        return Err(NurError::Unauthorized.into_response());
+        return Err(AuthorizationError);
     };
 
     if !scheme.eq_ignore_ascii_case("bearer") {
         warn!(scheme = %scheme, "Unsupported authorization scheme");
-        return Err(NurError::Unauthorized.into_response());
+        return Err(AuthorizationError);
     }
 
     match decode_jwt(token).await {
@@ -136,7 +146,7 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, Response> {
         }
         Err(e) => {
             error!("JWT decode error: {e:?}");
-            Err(NurError::Unauthorized.into_response())
+            Err(AuthorizationError)
         }
     }
 }
