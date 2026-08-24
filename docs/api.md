@@ -587,6 +587,10 @@ the server-side MIME allowlist. After the last chunk, the media record is
 created synchronously. Image variants are generated in the background and
 report their status through SSE.
 
+SVG files are accepted as `image/svg+xml` and can be selected for image node
+blocks. They are kept in their original vector form; no raster dimensions or
+generated image variants are created for SVG files.
+
 ## Node templates
 
 | Method   | Path                               | Access            |

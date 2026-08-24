@@ -64,6 +64,7 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "image/jpeg",
     "image/jpg",
     "image/png",
+    "image/svg+xml",
     "image/webp",
     "text/csv",
     "text/plain",
@@ -88,6 +89,19 @@ fn validate_mime_type(filename: &str) -> Result<String, NurError> {
             "File type '{}' is not allowed.",
             mime_type
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_mime_type;
+
+    #[test]
+    fn accepts_svg_uploads() {
+        assert_eq!(
+            validate_mime_type("illustration.svg").unwrap(),
+            "image/svg+xml"
+        );
     }
 }
 

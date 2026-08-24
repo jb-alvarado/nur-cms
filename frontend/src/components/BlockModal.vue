@@ -83,5 +83,5 @@ function addMedia(m: Media) {
             <img v-if="media" :src="mediaPath(media)" :alt="media.alt ?? 'Image'" class="object-cover w-18 h-18" />
         </div>
     </GenericModal>
-    <MediaBrowser ref="mediaModal" :update="addMedia" />
+    <MediaBrowser ref="mediaModal" :update="addMedia" :media-types="['image']" />
 </template>

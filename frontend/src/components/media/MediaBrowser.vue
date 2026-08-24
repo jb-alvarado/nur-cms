@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, type PropType } from 'vue'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
 import { formatBytes, mediaPath, iconFrom } from '@/utils/helper'
@@ -12,7 +12,6 @@ const mediaModal = ref()
 const searchRef = ref()
 
 const medias = ref<Media[]>([])
-const apiURL = ref('/api/media')
 const total = ref(0)
 const limit = ref(8)
 const limits = [8, 12]
@@ -37,13 +36,23 @@ const searchVar = computed({
     },
 })
 
-defineProps({
+const props = defineProps({
     update: {
         type: Function,
         default() {
             return {}
         },
     },
+    mediaTypes: {
+        type: Array as PropType<string[]>,
+        default: () => [],
+    },
+})
+
+const mediaTypeVar = computed(() => {
+    const types = props.mediaTypes.filter(Boolean)
+
+    return types.length > 0 ? `&media_type=${encodeURIComponent(types.join(','))}` : ''
 })
 
 onMounted(() => {
@@ -69,7 +78,7 @@ function onPageChange() {
 async function selectMedia(u: string | null = null) {
     const url = u
         ? u
-        : apiURL.value + `?limit=${limit.value}${searchVar.value}${offsetVar.value}&ordering=${ordering.value}`
+        : `/api/media?limit=${limit.value}${searchVar.value}${mediaTypeVar.value}${offsetVar.value}&ordering=${ordering.value}`
 
     await authFetch<RespondObj>(url)
         .then(async (res) => {

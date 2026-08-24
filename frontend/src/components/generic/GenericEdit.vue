@@ -40,6 +40,7 @@ const editorEndRef = ref<HTMLElement | null>(null)
 const mediaTarget = ref<{ type: 'main' | 'node' | 'block'; nodeIndex?: number; blockIndex?: number }>({
     type: 'main',
 })
+const mediaTypeFilter = computed(() => (mediaTarget.value.type === 'main' ? [] : ['image']))
 const dropValueRaw = ref('')
 const dropValue = computed({
     get: () => dropValueRaw.value,
@@ -1067,7 +1068,7 @@ async function insertEntryAuthor(entry: number, author: number) {
             <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
                 <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
             </GenericModal>
-            <MediaBrowser ref="mediaModal" :update="addMedia" />
+            <MediaBrowser ref="mediaModal" :update="addMedia" :media-types="mediaTypeFilter" />
             <BlockModal
                 ref="blockModal"
                 @add-block="addDataNode"
