@@ -41,6 +41,8 @@ const mediaTarget = ref<{ type: 'main' | 'node' | 'block'; nodeIndex?: number; b
     type: 'main',
 })
 const mediaTypeFilter = computed(() => (mediaTarget.value.type === 'main' ? [] : ['image']))
+const editorNodeKeys = new WeakMap<object, number>()
+let nextEditorNodeKey = 1
 const dropValueRaw = ref('')
 const dropValue = computed({
     get: () => dropValueRaw.value,
@@ -374,19 +376,73 @@ function addBlocksNode() {
     scrollEditorToEnd()
 }
 
-function sortBlocks(index: number) {
-    const node = content.value.nodes?.[index] as { blocks: Array<ContentNodeSerializer> }
-    if (node?.blocks) {
-        const prevOrder = node.blocks.slice()
-        node.blocks.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+function requestedPosition(event: Event, fallback: number, maximum: number): number {
+    const input = event.currentTarget as HTMLInputElement
+    const value = Number.parseInt(input.value, 10)
 
-        const orderChanged = node.blocks.some((block, i) => block !== prevOrder[i])
-        if (orderChanged) {
-            node.blocks.forEach((block, index) => {
-                block.order_index = index + 1
-            })
+    if (!Number.isFinite(value)) {
+        input.value = String(fallback)
+        return fallback
+    }
+
+    const position = Math.min(Math.max(value, 1), maximum)
+    input.value = String(position)
+
+    return position
+}
+
+function editorNodeKey(node: object): number {
+    const existingKey = editorNodeKeys.get(node)
+    if (existingKey !== undefined) return existingKey
+
+    const key = nextEditorNodeKey
+    nextEditorNodeKey += 1
+    editorNodeKeys.set(node, key)
+
+    return key
+}
+
+function moveItem<T>(items: T[], fromIndex: number, toPosition: number) {
+    const toIndex = toPosition - 1
+    if (fromIndex === toIndex) return
+
+    const [item] = items.splice(fromIndex, 1)
+    if (item !== undefined) items.splice(toIndex, 0, item)
+}
+
+function normalizeNodeOrderIndexes() {
+    let orderIndex = 1
+
+    for (const node of content.value.nodes ?? []) {
+        if ('blocks' in node && Array.isArray(node.blocks)) {
+            for (const block of node.blocks) {
+                block.order_index = orderIndex
+                orderIndex += 1
+            }
+        } else {
+            const simpleNode = node as ContentNodeSerializer
+            simpleNode.order_index = orderIndex
+            orderIndex += 1
         }
     }
+}
+
+function reorderNode(index: number, event: Event) {
+    const nodes = content.value.nodes
+    if (!nodes?.length) return
+
+    const position = requestedPosition(event, index + 1, nodes.length)
+    moveItem(nodes, index, position)
+    normalizeNodeOrderIndexes()
+}
+
+function reorderBlock(nodeIndex: number, blockIndex: number, event: Event) {
+    const node = content.value.nodes?.[nodeIndex] as { blocks: Array<ContentNodeSerializer> } | undefined
+    if (!node?.blocks.length) return
+
+    const position = requestedPosition(event, blockIndex + 1, node.blocks.length)
+    moveItem(node.blocks, blockIndex, position)
+    normalizeNodeOrderIndexes()
 }
 
 function addDataNode(item: { name: null | string; media: null | Media; data: Record<string, any> }) {
@@ -423,12 +479,14 @@ function addDataNode(item: { name: null | string; media: null | Media; data: Rec
 
 function deleteNode(index: number, blockIndex: number | null = null) {
     if (content.value.nodes) {
-        if (blockIndex) {
+        if (blockIndex !== null) {
             const node = content.value.nodes[index] as { blocks: Array<ContentNodeSerializer> }
             node.blocks.splice(blockIndex, 1)
         } else {
             content.value.nodes.splice(index, 1)
         }
+
+        normalizeNodeOrderIndexes()
     }
 }
 
@@ -599,8 +657,7 @@ function addMedia(m: Media) {
         }
     } else if (mediaTarget.value.type === 'block') {
         const node = content.value.nodes?.[mediaTarget.value.nodeIndex ?? -1] as
-            | { blocks: Array<ContentNodeSerializer> }
-            | undefined
+            { blocks: Array<ContentNodeSerializer> } | undefined
         const block = node?.blocks?.[mediaTarget.value.blockIndex ?? -1]
 
         if (block) {
@@ -845,7 +902,10 @@ async function insertEntryAuthor(entry: number, author: number) {
 
                         <div class="grow flex flex-col gap-2">
                             <div class="flex flex-wrap w-full gap-2">
-                                <fieldset v-if="isFieldEnabled('author')" class="fieldset py-0 grow w-full md:w-auto md:min-w-64">
+                                <fieldset
+                                    v-if="isFieldEnabled('author')"
+                                    class="fieldset py-0 grow w-full md:w-auto md:min-w-64"
+                                >
                                     <legend class="fieldset-legend pt-0">{{ $t('article.authors') }}</legend>
                                     <Multiselect
                                         v-model="selectedAuthorsFormatted"
@@ -858,7 +918,10 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     >
                                     </Multiselect>
                                 </fieldset>
-                                <fieldset v-if="isFieldEnabled('category')" class="fieldset py-0 grow w-full md:w-auto md:min-w-46">
+                                <fieldset
+                                    v-if="isFieldEnabled('category')"
+                                    class="fieldset py-0 grow w-full md:w-auto md:min-w-46"
+                                >
                                     <legend class="fieldset-legend pt-0">{{ $t('article.category') }}</legend>
                                     <Multiselect
                                         v-model="selectedCategory"
@@ -913,12 +976,15 @@ async function insertEntryAuthor(entry: number, author: number) {
                     <!-- Nodes -->
 
                     <template v-if="content.nodes && content.nodes.length > 0">
-                        <template v-for="(node, i) in content.nodes" :key="i">
+                        <template v-for="(node, i) in content.nodes" :key="editorNodeKey(node)">
                             <TextEditor
                                 v-if="!('blocks' in node) && !('data' in node)"
                                 v-model="node.text"
                                 class="min-h-60"
                                 :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
+                                :order-position="i + 1"
+                                :order-maximum="content.nodes.length"
+                                @reorder="reorderNode(i, $event)"
                             />
                             <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
                                 <div class="w-10">
@@ -936,6 +1002,17 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     ></div>
                                 </div>
                                 <GenericBlock v-model:block="node.data" class="grow" />
+                                <input
+                                    :value="i + 1"
+                                    type="number"
+                                    min="1"
+                                    :max="content.nodes.length"
+                                    step="1"
+                                    class="input w-15"
+                                    :title="$t('table.order')"
+                                    :aria-label="$t('table.order')"
+                                    @change="reorderNode(i, $event)"
+                                />
                                 <button class="btn leading-0 w-10" @click="deleteNode(i)">
                                     <i class="bi bi-x-lg"></i>
                                 </button>
@@ -943,7 +1020,18 @@ async function insertEntryAuthor(entry: number, author: number) {
                             <div v-else-if="'blocks' in node">
                                 <div class="flex mt-4 items-center">
                                     <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
-                                    <div class="grow flex justify-end">
+                                    <div class="grow flex justify-end items-center gap-2">
+                                        <input
+                                            :value="i + 1"
+                                            type="number"
+                                            min="1"
+                                            :max="content.nodes.length"
+                                            step="1"
+                                            class="input input-sm w-15"
+                                            :title="$t('table.order')"
+                                            :aria-label="$t('table.order')"
+                                            @change="reorderNode(i, $event)"
+                                        />
                                         <div class="join">
                                             <button
                                                 class="btn btn-sm"
@@ -991,10 +1079,15 @@ async function insertEntryAuthor(entry: number, author: number) {
                                         </div>
                                         <GenericBlock v-model:block="block.data" class="grow" />
                                         <input
-                                            v-model="block.order_index"
+                                            :value="bi + 1"
                                             type="number"
+                                            min="1"
+                                            :max="node.blocks.length"
+                                            step="1"
                                             class="input w-15"
-                                            @change="sortBlocks(i)"
+                                            :title="$t('table.order')"
+                                            :aria-label="$t('table.order')"
+                                            @change="reorderBlock(i, bi, $event)"
                                         />
                                         <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
                                             <i class="bi bi-x-lg"></i>

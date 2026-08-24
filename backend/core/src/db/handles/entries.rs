@@ -502,7 +502,7 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
     )
 }
 
-fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
+fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, entry_alias: &str) {
     let mut fields = Vec::new();
     let mut null_check_fields = Vec::new();
 
@@ -631,24 +631,34 @@ fn nodes_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
         )
     };
 
-    format!(
+    qb.push(format!(
         r#"LEFT JOIN LATERAL (
             SELECT jsonb_agg(node_json ORDER BY sort_key) AS nodes
             FROM (
                 SELECT {sort} AS sort_key,
                        jsonb_build_object({fields}) AS node_json
                 {from_clause}
-                WHERE cn.entry_id = {entry}.id{null_check}
-                {limit}
-            ) AS node_data
-        ) AS nodes ON TRUE "#,
+                WHERE cn.entry_id = {entry}.id"#,
         sort = sort,
         fields = fields.join(", "),
         from_clause = from_clause,
         entry = entry_alias,
+    ));
+
+    if let Some(node_names) = &query_obj.node_name {
+        qb.push(" AND cn.name = ANY(");
+        qb.push_bind(node_names.clone());
+        qb.push("::varchar[])");
+    }
+
+    qb.push(format!(
+        r#"{null_check}
+                {limit}
+            ) AS node_data
+        ) AS nodes ON TRUE "#,
         null_check = null_check,
         limit = limit
-    )
+    ));
 }
 
 fn comment_count_join(entry_alias: &str) -> String {
@@ -1087,7 +1097,7 @@ fn build_content_entries_query(query_obj: &QueryObj<CF>) -> QueryBuilder<Postgre
     }
 
     if query_obj.fields.iter().any(|f| matches!(f, CF::Node(_))) {
-        qb.push(nodes_join(query_obj, "p"));
+        push_nodes_join(&mut qb, query_obj, "p");
     }
 
     if query_obj.fields.contains(&CF::GroupMembers) {
@@ -1510,6 +1520,48 @@ mod tests {
         assert!(sql.contains("FROM base_entries be"));
         assert!(sql.contains("ORDER BY f.search_score DESC, f.created_at DESC LIMIT 18 OFFSET 0"));
         assert!(sql.contains("LIMIT 1\n            ) AS node_data"));
+    }
+
+    #[test]
+    fn filters_returned_nodes_by_names_with_a_bound_array() {
+        let sql = sql_for(
+            "/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.text&node_name=description%2Csummary",
+        );
+
+        assert!(sql.contains("WHERE cn.entry_id = p.id AND cn.name = ANY($1::varchar[])"));
+        assert!(!sql.contains("description"));
+        assert!(!sql.contains("summary"));
+    }
+
+    #[test]
+    fn node_name_filter_combines_with_blocks_limit() {
+        let sql = sql_for(
+            "/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.text&node_name=description&blocks_limit=1",
+        );
+
+        assert!(sql.contains("WHERE cn.entry_id = p.id AND cn.name = ANY($1::varchar[])"));
+        assert!(sql.contains("LIMIT 1\n            ) AS node_data"));
+    }
+
+    #[test]
+    fn node_query_remains_unfiltered_without_node_name() {
+        let sql = sql_for("/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.text");
+
+        assert!(
+            sql.contains(
+                "WHERE cn.entry_id = p.id AND (cn.name IS NOT NULL OR cn.text IS NOT NULL)"
+            )
+        );
+        assert!(!sql.contains("AND cn.name = ANY($"));
+    }
+
+    #[test]
+    fn node_name_does_not_filter_entries_when_nodes_are_not_requested() {
+        let sql =
+            sql_for("/api/content/entries/article/example?fields=id%2Ctitle&node_name=description");
+
+        assert!(!sql.contains("FROM content_nodes cn"));
+        assert!(!sql.contains("cn.name ="));
     }
 
     #[test]

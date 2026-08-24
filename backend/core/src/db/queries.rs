@@ -59,6 +59,9 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub entry_id: Option<i32>,
 
+    #[serde(default, deserialize_with = "split_string_to_vec")]
+    pub node_name: Option<Vec<String>>,
+
     #[serde(default, deserialize_with = "bounded_character_limit")]
     pub character_limit: Option<i32>,
 
@@ -132,6 +135,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             type_id: None,
             media_type: None,
             entry_id: None,
+            node_name: None,
             character_limit: None,
             search: None,
             search_id: None,
@@ -625,6 +629,38 @@ mod tests {
         assert_eq!(query.offset, 0);
         assert_eq!(query.character_limit, Some(420));
         assert_eq!(query.blocks_limit, Some(1));
+    }
+
+    #[test]
+    fn parses_comma_separated_node_name_filter() {
+        let uri: Uri = "/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.text&node_name=description%2Csummary"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(
+            query.node_name,
+            Some(vec!["description".to_string(), "summary".to_string()])
+        );
+    }
+
+    #[test]
+    fn parses_single_node_name_filter() {
+        let uri: Uri = "/api/content/entries/article/example?node_name=description"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(query.node_name, Some(vec!["description".to_string()]));
+    }
+
+    #[test]
+    fn node_name_filter_is_optional() {
+        let query = QueryObj::<ContentEntryFields>::default();
+
+        assert!(query.node_name.is_none());
     }
 
     #[test]

@@ -252,6 +252,7 @@ In addition to pagination, `fields`, and `ordering`, the entry list supports:
 | `end_time`        | Upper time bound for content metadata                                    |
 | `output_type`     | `ast`, `html`, or `markdown`; only `admin`/`author` may override it      |
 | `character_limit` | AST text limit from `1` to `100000` characters                           |
+| `node_name`       | Comma-separated exact content-node names to return                       |
 | `blocks_limit`    | Return at most `1` to `1000` nodes per entry                             |
 | `blocks_random`   | Select nodes randomly instead of by their order                          |
 

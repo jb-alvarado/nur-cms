@@ -8,6 +8,7 @@ import MediaBrowser from '@/components/media/MediaBrowser.vue'
 
 const { t } = useI18n()
 const model: ModelRef<string | undefined> = defineModel()
+const emit = defineEmits<{ reorder: [event: Event] }>()
 const store = useIndex()
 
 const textareaRef = ref()
@@ -28,14 +29,20 @@ const headings = [
 ]
 
 const editorButtons = [
-  { id: 0, icon: 'bi-type-bold', title: t('editor.bold'), func: bold },
-  { id: 1, icon: 'bi-type-italic', title: t('editor.italic'), func: italic },
-  { id: 2, icon: 'bi-type-underline', title: t('editor.underline'), func: underline },
-  { id: 3, class: 'hidden md:block', icon: 'bi-type-strikethrough', title: t('editor.strikethrough'), func: strikethrough },
-  { id: 4, icon: 'bi-link-45deg', title: t('editor.link'), func: openLinkModal },
-  { id: 5, icon: 'bi-image', title: t('editor.image'), func: openMediaBrowser },
-  { id: 6, class: 'hidden md:block', icon: 'bi-quote', title: t('editor.quote'), func: quote },
-  { id: 7, class: 'hidden md:block', icon: 'bi-table', title: t('editor.table'), func: table },
+    { id: 0, icon: 'bi-type-bold', title: t('editor.bold'), func: bold },
+    { id: 1, icon: 'bi-type-italic', title: t('editor.italic'), func: italic },
+    { id: 2, icon: 'bi-type-underline', title: t('editor.underline'), func: underline },
+    {
+        id: 3,
+        class: 'hidden md:block',
+        icon: 'bi-type-strikethrough',
+        title: t('editor.strikethrough'),
+        func: strikethrough,
+    },
+    { id: 4, icon: 'bi-link-45deg', title: t('editor.link'), func: openLinkModal },
+    { id: 5, icon: 'bi-image', title: t('editor.image'), func: openMediaBrowser },
+    { id: 6, class: 'hidden md:block', icon: 'bi-quote', title: t('editor.quote'), func: quote },
+    { id: 7, class: 'hidden md:block', icon: 'bi-table', title: t('editor.table'), func: table },
 ]
 
 const props = defineProps({
@@ -46,6 +53,14 @@ const props = defineProps({
     removeNode: {
         type: [Function, null] as const,
         default: null,
+    },
+    orderPosition: {
+        type: Number,
+        default: null,
+    },
+    orderMaximum: {
+        type: Number,
+        default: 1,
     },
 })
 
@@ -329,6 +344,18 @@ function table() {
                     <button class="join-item btn rounded p-3 hidden 2xl:flex" @click="store.preview = !store.preview">
                         <i class="bi bi-markdown scale-130"></i>
                     </button>
+                    <input
+                        v-if="orderPosition !== null && orderMaximum > 1"
+                        :value="orderPosition"
+                        type="number"
+                        min="1"
+                        :max="orderMaximum"
+                        step="1"
+                        class="input join-item w-15"
+                        :title="$t('table.order')"
+                        :aria-label="$t('table.order')"
+                        @change="emit('reorder', $event)"
+                    />
                     <button v-if="removeNode" class="join-item btn rounded p-3" @click="removeNode()">
                         <i class="bi bi-x-lg"></i>
                     </button>

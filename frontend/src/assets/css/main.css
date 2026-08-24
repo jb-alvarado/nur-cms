@@ -31,6 +31,10 @@ body {
     min-height: 100%;
 }
 
+input[type='number'] {
+    padding-inline-end: 0.125rem;
+}
+
 .dp__input,
 .file-input,
 .input,
