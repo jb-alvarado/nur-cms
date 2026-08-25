@@ -59,7 +59,7 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub entry_id: Option<i32>,
 
-    #[serde(default, deserialize_with = "split_string_to_vec")]
+    #[serde(default, deserialize_with = "split_string_to_vec", alias = "node")]
     pub node_name: Option<Vec<String>>,
 
     #[serde(default, deserialize_with = "bounded_character_limit")]
