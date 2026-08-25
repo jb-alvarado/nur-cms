@@ -113,8 +113,12 @@ pub struct QueryObj<T> {
     )]
     pub fields: Vec<T>,
 
-    #[serde(default, deserialize_with = "bounded_blocks_limit")]
-    pub blocks_limit: Option<i32>,
+    #[serde(
+        default,
+        alias = "blocks_limit",
+        deserialize_with = "bounded_node_limit"
+    )]
+    pub node_limit: Option<i32>,
     #[serde(default)]
     pub blocks_random: bool,
 }
@@ -152,7 +156,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             created_after: None,
             created_before: None,
             fields: default_fields(),
-            blocks_limit: None,
+            node_limit: None,
             blocks_random: false,
         }
     }
@@ -233,7 +237,7 @@ where
     }
 }
 
-fn bounded_blocks_limit<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+fn bounded_node_limit<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -241,7 +245,7 @@ where
     if value.is_none_or(|limit| (1..=1_000).contains(&limit)) {
         Ok(value)
     } else {
-        Err(D::Error::custom("blocks_limit must be between 1 and 1000"))
+        Err(D::Error::custom("node_limit must be between 1 and 1000"))
     }
 }
 
@@ -628,7 +632,18 @@ mod tests {
         assert_eq!(query.limit, 18);
         assert_eq!(query.offset, 0);
         assert_eq!(query.character_limit, Some(420));
-        assert_eq!(query.blocks_limit, Some(1));
+        assert_eq!(query.node_limit, Some(1));
+    }
+
+    #[test]
+    fn parses_node_limit() {
+        let uri: Uri = "/api/content/entries?node_limit=3"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(query.node_limit, Some(3));
     }
 
     #[test]
@@ -657,6 +672,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_node_alias_with_text_selector_and_stored_name() {
+        let uri: Uri = "/api/content/entries/article/example?node=block%2C%40text"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(
+            query.node_name,
+            Some(vec!["block".to_string(), "@text".to_string()])
+        );
+    }
+
+    #[test]
     fn node_name_filter_is_optional() {
         let query = QueryObj::<ContentEntryFields>::default();
 
@@ -669,6 +698,7 @@ mod tests {
             serde_json::json!({"limit": 201}),
             serde_json::json!({"offset": 1_000_001}),
             serde_json::json!({"character_limit": -1}),
+            serde_json::json!({"node_limit": 1_001}),
             serde_json::json!({"blocks_limit": 1_001}),
         ] {
             assert!(serde_json::from_value::<QueryObj<MediaFields>>(value).is_err());
@@ -681,13 +711,13 @@ mod tests {
             "limit": 100,
             "offset": 1_000_000,
             "character_limit": 100_000,
-            "blocks_limit": 1_000
+            "node_limit": 1_000
         }))
         .expect("bounded query");
 
         assert_eq!(query.limit, 100);
         assert_eq!(query.offset, 1_000_000);
         assert_eq!(query.character_limit, Some(100_000));
-        assert_eq!(query.blocks_limit, Some(1_000));
+        assert_eq!(query.node_limit, Some(1_000));
     }
 }

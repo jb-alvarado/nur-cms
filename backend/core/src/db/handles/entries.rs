@@ -33,6 +33,7 @@ type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value
 const ENTRY_SLUG_UNIQUE_CONSTRAINT: &str = "content_entries_slug_locale_id_type_id_key";
 const SLUG_RANDOM_SUFFIX_LEN: usize = 6;
 const MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS: usize = 8;
+const TEXT_NODE_SELECTOR: &str = "@text";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ContentEntryFacetQuery {
@@ -505,6 +506,15 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
 fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, entry_alias: &str) {
     let mut fields = Vec::new();
     let mut null_check_fields = Vec::new();
+    let requested_node_names = query_obj.node_name.as_deref().unwrap_or_default();
+    let include_text_nodes = requested_node_names
+        .iter()
+        .any(|name| name == TEXT_NODE_SELECTOR);
+    let stored_node_names = requested_node_names
+        .iter()
+        .filter(|name| name.as_str() != TEXT_NODE_SELECTOR)
+        .cloned()
+        .collect::<Vec<_>>();
 
     let needs_embeds = query_obj
         .fields
@@ -573,6 +583,10 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
         }
     }
 
+    if include_text_nodes && !null_check_fields.iter().any(|field| field == "cn.text") {
+        null_check_fields.push("cn.text".to_string());
+    }
+
     let mut from_clause = "FROM content_nodes cn".to_string();
 
     if needs_embeds {
@@ -613,7 +627,7 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
         "cn.order_index"
     };
 
-    let limit = match query_obj.blocks_limit {
+    let limit = match query_obj.node_limit {
         Some(limit) => format!("LIMIT {limit}"),
         None => String::new(),
     };
@@ -645,10 +659,16 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
         entry = entry_alias,
     ));
 
-    if let Some(node_names) = &query_obj.node_name {
+    if !stored_node_names.is_empty() && include_text_nodes {
+        qb.push(" AND (cn.name = ANY(");
+        qb.push_bind(stored_node_names);
+        qb.push("::varchar[]) OR cn.text IS NOT NULL)");
+    } else if !stored_node_names.is_empty() {
         qb.push(" AND cn.name = ANY(");
-        qb.push_bind(node_names.clone());
+        qb.push_bind(stored_node_names);
         qb.push("::varchar[])");
+    } else if include_text_nodes {
+        qb.push(" AND cn.text IS NOT NULL");
     }
 
     qb.push(format!(
@@ -1484,7 +1504,9 @@ pub async fn update_entry_with_nodes(
 mod tests {
     use axum::{extract::Query, http::Uri};
 
-    use super::{SLUG_RANDOM_SUFFIX_LEN, build_content_entries_query, slug_with_suffix};
+    use super::{
+        SLUG_RANDOM_SUFFIX_LEN, TEXT_NODE_SELECTOR, build_content_entries_query, slug_with_suffix,
+    };
     use crate::db::fields::ContentEntryFields;
 
     fn query_from_uri(uri: &str) -> crate::db::queries::QueryObj<ContentEntryFields> {
@@ -1534,9 +1556,32 @@ mod tests {
     }
 
     #[test]
-    fn node_name_filter_combines_with_blocks_limit() {
+    fn text_selector_returns_nodes_with_text_without_changing_their_name() {
+        let sql =
+            sql_for("/api/content/entries/article/example?fields=id%2Cnode.name&node_name=%40text");
+
+        assert!(sql.contains("WHERE cn.entry_id = p.id AND cn.text IS NOT NULL"));
+        assert!(sql.contains("AND (cn.name IS NOT NULL OR cn.text IS NOT NULL)"));
+        assert!(!sql.contains(TEXT_NODE_SELECTOR));
+    }
+
+    #[test]
+    fn text_selector_combines_with_stored_node_names_using_or() {
         let sql = sql_for(
-            "/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.text&node_name=description&blocks_limit=1",
+            "/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.data%2Cnode.ast&node=block%2C%40text",
+        );
+
+        assert!(sql.contains(
+            "WHERE cn.entry_id = p.id AND (cn.name = ANY($1::varchar[]) OR cn.text IS NOT NULL)"
+        ));
+        assert!(!sql.contains(TEXT_NODE_SELECTOR));
+        assert!(!sql.contains("block"));
+    }
+
+    #[test]
+    fn node_name_filter_combines_with_node_limit() {
+        let sql = sql_for(
+            "/api/content/entries/article/example?fields=id%2Cnode.name%2Cnode.text&node_name=description&node_limit=1",
         );
 
         assert!(sql.contains("WHERE cn.entry_id = p.id AND cn.name = ANY($1::varchar[])"));

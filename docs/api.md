@@ -252,9 +252,14 @@ In addition to pagination, `fields`, and `ordering`, the entry list supports:
 | `end_time`        | Upper time bound for content metadata                                    |
 | `output_type`     | `ast`, `html`, or `markdown`; only `admin`/`author` may override it      |
 | `character_limit` | AST text limit from `1` to `100000` characters                           |
-| `node_name`       | Comma-separated exact content-node names to return                       |
-| `blocks_limit`    | Return at most `1` to `1000` nodes per entry                             |
+| `node`            | Exact node names or `@text`, comma-separated; `node_name` is an alias    |
+| `node_limit`      | Return at most `1` to `1000` nodes per entry; `blocks_limit` is an alias |
 | `blocks_random`   | Select nodes randomly instead of by their order                          |
+
+Within `node`, the reserved value `@text` selects every node whose stored
+`text` value is not null, regardless of its name. It can be combined with
+stored names, for example `node=block,@text`. The selector only
+affects filtering; it does not replace a null `name` in the response.
 
 Entry fields:
 
