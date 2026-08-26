@@ -986,7 +986,10 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 :order-maximum="content.nodes.length"
                                 @reorder="reorderNode(i, $event)"
                             />
-                            <div v-else-if="'data' in node" class="bg-base-200 rounded mt-2 p-2 flex gap-1">
+                            <div
+                                v-else-if="'data' in node"
+                                class="bg-base-200 rounded mt-2 ps-1 py-1 flex gap-1 border border-base-content/30"
+                            >
                                 <div class="w-10">
                                     <img
                                         v-if="node.media"
@@ -1002,46 +1005,48 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     ></div>
                                 </div>
                                 <GenericBlock v-model:block="node.data" class="grow" />
-                                <input
-                                    :value="i + 1"
-                                    type="number"
-                                    min="1"
-                                    :max="content.nodes.length"
-                                    step="1"
-                                    class="input w-15"
-                                    :title="$t('table.order')"
-                                    :aria-label="$t('table.order')"
-                                    @change="reorderNode(i, $event)"
-                                />
-                                <button class="btn leading-0 w-10" @click="deleteNode(i)">
-                                    <i class="bi bi-x-lg"></i>
-                                </button>
+                                <div class="join">
+                                    <input
+                                        :value="i + 1"
+                                        type="number"
+                                        min="1"
+                                        :max="content.nodes.length"
+                                        step="1"
+                                        class="input w-15 join-item"
+                                        :title="$t('table.order')"
+                                        :aria-label="$t('table.order')"
+                                        @change="reorderNode(i, $event)"
+                                    />
+                                    <button class="btn leading-0 w-10 join-item" @click="deleteNode(i)">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <div v-else-if="'blocks' in node">
-                                <div class="flex mt-4 items-center">
-                                    <h3 class="text-xl">{{ $t('common.blocks') }}</h3>
+                            <div v-else-if="'blocks' in node" class="mt-4 border border-base-content/30 rounded">
+                                <div class="flex items-center">
+                                    <h3 class="text-xl ps-1">{{ $t('common.blocks') }}</h3>
                                     <div class="grow flex justify-end items-center gap-2">
-                                        <input
-                                            :value="i + 1"
-                                            type="number"
-                                            min="1"
-                                            :max="content.nodes.length"
-                                            step="1"
-                                            class="input input-sm w-15"
-                                            :title="$t('table.order')"
-                                            :aria-label="$t('table.order')"
-                                            @change="reorderNode(i, $event)"
-                                        />
                                         <div class="join">
                                             <button
-                                                class="btn btn-sm"
+                                                class="btn leading-0 w-10 join-item"
                                                 :title="$t('common.newBlock')"
                                                 @click="openBlockModal(i)"
                                             >
                                                 <i class="bi bi-plus-lg scale-130"></i>
                                             </button>
+                                            <input
+                                                :value="i + 1"
+                                                type="number"
+                                                min="1"
+                                                :max="content.nodes.length"
+                                                step="1"
+                                                class="input w-15 join-item"
+                                                :title="$t('table.order')"
+                                                :aria-label="$t('table.order')"
+                                                @change="reorderNode(i, $event)"
+                                            />
                                             <button
-                                                class="btn btn-sm"
+                                                class="btn leading-0 w-10 join-item"
                                                 :title="$t('common.removeBlock')"
                                                 @click="deleteNode(i)"
                                             >
@@ -1061,7 +1066,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     <div
                                         v-for="(block, bi) in node.blocks"
                                         :key="block.id ?? bi"
-                                        class="bg-base-200 rounded p-2 flex gap-1"
+                                        class="bg-base-200 rounded ps-1 py-1 flex gap-1"
                                     >
                                         <div class="w-10">
                                             <img
@@ -1078,20 +1083,22 @@ async function insertEntryAuthor(entry: number, author: number) {
                                             ></div>
                                         </div>
                                         <GenericBlock v-model:block="block.data" class="grow" />
-                                        <input
-                                            :value="bi + 1"
-                                            type="number"
-                                            min="1"
-                                            :max="node.blocks.length"
-                                            step="1"
-                                            class="input w-15"
-                                            :title="$t('table.order')"
-                                            :aria-label="$t('table.order')"
-                                            @change="reorderBlock(i, bi, $event)"
-                                        />
-                                        <button class="btn leading-0 w-10" @click="deleteNode(i, bi)">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
+                                        <div class="join">
+                                            <input
+                                                :value="bi + 1"
+                                                type="number"
+                                                min="1"
+                                                :max="node.blocks.length"
+                                                step="1"
+                                                class="input w-15 join-item"
+                                                :title="$t('table.order')"
+                                                :aria-label="$t('table.order')"
+                                                @change="reorderBlock(i, bi, $event)"
+                                            />
+                                            <button class="btn leading-0 w-10 join-item" @click="deleteNode(i, bi)">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
