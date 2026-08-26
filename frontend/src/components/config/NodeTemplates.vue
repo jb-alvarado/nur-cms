@@ -1,10 +1,25 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
+import { cloneDeep } from 'es-toolkit/object'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
+
+type DataKind = 'string' | 'text' | 'boolean' | 'number' | 'json'
+type TemplateField = {
+    key: string
+    label?: string | null
+    kind: DataKind
+    default: any
+}
+type TemplateDraft = {
+    id: number
+    name: string
+    data: Record<string, any>
+    schema: TemplateField[]
+}
 
 const { t } = useI18n()
 const store = useIndex()
@@ -14,10 +29,11 @@ const templates = ref<NodeTemplateExt[]>([])
 const select = ref(false)
 const selectCount = computed(() => templates.value.reduce((temp, item: any) => temp + (item.check ? 1 : 0), 0))
 const ordering = ref('id')
-const template = ref<NodeTemplateExt>({
+const template = ref<TemplateDraft>({
     id: 0,
     name: '',
     data: {},
+    schema: [],
 })
 
 const deleteModal = ref()
@@ -29,70 +45,113 @@ const templateRows = computed(() => [
     { name: t('mail.name'), field: 'name' },
 ])
 
+function kindFromValue(value: unknown): DataKind {
+    if (typeof value === 'boolean') return 'boolean'
+    if (typeof value === 'number') return 'number'
+    if (value !== null && typeof value === 'object') return 'json'
+    return 'string'
+}
+
+function defaultForKind(kind: DataKind): any {
+    switch (kind) {
+        case 'boolean':
+            return false
+        case 'number':
+            return 0
+        case 'json':
+            return {}
+        default:
+            return ''
+    }
+}
+
+function templateData() {
+    return Object.fromEntries(template.value.schema.map((field) => [field.key, field.default]))
+}
+
 async function selectTemplates() {
-    await authFetch<RespondObj>(`/api/content/node/templates?ordering=${ordering.value}`)
-        .then((response: RespondObj) => {
-            if (response.results?.length > 0) {
-                templates.value = response.results.map((o: any) => ({ check: false, ...o }))
-            } else {
-                templates.value = []
-            }
-        })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
+    try {
+        const response = await authFetch<RespondObj>(`/api/content/node/templates?ordering=${ordering.value}`)
+        templates.value =
+            response.results.length > 0 ? response.results.map((item: any) => ({ check: false, ...item })) : []
+    } catch (e) {
+        store.msgAlert('error', String(e))
+    }
 }
 
 selectTemplates()
 
 function selectAll() {
-    for (const item of templates.value) {
-        item.check = select.value
+    for (const item of templates.value) item.check = select.value
+}
+
+function addField() {
+    const key = keyInput.value.trim()
+    if (!key || template.value.schema.some((field) => field.key === key)) return
+
+    template.value.schema.push({ key, kind: 'string', default: '' })
+    keyInput.value = ''
+}
+
+function removeField(index: number) {
+    template.value.schema.splice(index, 1)
+}
+
+function changeKind(field: TemplateField) {
+    field.default = defaultForKind(field.kind)
+}
+
+function updateNumberDefault(field: TemplateField, event: Event) {
+    const value = (event.currentTarget as HTMLInputElement).value
+    field.default = value === '' ? 0 : Number(value)
+}
+
+function updateJsonDefault(field: TemplateField, event: Event) {
+    const input = event.currentTarget as HTMLTextAreaElement
+    try {
+        field.default = JSON.parse(input.value)
+        input.setCustomValidity('')
+    } catch {
+        input.setCustomValidity('Invalid JSON')
+        input.reportValidity()
     }
 }
 
-const addKeyValue = () => {
-    if (keyInput.value.trim()) {
-        template.value.data[keyInput.value] = ''
-        keyInput.value = ''
-    }
+function jsonValue(value: unknown): string {
+    return JSON.stringify(value ?? null, null, 2)
 }
 
-const removeKey = (key: string) => {
-    delete template.value.data[key]
-}
+function editTemplateByIndex(index: number) {
+    const node = templates.value[index] as unknown as
+        { id: number; name: string; data?: Record<string, unknown>; schema?: TemplateField[] } | undefined
+    if (!node) return
 
-function editTemplate(node: NodeTemplateExt) {
-    // @ts-ignore
-    template.value = {
-        id: node.id,
-        name: node.name,
-        data: { ...(node.data as Record<string, any>) },
-    }
+    const schema = node.schema?.length
+        ? cloneDeep(node.schema)
+        : Object.entries(node.data ?? {}).map(([key, value]) => ({
+              key,
+              kind: kindFromValue(value),
+              default: cloneDeep(value),
+          }))
+    template.value = { id: node.id, name: node.name, data: {}, schema }
     isEditing.value = true
     templateModal.value.showModal()
 }
 
 function openCreateModal() {
-    template.value.id = 0
-    template.value.name = ''
-    template.value.data = {}
+    template.value = { id: 0, name: '', data: {}, schema: [] }
     isEditing.value = false
     templateModal.value.showModal()
 }
 
 async function deleteTemplate() {
     for (const item of templates.value) {
-        if (item.check) {
-            await authFetch(`/api/content/node/templates/${item.id}`, {
-                method: 'DELETE',
-            })
-                .then(() => {
-                    store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
-                })
-                .catch((e) => {
-                    store.msgAlert('error', e)
-                })
+        if (!item.check) continue
+        try {
+            await authFetch(`/api/content/node/templates/${item.id}`, { method: 'DELETE' })
+            store.msgAlert('success', `Deleted: ${item.name ?? item.id}`)
+        } catch (e) {
+            store.msgAlert('error', String(e))
         }
     }
 
@@ -100,38 +159,29 @@ async function deleteTemplate() {
 }
 
 function deselect() {
-    for (const temp of templates.value) {
-        temp.check = false
-    }
+    for (const temp of templates.value) temp.check = false
 }
 
-function saveTemplate() {
-    const url = isEditing.value ? `/api/content/node/templates/${template.value.id}` : `/api/content/node/templates`
+async function saveTemplate() {
+    const url = isEditing.value ? `/api/content/node/templates/${template.value.id}` : '/api/content/node/templates'
     const method = isEditing.value ? 'PUT' : 'POST'
 
-    authFetch(url, {
-        method,
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            name: template.value.name,
-            data: template.value.data,
-        }),
-    })
-        .then(async () => {
-            const action = isEditing.value ? 'Updated' : 'Created'
-            store.msgAlert('success', `${action} template: ${template.value.name}`)
-            templateModal.value.close()
-            template.value.id = 0
-            template.value.name = ''
-            template.value.data = {}
-
-            await selectTemplates()
+    try {
+        await authFetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: template.value.name,
+                data: templateData(),
+                schema: template.value.schema,
+            }),
         })
-        .catch((e) => {
-            store.msgAlert('error', e)
-        })
+        store.msgAlert('success', `${isEditing.value ? 'Updated' : 'Created'} template: ${template.value.name}`)
+        templateModal.value.close()
+        await selectTemplates()
+    } catch (e) {
+        store.msgAlert('error', String(e))
+    }
 }
 </script>
 
@@ -139,7 +189,7 @@ function saveTemplate() {
     <div class="bg-base-200 p-2 border border-base-content/25 rounded-sm w-full md:w-auto">
         <div class="flex">
             <div class="grow font-bold">{{ $t('nodeTemplates.title') }}</div>
-            <button class="btn btn-sm btn-primary text-base" @click="openCreateModal()">{{ $t('button.new') }}</button>
+            <button class="btn btn-sm btn-primary text-base" @click="openCreateModal">{{ $t('button.new') }}</button>
         </div>
 
         <div class="h-10 flex mt-2 items-center">
@@ -160,24 +210,16 @@ function saveTemplate() {
                         <th class="w-10">
                             <input v-model="select" type="checkbox" class="checkbox checkbox-sm" @change="selectAll" />
                         </th>
-                        <th v-for="row in templateRows" :key="row.field" class="min-w-16">
-                            {{ row.name }}
-                        </th>
+                        <th v-for="row in templateRows" :key="row.field" class="min-w-16">{{ row.name }}</th>
                         <th class="w-10"></th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-for="(col, i) in templates" :key="i">
-                        <th>
-                            <label>
-                                <input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" />
-                            </label>
-                        </th>
-                        <td v-for="row in templateRows" :key="row.field">
-                            {{ (col as any)[row.field] }}
-                        </td>
+                        <th><input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" /></th>
+                        <td v-for="row in templateRows" :key="row.field">{{ (col as any)[row.field] }}</td>
                         <td>
-                            <button class="btn btn-sm p-1" @click="editTemplate(col)">
+                            <button class="btn btn-sm p-1" @click="editTemplateByIndex(i)">
                                 <i class="bi bi-pencil-square text-lg"></i>
                             </button>
                         </td>
@@ -206,44 +248,72 @@ function saveTemplate() {
                 <input v-model="template.name" type="text" class="input w-full" :placeholder="$t('common.name')" />
             </fieldset>
 
-            <div>
-                <fieldset class="fieldset py-0 grow">
-                    <legend class="fieldset-legend">{{ $t('common.key') }}</legend>
-                    <div class="join">
-                        <input
-                            v-model="keyInput"
-                            type="text"
-                            class="input grow join-item"
-                            :placeholder="$t('common.key')"
-                            @keyup.enter="addKeyValue()"
-                        />
-                        <button class="btn join-item border border-base-content/20" @click="addKeyValue()">
-                            <i class="bi bi-plus-lg"></i>
-                        </button>
-                    </div>
-                </fieldset>
-            </div>
+            <fieldset class="fieldset py-0 grow">
+                <legend class="fieldset-legend">{{ $t('common.key') }}</legend>
+                <div class="join">
+                    <input
+                        v-model="keyInput"
+                        type="text"
+                        class="input grow join-item"
+                        :placeholder="$t('common.key')"
+                        @keyup.enter="addField"
+                    />
+                    <button class="btn join-item border border-base-content/20" @click="addField">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
+            </fieldset>
 
-            <div v-if="Object.keys(template.data).length > 0">
-                <h3 class="font-semibold mb-2">{{ $t('common.fields') }}:</h3>
-                <div class="flex flex-col gap-2">
-                    <fieldset v-for="key in Object.keys(template.data)" :key="key" class="flex w-full join">
-                        <input
-                            :value="key"
-                            type="text"
-                            class="input input-sm w-1/3 join-item border border-base-content/20 text-base-content"
-                            disabled
-                        />
-                        <input
-                            value="'' ''"
-                            type="text"
-                            class="input input-sm grow join-item border border-base-content/20"
-                            disabled
-                        />
-                        <button class="btn btn-sm join-item border border-base-content/20" @click="removeKey(key)">
-                            <i class="bi bi-x-lg"></i>
-                        </button>
-                    </fieldset>
+            <div v-if="template.schema.length > 0" class="flex flex-col gap-2">
+                <h3 class="font-semibold">{{ $t('common.fields') }}:</h3>
+                <div v-for="(field, index) in template.schema" :key="index" class="flex items-center gap-1">
+                    <input
+                        v-model="field.key"
+                        type="text"
+                        class="input input-sm w-1/4"
+                        :aria-label="$t('common.key')"
+                    />
+                    <select v-model="field.kind" class="select select-sm w-28" @change="changeKind(field)">
+                        <option value="string">String</option>
+                        <option value="text">Text</option>
+                        <option value="boolean">Boolean</option>
+                        <option value="number">Number</option>
+                        <option value="json">JSON</option>
+                    </select>
+                    <textarea
+                        v-if="field.kind === 'text'"
+                        v-model="field.default"
+                        rows="2"
+                        class="textarea textarea-sm grow"
+                    ></textarea>
+                    <input
+                        v-else-if="field.kind === 'boolean'"
+                        v-model="field.default"
+                        type="checkbox"
+                        class="checkbox"
+                    />
+                    <input
+                        v-else-if="field.kind === 'number'"
+                        :value="field.default"
+                        type="number"
+                        class="input input-sm grow"
+                        @input="updateNumberDefault(field, $event)"
+                    />
+                    <textarea
+                        v-else-if="field.kind === 'json'"
+                        :value="jsonValue(field.default)"
+                        rows="3"
+                        class="textarea textarea-sm grow font-mono"
+                        @change="updateJsonDefault(field, $event)"
+                    ></textarea>
+                    <input
+                        v-else
+                        v-model="field.default"
+                        type="text"
+                        class="input input-sm grow"
+                        :placeholder="$t('common.defaultValue')"
+                    />
+                    <button class="btn btn-sm" @click="removeField(index)"><i class="bi bi-x-lg"></i></button>
                 </div>
             </div>
         </div>

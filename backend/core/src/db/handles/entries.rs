@@ -17,6 +17,7 @@ use crate::db::{
         ContentNodeFields as CN, Table,
     },
     handles::core::{insert_record, update_record},
+    models::ContentNodeTemplate,
     queries::{QueryObj, RespondObj, WhereBuilder},
     serialize::{
         ContentAuthorFacet, ContentCategoryFacet, ContentEntryFacets, ContentEntrySerializer,
@@ -49,6 +50,13 @@ pub struct ContentEntryFacetQuery {
     pub author_slug: Option<String>,
     #[serde(default)]
     pub search: Option<String>,
+    #[serde(
+        default,
+        rename = "data",
+        alias = "data_filter",
+        deserialize_with = "crate::db::queries::deserialize_data_filters"
+    )]
+    pub data_filters: Vec<Value>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -97,6 +105,11 @@ fn push_facet_filters(
     if let Some(slug) = &query.type_slug {
         qb.push(" AND EXISTS (SELECT 1 FROM content_types ct_filter WHERE ct_filter.id = ce.type_id AND ct_filter.slug = ");
         qb.push_bind(slug);
+        qb.push(")");
+    }
+    for data_filter in &query.data_filters {
+        qb.push(" AND EXISTS (SELECT 1 FROM content_nodes cn_filter WHERE cn_filter.entry_id = ce.id AND cn_filter.data @> ");
+        qb.push_bind(data_filter);
         qb.push(")");
     }
     if let Some(search) = query.search.as_deref().map(str::trim) {
@@ -537,6 +550,9 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                 fields.push("'data', cn.data".to_string());
                 null_check_fields.push("cn.data".to_string());
             }
+            CF::Node(CN::TemplateID) => {
+                fields.push("'template_id', cn.template_id".to_string());
+            }
             CF::Node(CN::Embeds) => {
                 fields.push("'embeds', COALESCE(embed_data.media, '[]'::json)".to_string());
             }
@@ -874,6 +890,15 @@ fn build_content_entries_query(query_obj: &QueryObj<CF>) -> QueryBuilder<Postgre
 
     if let Some(id) = &query_obj.group_id {
         where_chain.push_and_bind(None, "ce.group_id = ", id, None);
+    }
+
+    for data_filter in &query_obj.data_filters {
+        where_chain.push_and_bind(
+            None,
+            "EXISTS (SELECT 1 FROM content_nodes cn_filter WHERE cn_filter.entry_id = ce.id AND cn_filter.data @> ",
+            data_filter,
+            Some(")"),
+        );
     }
 
     if let Some(start) = &query_obj.start_time {
@@ -1271,6 +1296,66 @@ pub async fn select_entry_text(pool: &PgPool, node_id: i64) -> Result<Option<Str
         .await
 }
 
+async fn apply_node_template(
+    pool: &PgPool,
+    node: &mut serde_json::Map<String, Value>,
+) -> Result<(), NurError> {
+    let Some(template_id) = node.get("template_id").and_then(Value::as_i64) else {
+        return Ok(());
+    };
+    let template_id = i32::try_from(template_id)
+        .map_err(|_| NurError::UnprocessableEntity("Invalid node template ID".into()))?;
+
+    let Some((data, schema)) = sqlx::query_as::<_, (Value, Value)>(
+        "SELECT data, schema FROM content_node_templates WHERE id = $1",
+    )
+    .bind(template_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Err(NurError::UnprocessableEntity(
+            "The selected node template does not exist".into(),
+        ));
+    };
+
+    let template = ContentNodeTemplate {
+        data,
+        schema: serde_json::from_value(schema)?,
+        ..Default::default()
+    };
+    let mut node_data = node.get("data").cloned().unwrap_or(Value::Null);
+    template
+        .apply_schema(&mut node_data)
+        .map_err(NurError::UnprocessableEntity)?;
+    node.insert("data".into(), node_data);
+
+    Ok(())
+}
+
+pub async fn normalize_entry_node_templates(
+    pool: &PgPool,
+    nodes: &mut [Value],
+) -> Result<(), NurError> {
+    for node in nodes {
+        let node = node
+            .as_object_mut()
+            .ok_or_else(|| NurError::UnprocessableEntity("Node is not a valid object".into()))?;
+
+        if let Some(blocks) = node.get_mut("blocks").and_then(Value::as_array_mut) {
+            for block in blocks {
+                let block = block.as_object_mut().ok_or_else(|| {
+                    NurError::UnprocessableEntity("Block is not a valid object".into())
+                })?;
+                apply_node_template(pool, block).await?;
+            }
+        } else {
+            apply_node_template(pool, node).await?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Synchronizes nodes array with the content_nodes table.
 ///
 /// This function reconciles the nodes array from the update request with the database.
@@ -1330,17 +1415,22 @@ pub async fn sync_entry_nodes(
                     .and_then(Value::as_i64)
                     .map(|v| v as i32);
                 let data = block_obj.get("data").cloned().unwrap_or(Value::Null);
+                let template_id = block_obj
+                    .get("template_id")
+                    .and_then(Value::as_i64)
+                    .map(|value| value as i32);
 
                 match node_id {
                     Some(id) => {
                         // Update existing node
                         existing_ids.push(id);
                         sqlx::query(
-                            "UPDATE content_nodes SET media_id = $1, order_index = $2, data = $3, parent_id = $4 WHERE id = $5 AND entry_id = $6"
+                            "UPDATE content_nodes SET media_id = $1, order_index = $2, data = $3, template_id = $4, parent_id = $5 WHERE id = $6 AND entry_id = $7"
                         )
                         .bind(media_id)
                         .bind(order_index)
                         .bind(&data)
+                        .bind(template_id)
                         .bind(parent_id)
                         .bind(id)
                         .bind(entry_id)
@@ -1355,13 +1445,14 @@ pub async fn sync_entry_nodes(
                     None => {
                         // Insert new node
                         let new_node_id: i64 = sqlx::query_scalar(
-                            "INSERT INTO content_nodes (entry_id, media_id, order_index, name, data, parent_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                            "INSERT INTO content_nodes (entry_id, media_id, order_index, name, data, template_id, parent_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
                         )
                         .bind(entry_id)
                         .bind(media_id)
                         .bind(order_index)
                         .bind(node_name)
                         .bind(&data)
+                        .bind(template_id)
                         .bind(parent_id)
                         .fetch_one(pool)
                         .await?;
@@ -1386,18 +1477,23 @@ pub async fn sync_entry_nodes(
             let name = node_obj.get("name").and_then(|t| t.as_str());
             let text = node_obj.get("text").and_then(|t| t.as_str());
             let data = node_obj.get("data").cloned().unwrap_or(Value::Null);
+            let template_id = node_obj
+                .get("template_id")
+                .and_then(Value::as_i64)
+                .map(|value| value as i32);
 
             match node_id {
                 Some(id) => {
                     // Update existing node
                     existing_ids.push(id);
                     sqlx::query(
-                        "UPDATE content_nodes SET media_id = $1, order_index = $2, text = $3, data = $4 WHERE id = $5 AND entry_id = $6"
+                        "UPDATE content_nodes SET media_id = $1, order_index = $2, text = $3, data = $4, template_id = $5 WHERE id = $6 AND entry_id = $7"
                     )
                     .bind(media_id)
                     .bind(order_index)
                     .bind(text)
                     .bind(&data)
+                    .bind(template_id)
                     .bind(id)
                     .bind(entry_id)
                     .execute(pool)
@@ -1416,7 +1512,7 @@ pub async fn sync_entry_nodes(
                 None => {
                     // Insert new node
                     let new_node_id: i64 = sqlx::query_scalar(
-                        "INSERT INTO content_nodes (entry_id, media_id, order_index, name, text, data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                        "INSERT INTO content_nodes (entry_id, media_id, order_index, name, text, data, template_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
                     )
                     .bind(entry_id)
                     .bind(media_id)
@@ -1424,6 +1520,7 @@ pub async fn sync_entry_nodes(
                     .bind(name)
                     .bind(text)
                     .bind(&data)
+                    .bind(template_id)
                     .fetch_one(pool)
                     .await?;
 
@@ -1465,6 +1562,15 @@ pub async fn update_entry_with_nodes(
     entry_id: i32,
     content: &Value,
 ) -> Result<(), NurError> {
+    let mut nodes = content
+        .get("nodes")
+        .cloned()
+        .and_then(|nodes| nodes.as_array().cloned());
+
+    if let Some(nodes) = &mut nodes {
+        normalize_entry_node_templates(pool, nodes).await?;
+    }
+
     if let Some(meta) = content.get("meta") {
         upsert_entry_meta(pool, entry_id, meta).await?;
     }
@@ -1493,8 +1599,8 @@ pub async fn update_entry_with_nodes(
         update_record(pool, &Table::ContentEntries, entry_id, content).await?;
     }
 
-    if let Some(nodes) = content.get("nodes").as_ref().and_then(|b| b.as_array()) {
-        sync_entry_nodes(pool, entry_id, nodes).await?;
+    if let Some(nodes) = nodes {
+        sync_entry_nodes(pool, entry_id, &nodes).await?;
     }
 
     Ok(())
@@ -1502,7 +1608,8 @@ pub async fn update_entry_with_nodes(
 
 #[cfg(test)]
 mod tests {
-    use axum::{extract::Query, http::Uri};
+    use axum::http::Uri;
+    use axum_extra::extract::Query;
 
     use super::{
         SLUG_RANDOM_SUFFIX_LEN, TEXT_NODE_SELECTOR, build_content_entries_query, slug_with_suffix,
@@ -1641,5 +1748,19 @@ mod tests {
         assert!(sql.contains("content_entry_authors cea"));
         assert!(sql.contains("NOT (ce.type_id = ANY($"));
         assert!(sql.contains("ORDER BY f.created_at DESC"));
+    }
+
+    #[test]
+    fn data_filters_use_independent_bound_jsonb_containment_queries() {
+        let sql = sql_for("/api/content/entries?data=hidden%3Atrue&data=mainpage%3Atrue");
+
+        assert!(sql.contains(
+            "EXISTS (SELECT 1 FROM content_nodes cn_filter WHERE cn_filter.entry_id = ce.id AND cn_filter.data @> $1)"
+        ));
+        assert!(sql.contains(
+            "EXISTS (SELECT 1 FROM content_nodes cn_filter WHERE cn_filter.entry_id = ce.id AND cn_filter.data @> $2)"
+        ));
+        assert!(!sql.contains("hidden"));
+        assert!(!sql.contains("mainpage"));
     }
 }

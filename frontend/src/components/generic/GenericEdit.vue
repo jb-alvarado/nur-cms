@@ -123,6 +123,11 @@ const media = ref<Media | null>(null)
 const categories = ref<Category[]>([])
 const tags = ref<Tag[]>([])
 const locales = ref<Locale[]>([])
+type NodeTemplateSchema = {
+    id: number
+    schema: Array<{ key: string; label?: string | null; kind?: 'string' | 'text' | 'boolean' | 'number' | 'json' }>
+}
+const nodeTemplates = ref<NodeTemplateSchema[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status: GenericEditStatus[] = ['draft', 'published', 'archived']
 const currentNodeIndex = ref(-1)
@@ -217,6 +222,7 @@ if (isFieldEnabled('category')) {
 if (isFieldEnabled('tags')) {
     selectTags()
 }
+selectNodeTemplates()
 
 function selectContent() {
     authFetch<RespondObj>(`/api/content/entries?type_slug=${store.routeType}&id=${contentId}&output_type=markdown`)
@@ -322,6 +328,23 @@ async function selectTags() {
         .catch((e) => {
             store.msgAlert('error', e)
         })
+}
+
+async function selectNodeTemplates() {
+    try {
+        const response = await authFetch<RespondObj>('/api/content/node/templates?ordering=id')
+        nodeTemplates.value = response.results.map((template: any) => ({
+            id: Number(template.id),
+            schema: template.schema ?? [],
+        }))
+    } catch (e) {
+        store.msgAlert('error', String(e))
+    }
+}
+
+function nodeTemplateSchema(node: ContentNodeSerializer) {
+    const templateId = node.template_id
+    return nodeTemplates.value.find((template) => template.id === templateId)?.schema ?? []
 }
 
 function updateSlug() {
@@ -445,7 +468,12 @@ function reorderBlock(nodeIndex: number, blockIndex: number, event: Event) {
     normalizeNodeOrderIndexes()
 }
 
-function addDataNode(item: { name: null | string; media: null | Media; data: Record<string, any> }) {
+function addDataNode(item: {
+    name: null | string
+    media: null | Media
+    data: Record<string, any>
+    template_id?: number
+}) {
     if (!content.value.nodes) {
         content.value.nodes = []
     }
@@ -460,6 +488,7 @@ function addDataNode(item: { name: null | string; media: null | Media; data: Rec
             media_id: item.media?.id ?? null,
             name: item.name,
             data: item.data,
+            template_id: item.template_id,
             media: item.media,
             order_index: (node.blocks?.length ?? 0) + 1,
         } as any)
@@ -468,6 +497,7 @@ function addDataNode(item: { name: null | string; media: null | Media; data: Rec
             media_id: item.media?.id ?? null,
             name: item.name,
             data: item.data,
+            template_id: item.template_id,
             media: item.media,
             order_index: (content.value.nodes?.length ?? 0) + 1,
         } as any)
@@ -988,7 +1018,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                             />
                             <div
                                 v-else-if="'data' in node"
-                                class="bg-base-200 rounded mt-2 ps-1 py-1 flex gap-1 border border-base-content/30"
+                                class="bg-base-200 rounded mt-2 ps-1 py-1 flex items-center gap-1 border border-base-content/30"
                             >
                                 <div class="w-10">
                                     <img
@@ -1004,7 +1034,11 @@ async function insertEntryAuthor(entry: number, author: number) {
                                         @click="openNodeMediaBrowser(i)"
                                     ></div>
                                 </div>
-                                <GenericBlock v-model:block="node.data" class="grow" />
+                                <GenericBlock
+                                    v-model:block="node.data"
+                                    :schema="nodeTemplateSchema(node)"
+                                    class="grow"
+                                />
                                 <div class="join">
                                     <input
                                         :value="i + 1"
@@ -1082,7 +1116,11 @@ async function insertEntryAuthor(entry: number, author: number) {
                                                 @click="openBlockMediaBrowser(i, bi)"
                                             ></div>
                                         </div>
-                                        <GenericBlock v-model:block="block.data" class="grow" />
+                                        <GenericBlock
+                                            v-model:block="block.data"
+                                            :schema="nodeTemplateSchema(block)"
+                                            class="grow"
+                                        />
                                         <div class="join">
                                             <input
                                                 :value="bi + 1"

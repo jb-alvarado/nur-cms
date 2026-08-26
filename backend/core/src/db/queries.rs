@@ -68,6 +68,14 @@ pub struct QueryObj<T> {
     #[serde(default)]
     pub search: Option<String>,
 
+    #[serde(
+        default,
+        rename = "data",
+        alias = "data_filter",
+        deserialize_with = "deserialize_data_filters"
+    )]
+    pub data_filters: Vec<serde_json::Value>,
+
     #[serde(default, rename = "id")]
     pub search_id: Option<i32>,
 
@@ -142,6 +150,7 @@ impl<T: FromStr + DefaultFieldsProvider> Default for QueryObj<T> {
             node_name: None,
             character_limit: None,
             search: None,
+            data_filters: Vec::new(),
             search_id: None,
             search_locale: None,
             search_slug: None,
@@ -247,6 +256,98 @@ where
     } else {
         Err(D::Error::custom("node_limit must be between 1 and 1000"))
     }
+}
+
+pub(crate) fn deserialize_data_filters<'de, D>(
+    deserializer: D,
+) -> Result<Vec<serde_json::Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| parse_data_filter(&value).map_err(D::Error::custom))
+        .collect()
+}
+
+pub(crate) fn parse_data_filter(value: &str) -> Result<serde_json::Value, String> {
+    let mut fields = serde_json::Map::new();
+
+    for field in split_data_filter_fields(value)? {
+        let (key, raw_value) = field
+            .split_once(':')
+            .ok_or_else(|| "data must use key:value pairs".to_string())?;
+        let key = key.trim();
+        let raw_value = raw_value.trim();
+
+        if key.is_empty()
+            || key.len() > 64
+            || !key.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+            })
+        {
+            return Err(format!("Invalid data filter key: {key}"));
+        }
+        if raw_value.is_empty() {
+            return Err(format!("Missing value for data filter key: {key}"));
+        }
+        if fields.contains_key(key) {
+            return Err(format!("Duplicate data filter key: {key}"));
+        }
+
+        let parsed_value = serde_json::from_str(raw_value)
+            .unwrap_or_else(|_| serde_json::Value::String(raw_value.to_string()));
+        fields.insert(key.to_string(), parsed_value);
+    }
+
+    if fields.is_empty() {
+        return Err("data must contain at least one key:value pair".into());
+    }
+
+    Ok(serde_json::Value::Object(fields))
+}
+
+fn split_data_filter_fields(value: &str) -> Result<Vec<&str>, String> {
+    let mut fields = Vec::new();
+    let mut start = 0;
+    let mut nesting = 0_u32;
+    let mut quoted = false;
+    let mut escaped = false;
+
+    for (index, character) in value.char_indices() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                quoted = false;
+            }
+            continue;
+        }
+
+        match character {
+            '"' => quoted = true,
+            '{' | '[' => nesting += 1,
+            '}' | ']' => {
+                nesting = nesting
+                    .checked_sub(1)
+                    .ok_or_else(|| "Invalid JSON value in data filter".to_string())?;
+            }
+            ',' if nesting == 0 => {
+                fields.push(&value[start..index]);
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+
+    if quoted || nesting != 0 {
+        return Err("Invalid JSON value in data filter".into());
+    }
+
+    fields.push(&value[start..]);
+    Ok(fields)
 }
 
 fn default_ordering() -> String {
@@ -585,7 +686,8 @@ impl WhereBuilder {
 
 #[cfg(test)]
 mod tests {
-    use axum::{extract::Query, http::Uri};
+    use axum::http::Uri;
+    use axum_extra::extract::Query;
 
     use super::{QueryObj, parse_ordering};
     use crate::db::fields::{ContentEntryFields, MediaFields};
@@ -644,6 +746,53 @@ mod tests {
             Query::try_from_uri(&uri).expect("request query");
 
         assert_eq!(query.node_limit, Some(3));
+    }
+
+    #[test]
+    fn parses_typed_node_data_filter() {
+        let uri: Uri = "/api/content/entries?data=hidden%3Atrue%2Cpriority%3A2%2Clabel%3Afeatured"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(
+            query.data_filters,
+            vec![serde_json::json!({
+                "hidden": true,
+                "priority": 2,
+                "label": "featured"
+            })]
+        );
+    }
+
+    #[test]
+    fn parses_repeated_node_data_filters() {
+        let uri: Uri = "/api/content/entries?data=hidden%3Atrue&data=mainpage%3Atrue"
+            .parse()
+            .expect("request URI");
+        let Query(query): Query<QueryObj<ContentEntryFields>> =
+            Query::try_from_uri(&uri).expect("request query");
+
+        assert_eq!(
+            query.data_filters,
+            vec![
+                serde_json::json!({ "hidden": true }),
+                serde_json::json!({ "mainpage": true }),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_node_data_filter() {
+        for uri in [
+            "/api/content/entries?data=hidden",
+            "/api/content/entries?data=hidden%3A",
+            "/api/content/entries?data=hidden%3Atrue%2Chidden%3Afalse",
+        ] {
+            let uri: Uri = uri.parse().expect("request URI");
+            assert!(Query::<QueryObj<ContentEntryFields>>::try_from_uri(&uri).is_err());
+        }
     }
 
     #[test]

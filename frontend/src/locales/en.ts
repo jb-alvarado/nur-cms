@@ -53,6 +53,7 @@ export default {
         copyStructureToClipboard: 'Copy structure to clipboard',
         name: 'Name',
         fields: 'Fields',
+        defaultValue: 'Default value',
     },
     table: {
         id: 'ID',

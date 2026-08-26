@@ -246,6 +246,7 @@ In addition to pagination, `fields`, and `ordering`, the entry list supports:
 | `group_id`        | Translation group ID                                                     |
 | `grouped`         | Return results grouped by `group_id` when `true`                         |
 | `search`          | Search titles, authors, and localized node full text                     |
+| `data`            | Node-data containment filter, e.g. `hidden:true` or `featured:true,priority:2`; repeat it for independent AND filters, such as `data=hidden:true&data=mainpage:true` |
 | `created_after`   | Inclusive lower bound for `created_at`                                   |
 | `created_before`  | Exclusive upper bound for `created_at`                                   |
 | `start_time`      | Lower time bound for content metadata                                    |
@@ -279,7 +280,7 @@ category.slug,category.status,category.media_id,category.media,
 category.group_members
 
 node.id,node.entry_id,node.order_index,node.blocks,node.name,node.text,
-node.ast,node.html,node.data,node.media_id,node.parent_id,node.media,node.embeds
+node.ast,node.html,node.data,node.template_id,node.media_id,node.parent_id,node.media,node.embeds
 ```
 
 `node.text`, `node.ast`, and `node.html` internally select the same stored
@@ -610,11 +611,24 @@ generated image variants are created for SVG files.
 {
     "name": "quote",
     "data": {
-        "author": "string",
-        "source": "string"
-    }
+        "author": "",
+        "source": ""
+    },
+    "schema": [
+        { "key": "author", "kind": "string", "default": "" },
+        { "key": "source", "kind": "string", "default": "" },
+        { "key": "featured", "kind": "boolean", "default": false }
+    ]
 }
 ```
+
+`schema` defines the fields rendered by the admin UI and validates nodes that
+reference the template through `template_id`. Supported kinds are `string`,
+`text`, `boolean`, `number`, and `json`. The backend applies missing defaults
+when a templated node is saved and rejects values with a different type for a
+defined field. Extra fields remain supported for forward compatibility and are
+rendered as inferred fields in the admin UI. Nodes without `template_id` remain
+free-form for backwards compatibility.
 
 ## Users and roles
 

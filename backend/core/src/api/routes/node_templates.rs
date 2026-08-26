@@ -62,10 +62,14 @@ pub async fn template_delete(
 pub async fn template_insert(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     details: AuthDetails<Role>,
-    Json(template): Json<ContentNodeTemplate>,
+    Json(mut template): Json<ContentNodeTemplate>,
 ) -> Result<Json<i32>, NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
-        return match handles::insert_record(&pool, &Table::ContentNodeTemplates, &template).await {
+        template
+            .synchronize_data_with_schema()
+            .map_err(NurError::UnprocessableEntity)?;
+
+        return match handles::insert_node_template(&pool, &template).await {
             Ok(id) => Ok(Json(id)),
             Err(e) => {
                 error!("{e}");
@@ -83,14 +87,14 @@ pub async fn template_update(
     State((pool, _)): State<(PgPool, Sender<String>)>,
     Path(id): Path<i32>,
     details: AuthDetails<Role>,
-    Json(template): Json<ContentNodeTemplate>,
+    Json(mut template): Json<ContentNodeTemplate>,
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
-        println!("{template:#?}");
+        template
+            .synchronize_data_with_schema()
+            .map_err(NurError::UnprocessableEntity)?;
 
-        return match handles::update_record(&pool, &Table::ContentNodeTemplates, id, &template)
-            .await
-        {
+        return match handles::update_node_template(&pool, id, &template).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!("{e}");

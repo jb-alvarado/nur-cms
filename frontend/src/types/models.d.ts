@@ -19,9 +19,13 @@ export type ContentEntry = { id?: number, group_id?: number | null, type_id?: nu
 
 export type ContentMeta = { id?: number, entry_id?: number, data?: JsonValue | null, start_time?: string | null, end_time?: string | null, };
 
+export type ContentNodeDataField = { key: string, label?: string | null, kind: ContentNodeDataKind, default: JsonValue, };
+
+export type ContentNodeDataKind = "string" | "text" | "boolean" | "number" | "json";
+
 export type ContentNodeMedia = { node_id: number, media_id: number, ast_line: number, start_offset: number | null, end_offset: number | null, };
 
-export type ContentNodeTemplate = { id: number, name: string, data: JsonValue, };
+export type ContentNodeTemplate = { id: number, name: string, data: JsonValue, schema: Array<ContentNodeDataField>, };
 
 export type ContentTag = { id?: number, name?: string, slug?: string, };
 

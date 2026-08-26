@@ -1,7 +1,8 @@
 use axum::{
     Json,
-    extract::{Extension, OriginalUri, Path, Query, State},
+    extract::{Extension, OriginalUri, Path, State},
 };
+use axum_extra::extract::Query;
 use chrono::Utc;
 use markdown::{Options, ParseOptions, to_html_with_options, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
@@ -243,7 +244,7 @@ pub async fn entry_insert(
     content["created_by"] = user.id.into();
     content["updated_by"] = user.id.into();
 
-    let nodes = content.get("nodes").cloned();
+    let mut nodes = content.get("nodes").cloned();
     let meta = content.get("meta").cloned();
 
     if let Some(obj) = content.as_object_mut() {
@@ -252,6 +253,10 @@ pub async fn entry_insert(
 
     if let Some(obj) = content.as_object_mut() {
         obj.remove("meta");
+    }
+
+    if let Some(nodes_arr) = nodes.as_mut().and_then(Value::as_array_mut) {
+        handles::normalize_entry_node_templates(&pool, nodes_arr).await?;
     }
 
     let id = handles::insert_entry(&pool, &content).await?;
@@ -264,7 +269,7 @@ pub async fn entry_insert(
 
     let mut order_index = 1;
 
-    if let Some(nodes_arr) = nodes.as_ref().and_then(|b| b.as_array()) {
+    if let Some(nodes_arr) = nodes.as_ref().and_then(Value::as_array) {
         for node in nodes_arr {
             if let Some(blocks) = node.get("blocks").and_then(|b| b.as_array()) {
                 let mut parent_id: Option<Value> = None;

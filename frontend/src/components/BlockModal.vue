@@ -33,9 +33,20 @@ onMounted(async () => {
 })
 
 const saveBlock = () => {
+    const schema = selectedTemplate.value.schema ?? []
+    const data =
+        schema.length > 0
+            ? Object.fromEntries(schema.map((field: any) => [field.key, cloneDeep(field.default)]))
+            : cloneDeep(selectedTemplate.value.data)
+
     emit(
         'add-block',
-        cloneDeep({ name: selectedTemplate.value.name, media: media.value ?? null, data: selectedTemplate.value.data }),
+        cloneDeep({
+            name: selectedTemplate.value.name,
+            template_id: selectedTemplate.value.id,
+            media: media.value ?? null,
+            data,
+        }),
     )
     resetModal()
     modal.value?.close?.()

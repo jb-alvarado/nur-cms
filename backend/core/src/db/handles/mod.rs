@@ -6,6 +6,7 @@ pub mod configuration;
 pub mod core;
 pub mod entries;
 pub mod media;
+pub mod node_templates;
 pub mod refresh_tokens;
 
 pub use auth_users::*;
@@ -16,4 +17,5 @@ pub use configuration::*;
 pub use core::*;
 pub use entries::*;
 pub use media::*;
+pub use node_templates::*;
 pub use refresh_tokens::*;

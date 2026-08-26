@@ -54,6 +54,7 @@ export default {
         copyStructureToClipboard: 'Struktur in die Zwischenablage kopieren',
         name: 'Name',
         fields: 'Felder',
+        defaultValue: 'Standardwert',
     },
     table: {
         id: 'ID',

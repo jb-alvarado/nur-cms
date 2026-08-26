@@ -44,7 +44,10 @@ use crate::{
     db::{
         fields::{AuthUserFields, ContentTypeFields, LocaleFields, Table},
         handles,
-        models::{ContentEntry, ContentMeta, ContentType, Locale},
+        models::{
+            ContentEntry, ContentMeta, ContentNodeDataField, ContentNodeDataKind, ContentType,
+            Locale,
+        },
         queries::QueryObj,
     },
     file::processing::save_image,
@@ -322,6 +325,28 @@ fn template_schema(value: &Value) -> Value {
     }
 }
 
+fn template_fields(value: &Value) -> Vec<ContentNodeDataField> {
+    value
+        .as_object()
+        .map(|values| {
+            values
+                .iter()
+                .map(|(key, value)| ContentNodeDataField {
+                    key: key.clone(),
+                    kind: match value {
+                        Value::Bool(_) => ContentNodeDataKind::Boolean,
+                        Value::Number(_) => ContentNodeDataKind::Number,
+                        Value::String(_) => ContentNodeDataKind::String,
+                        _ => ContentNodeDataKind::Json,
+                    },
+                    default: template_schema(value),
+                    ..Default::default()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 async fn insert_meta_nodes(
     pool: &PgPool,
     entry_id: i32,
@@ -340,33 +365,40 @@ async fn insert_meta_nodes(
             )));
         }
 
-        let template: Option<Value> = sqlx::query_scalar(
-            "SELECT data FROM content_node_templates WHERE name = $1 ORDER BY id LIMIT 1",
+        let template: Option<(i32, Value)> = sqlx::query_as(
+            "SELECT id, data FROM content_node_templates WHERE name = $1 ORDER BY id LIMIT 1",
         )
         .bind(name)
         .fetch_optional(pool)
         .await?;
 
-        let data = match template {
-            Some(template) => apply_template_defaults(&template, values),
+        let (template_id, data) = match template {
+            Some((template_id, template)) => {
+                (template_id, apply_template_defaults(&template, values))
+            }
             None => {
-                let schema = template_schema(values);
-                sqlx::query("INSERT INTO content_node_templates (name, data) VALUES ($1, $2)")
+                let defaults = template_schema(values);
+                let schema = serde_json::to_value(template_fields(values))?;
+                let template_id: i32 = sqlx::query_scalar(
+                    "INSERT INTO content_node_templates (name, data, schema) VALUES ($1, $2, $3) RETURNING id",
+                )
                     .bind(name)
+                    .bind(defaults)
                     .bind(schema)
-                    .execute(pool)
+                    .fetch_one(pool)
                     .await?;
-                values.clone()
+                (template_id, values.clone())
             }
         };
 
         sqlx::query(
-            "INSERT INTO content_nodes (entry_id, order_index, name, data) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO content_nodes (entry_id, order_index, name, data, template_id) VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(entry_id)
         .bind((index + 1) as i32)
         .bind(name)
         .bind(data)
+        .bind(template_id)
         .execute(pool)
         .await?;
     }
@@ -1057,5 +1089,11 @@ mod tests {
             ),
             json!({ "name": "Test book", "isbn": "" })
         );
+
+        let fields = template_fields(&json!({ "mainpage": true, "priority": 3 }));
+        assert_eq!(fields[0].key, "mainpage");
+        assert_eq!(fields[0].kind, ContentNodeDataKind::Boolean);
+        assert_eq!(fields[1].key, "priority");
+        assert_eq!(fields[1].kind, ContentNodeDataKind::Number);
     }
 }

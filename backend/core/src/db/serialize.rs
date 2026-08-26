@@ -155,6 +155,8 @@ pub struct ContentNodeSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_id: Option<i32>,
     #[serde(default, skip_serializing)]
     pub parent_id: Option<i32>,

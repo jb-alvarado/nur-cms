@@ -46,7 +46,14 @@ fn table_field_allowed(table: &Table, field: &str) -> bool {
         }
         Table::ContentNodes => matches!(
             field,
-            "entry_id" | "order_index" | "name" | "text" | "data" | "media_id" | "parent_id"
+            "entry_id"
+                | "order_index"
+                | "name"
+                | "text"
+                | "data"
+                | "template_id"
+                | "media_id"
+                | "parent_id"
         ),
         Table::ContentMeta => matches!(field, "entry_id" | "start_time" | "end_time"),
         Table::ContentEntryTags => matches!(field, "entry_id" | "tag_id"),

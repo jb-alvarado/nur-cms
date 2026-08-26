@@ -613,10 +613,119 @@ pub struct ContentNodeTemplate {
     #[serde(default)]
     pub id: i32,
     pub name: String,
+    #[serde(default)]
     pub data: Value,
+    #[serde(default)]
+    #[sqlx(json)]
+    pub schema: Vec<ContentNodeDataField>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "models.d.ts")]
+#[serde(rename_all = "snake_case")]
+pub enum ContentNodeDataKind {
+    #[default]
+    String,
+    Text,
+    Boolean,
+    Number,
+    Json,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+#[serde(rename_all = "snake_case")]
+pub struct ContentNodeDataField {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub kind: ContentNodeDataKind,
+    #[serde(default)]
+    pub default: Value,
+}
+
+impl ContentNodeDataKind {
+    fn matches_value(&self, value: &Value) -> bool {
+        match self {
+            Self::String | Self::Text => value.is_string(),
+            Self::Boolean => value.is_boolean(),
+            Self::Number => value.is_number(),
+            Self::Json => true,
+        }
+    }
+}
+
+impl ContentNodeTemplate {
+    pub fn validate_schema(&self) -> Result<(), String> {
+        let mut keys = std::collections::HashSet::new();
+
+        for field in &self.schema {
+            let mut chars = field.key.chars();
+            let valid_start = chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+            let valid_rest = chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+
+            if field.key.len() > 64 || !valid_start || !valid_rest {
+                return Err(format!("Invalid node template field key: {}", field.key));
+            }
+            if !keys.insert(&field.key) {
+                return Err(format!("Duplicate node template field key: {}", field.key));
+            }
+            if !field.kind.matches_value(&field.default) {
+                return Err(format!(
+                    "Invalid default value for node template field: {}",
+                    field.key
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn apply_schema(&self, data: &mut Value) -> Result<(), String> {
+        if self.schema.is_empty() {
+            return Ok(());
+        }
+
+        let object = match data {
+            Value::Null => {
+                *data = Value::Object(serde_json::Map::new());
+                data.as_object_mut().expect("new JSON object")
+            }
+            Value::Object(object) => object,
+            _ => return Err("Node data must be a JSON object when a template is used".into()),
+        };
+
+        for field in &self.schema {
+            let value = object
+                .entry(field.key.clone())
+                .or_insert_with(|| field.default.clone());
+
+            if !field.kind.matches_value(value) {
+                return Err(format!(
+                    "Invalid value for node template field: {}",
+                    field.key
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn synchronize_data_with_schema(&mut self) -> Result<(), String> {
+        self.validate_schema()?;
+        let schema = self.schema.clone();
+        Self {
+            schema,
+            ..Default::default()
+        }
+        .apply_schema(&mut self.data)
+    }
 }
 
 impl ColumnCounter for ContentNodeTemplate {
@@ -747,5 +856,53 @@ impl FromRow<'_, PgRow> for MailTarget {
 impl ColumnCounter for MailTarget {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{ContentNodeDataField, ContentNodeDataKind, ContentNodeTemplate};
+
+    fn template() -> ContentNodeTemplate {
+        ContentNodeTemplate {
+            schema: vec![
+                ContentNodeDataField {
+                    key: "mainpage".into(),
+                    kind: ContentNodeDataKind::Boolean,
+                    default: json!(false),
+                    ..Default::default()
+                },
+                ContentNodeDataField {
+                    key: "priority".into(),
+                    kind: ContentNodeDataKind::Number,
+                    default: json!(0),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn template_schema_applies_typed_defaults() {
+        let mut data = json!({ "mainpage": true });
+
+        template().apply_schema(&mut data).expect("valid data");
+
+        assert_eq!(data, json!({ "mainpage": true, "priority": 0 }));
+    }
+
+    #[test]
+    fn template_schema_rejects_invalid_types_and_preserves_extension_fields() {
+        let mut invalid_type = json!({ "mainpage": "true", "priority": 0 });
+        assert!(template().apply_schema(&mut invalid_type).is_err());
+
+        let mut unknown_field = json!({ "mainpage": true, "priority": 0, "extra": true });
+        template()
+            .apply_schema(&mut unknown_field)
+            .expect("extension fields remain supported");
+        assert_eq!(unknown_field["extra"], true);
     }
 }

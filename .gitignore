@@ -2,7 +2,7 @@
 /target
 .env
 *.sql
-!backend/*/migrations/*.sql
+!migrations/*.sql
 !migrations_dev/*.sql
 
 uploads/

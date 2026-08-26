@@ -13,6 +13,7 @@ pub enum ContentNodeTemplateFields {
     #[default]
     Name,
     Data,
+    Schema,
 }
 
 impl StrCompare for ContentNodeTemplateFields {
@@ -21,6 +22,7 @@ impl StrCompare for ContentNodeTemplateFields {
             Self::ID => other == "id",
             Self::Name => other == "name",
             Self::Data => other == "data",
+            Self::Schema => other == "schema",
         }
     }
 }
@@ -33,6 +35,7 @@ impl FromStr for ContentNodeTemplateFields {
             "id" => Ok(Self::ID),
             "name" => Ok(Self::Name),
             "data" => Ok(Self::Data),
+            "schema" => Ok(Self::Schema),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -44,6 +47,7 @@ impl fmt::Display for ContentNodeTemplateFields {
             Self::ID => write!(f, "id"),
             Self::Name => write!(f, "name"),
             Self::Data => write!(f, "data"),
+            Self::Schema => write!(f, "schema"),
         }
     }
 }
