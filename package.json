@@ -12,8 +12,8 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
-    "lint": "eslint . --fix",
-    "format": "prettier --write src/",
+    "lint": "cd frontend && eslint src --fix",
+    "format": "prettier --write frontend/src/",
     "dev:example": "vite --config vite.example.config.ts",
     "build:example": "vite build --config vite.example.config.ts"
   },

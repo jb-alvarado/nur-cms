@@ -7,7 +7,6 @@ const route = useRoute()
 const store = useIndex()
 
 store.routeType = (Array.isArray(route.params.type) ? route.params.type[0] : route.params.type) ?? ''
-
 </script>
 <template>
     <GenericEdit v-if="store.loaded" />

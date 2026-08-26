@@ -11,7 +11,6 @@ import { normalizeCode } from '@/utils/helper'
 import AlertMsg from '@/components/AlertMsg.vue'
 import MenuSide from '@/components/MenuSide.vue'
 
-
 const route = useRoute()
 const { t } = useI18n()
 const auth = useAuth()
@@ -56,7 +55,9 @@ useHead({
             <input id="main-navigation" v-model="mobileMenuOpen" type="checkbox" class="drawer-toggle" />
 
             <div class="drawer-content flex min-w-0 flex-col">
-                <header class="navbar sticky top-0 z-30 min-h-14 shrink-0 border-b border-base-300 bg-base-100 px-3 md:hidden">
+                <header
+                    class="navbar sticky top-0 z-30 min-h-14 shrink-0 border-b border-base-300 bg-base-100 px-3 md:hidden"
+                >
                     <label
                         for="main-navigation"
                         class="btn btn-square btn-ghost drawer-button"

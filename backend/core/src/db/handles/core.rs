@@ -11,7 +11,7 @@ use argon2::{
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
+use sqlx::{Executor, Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 use tracing::{debug, warn};
 
@@ -153,8 +153,9 @@ where
     Ok(RespondObj::new(&query_obj, data))
 }
 
-pub async fn insert_record<T, R>(pool: &PgPool, table: &Table, data: &T) -> Result<R, NurError>
+pub async fn insert_record<'e, E, T, R>(executor: E, table: &Table, data: &T) -> Result<R, NurError>
 where
+    E: Executor<'e, Database = Postgres>,
     T: Serialize,
     R: sqlx::Type<Postgres> + Send + Unpin + for<'r> sqlx::Decode<'r, Postgres>,
 {
@@ -284,18 +285,19 @@ where
 
     let query = qb.build_query_scalar();
 
-    let id = query.fetch_one(pool).await?;
+    let id = query.fetch_one(executor).await?;
 
     Ok(id)
 }
 
-pub async fn update_record<T, I>(
-    pool: &PgPool,
+pub async fn update_record<'e, E, T, I>(
+    executor: E,
     table: &Table,
     id: I,
     data: &T,
 ) -> Result<(), NurError>
 where
+    E: Executor<'e, Database = Postgres>,
     T: Serialize,
     I: for<'q> sqlx::Encode<'q, Postgres> + sqlx::Type<Postgres> + Send,
 {
@@ -399,7 +401,7 @@ where
 
     let query = qb.build();
 
-    query.execute(pool).await?;
+    query.execute(executor).await?;
 
     Ok(())
 }

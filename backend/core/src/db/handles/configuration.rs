@@ -62,7 +62,8 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
             1,
         );
 
-        insert_record::<AuthUser, i32>(pool, &crate::db::fields::Table::AuthUsers, &user).await?;
+        insert_record::<_, AuthUser, i32>(pool, &crate::db::fields::Table::AuthUsers, &user)
+            .await?;
     }
 
     if dev_seed_database && media_resp.results.is_empty() {

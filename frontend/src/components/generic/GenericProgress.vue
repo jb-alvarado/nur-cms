@@ -12,10 +12,7 @@ function close() {
         v-if="store.progressShow"
         class="absolute left-0 bottom-6 z-20 w-full flex justify-center px-8 pointer-events-none"
     >
-        <div
-            role="alert"
-            class="alert md:min-w-100 alert-vertical sm:alert-horizontal shadow/30 pointer-events-auto"
-        >
+        <div role="alert" class="alert md:min-w-100 alert-vertical sm:alert-horizontal shadow/30 pointer-events-auto">
             <i class="bi bi-info-circle text-info text-xl leading-0"></i>
             <div class="w-full">
                 <progress class="progress progress-info w-full" :value="store.progress" max="100"></progress>

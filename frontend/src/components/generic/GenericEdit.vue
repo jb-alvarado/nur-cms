@@ -13,6 +13,9 @@ import { authFetch } from '@/composables/authFetch'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 import { genericEditConfigKey, type GenericEditField, type GenericEditStatus } from '@/types/generic-edit'
+import type { ContentNodeDataField, ContentNodeTemplate } from '@/types/models.d'
+import type { RespondObj as TypedRespondObj } from '@/types/query.d'
+import type { JsonValue } from '@/types/serde_json/JsonValue'
 
 import GenericBlock from './GenericBlock.vue'
 import GenericModal from './GenericModal.vue'
@@ -125,8 +128,9 @@ const tags = ref<Tag[]>([])
 const locales = ref<Locale[]>([])
 type NodeTemplateSchema = {
     id: number
-    schema: Array<{ key: string; label?: string | null; kind?: 'string' | 'text' | 'boolean' | 'number' | 'json' }>
+    schema: Array<Pick<ContentNodeDataField, 'key' | 'label' | 'kind'>>
 }
+type NodeTemplateResponse = TypedRespondObj<Pick<ContentNodeTemplate, 'id'> & { schema: NodeTemplateSchema['schema'] }>
 const nodeTemplates = ref<NodeTemplateSchema[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status: GenericEditStatus[] = ['draft', 'published', 'archived']
@@ -332,8 +336,8 @@ async function selectTags() {
 
 async function selectNodeTemplates() {
     try {
-        const response = await authFetch<RespondObj>('/api/content/node/templates?ordering=id')
-        nodeTemplates.value = response.results.map((template: any) => ({
+        const response = await authFetch<NodeTemplateResponse>('/api/content/node/templates?ordering=id')
+        nodeTemplates.value = response.results.map((template) => ({
             id: Number(template.id),
             schema: template.schema ?? [],
         }))
@@ -471,7 +475,7 @@ function reorderBlock(nodeIndex: number, blockIndex: number, event: Event) {
 function addDataNode(item: {
     name: null | string
     media: null | Media
-    data: Record<string, any>
+    data: Record<string, JsonValue>
     template_id?: number
 }) {
     if (!content.value.nodes) {
@@ -491,16 +495,17 @@ function addDataNode(item: {
             template_id: item.template_id,
             media: item.media,
             order_index: (node.blocks?.length ?? 0) + 1,
-        } as any)
+        } as ContentNodeSerializer)
     } else {
-        content.value.nodes.push({
+        const nodes = content.value.nodes as unknown[]
+        nodes.push({
             media_id: item.media?.id ?? null,
             name: item.name,
             data: item.data,
             template_id: item.template_id,
             media: item.media,
             order_index: (content.value.nodes?.length ?? 0) + 1,
-        } as any)
+        } satisfies ContentNodeSerializer)
     }
 
     currentNodeIndex.value = -1

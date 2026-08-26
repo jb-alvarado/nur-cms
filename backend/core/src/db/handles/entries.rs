@@ -1,9 +1,13 @@
+use std::collections::{HashMap, HashSet};
+
 use markdown::{ParseOptions, to_mdast};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
+use sqlx::{
+    Postgres, QueryBuilder,
+    postgres::{PgConnection, PgPool},
+};
 use strum::IntoEnumIterator;
-use tracing::error;
 use uuid::Uuid;
 
 #[cfg(debug_assertions)]
@@ -24,16 +28,15 @@ use crate::db::{
         ContentTagFacet, LocaleFacet,
     },
 };
-use crate::utils::{ast_serialize::persist_content_media, errors::NurError};
+use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 
-type ContentNodeRecord = (i64, i32, Option<String>, Option<String>, Option<Value>);
-
 const ENTRY_SLUG_UNIQUE_CONSTRAINT: &str = "content_entries_slug_locale_id_type_id_key";
 const SLUG_RANDOM_SUFFIX_LEN: usize = 6;
 const MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS: usize = 8;
+const MAX_ENTRY_NODES: usize = 1_000;
 const TEXT_NODE_SELECTOR: &str = "@text";
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -53,7 +56,6 @@ pub struct ContentEntryFacetQuery {
     #[serde(
         default,
         rename = "data",
-        alias = "data_filter",
         deserialize_with = "crate::db::queries::deserialize_data_filters"
     )]
     pub data_filters: Vec<Value>,
@@ -204,7 +206,7 @@ fn is_entry_slug_conflict(error: &NurError) -> bool {
 }
 
 async fn entry_slug_exists(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     slug: &str,
     locale_id: i32,
     type_id: i32,
@@ -215,13 +217,21 @@ async fn entry_slug_exists(
     .bind(slug)
     .bind(locale_id)
     .bind(type_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *connection)
     .await?)
 }
 
 pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurError> {
+    let mut connection = pool.acquire().await?;
+    insert_entry_on(&mut connection, content).await
+}
+
+pub async fn insert_entry_on(
+    connection: &mut PgConnection,
+    content: &Value,
+) -> Result<i32, NurError> {
     let Some(slug) = content.get("slug").and_then(Value::as_str) else {
-        return insert_record(pool, &Table::ContentEntries, content).await;
+        return insert_record(&mut *connection, &Table::ContentEntries, content).await;
     };
     let (Some(locale_id), Some(type_id)) = (
         content
@@ -233,7 +243,7 @@ pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurErro
             .and_then(Value::as_i64)
             .and_then(|id| i32::try_from(id).ok()),
     ) else {
-        return insert_record(pool, &Table::ContentEntries, content).await;
+        return insert_record(&mut *connection, &Table::ContentEntries, content).await;
     };
 
     let base_slug = slug.to_string();
@@ -245,7 +255,7 @@ pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurErro
             .get("slug")
             .and_then(Value::as_str)
             .ok_or(NurError::InvalidInput)?;
-        if entry_slug_exists(pool, candidate_slug, locale_id, type_id).await? {
+        if entry_slug_exists(&mut *connection, candidate_slug, locale_id, type_id).await? {
             if attempts >= MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS {
                 return Err(NurError::Conflict(
                     "Could not generate a unique article slug.".into(),
@@ -257,7 +267,7 @@ pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurErro
             continue;
         }
 
-        match insert_record(pool, &Table::ContentEntries, &candidate).await {
+        match insert_record(&mut *connection, &Table::ContentEntries, &candidate).await {
             Ok(id) => return Ok(id),
             Err(error) if is_entry_slug_conflict(&error) => {
                 if attempts >= MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS {
@@ -1233,7 +1243,7 @@ pub async fn delete_tag_from_entry(
 }
 
 pub async fn upsert_entry_meta(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     entry_id: i32,
     data: &Value,
 ) -> Result<(), sqlx::Error> {
@@ -1259,7 +1269,7 @@ pub async fn upsert_entry_meta(
         .bind(entry_id)
         .bind(start_time)
         .bind(end_time)
-        .execute(pool)
+        .execute(&mut *connection)
         .await?;
     }
 
@@ -1278,13 +1288,13 @@ pub async fn select_media_id_by_path(
         .await
 }
 
-pub async fn delete_content_media_for_entry(
-    pool: &PgPool,
-    node_id: i32,
+pub async fn delete_content_media_for_node(
+    connection: &mut PgConnection,
+    node_id: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM content_node_media WHERE node_id = $1")
         .bind(node_id)
-        .execute(pool)
+        .execute(&mut *connection)
         .await
         .map(|_| ())
 }
@@ -1296,33 +1306,60 @@ pub async fn select_entry_text(pool: &PgPool, node_id: i64) -> Result<Option<Str
         .await
 }
 
-async fn apply_node_template(
-    pool: &PgPool,
+fn node_template_id(node: &serde_json::Map<String, Value>) -> Result<Option<i32>, NurError> {
+    optional_positive_i32(node, "template_id", "node template")
+}
+
+fn optional_positive_i32(
+    node: &serde_json::Map<String, Value>,
+    key: &str,
+    label: &str,
+) -> Result<Option<i32>, NurError> {
+    let Some(value) = node.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    let id = value
+        .as_i64()
+        .and_then(|id| i32::try_from(id).ok())
+        .filter(|id| *id > 0)
+        .ok_or_else(|| NurError::UnprocessableEntity(format!("Invalid {label} ID")))?;
+
+    Ok(Some(id))
+}
+
+fn optional_positive_i64(
+    node: &serde_json::Map<String, Value>,
+    key: &str,
+    label: &str,
+) -> Result<Option<i64>, NurError> {
+    let Some(value) = node.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+
+    value
+        .as_i64()
+        .filter(|id| *id > 0)
+        .map(Some)
+        .ok_or_else(|| NurError::UnprocessableEntity(format!("Invalid {label} ID")))
+}
+
+fn apply_node_template(
+    templates: &HashMap<i32, ContentNodeTemplate>,
     node: &mut serde_json::Map<String, Value>,
 ) -> Result<(), NurError> {
-    let Some(template_id) = node.get("template_id").and_then(Value::as_i64) else {
+    let Some(template_id) = node_template_id(node)? else {
         return Ok(());
     };
-    let template_id = i32::try_from(template_id)
-        .map_err(|_| NurError::UnprocessableEntity("Invalid node template ID".into()))?;
-
-    let Some((data, schema)) = sqlx::query_as::<_, (Value, Value)>(
-        "SELECT data, schema FROM content_node_templates WHERE id = $1",
-    )
-    .bind(template_id)
-    .fetch_optional(pool)
-    .await?
-    else {
-        return Err(NurError::UnprocessableEntity(
-            "The selected node template does not exist".into(),
-        ));
-    };
-
-    let template = ContentNodeTemplate {
-        data,
-        schema: serde_json::from_value(schema)?,
-        ..Default::default()
-    };
+    let template = templates.get(&template_id).ok_or_else(|| {
+        NurError::UnprocessableEntity("The selected node template does not exist".into())
+    })?;
     let mut node_data = node.get("data").cloned().unwrap_or(Value::Null);
     template
         .apply_schema(&mut node_data)
@@ -1333,9 +1370,82 @@ async fn apply_node_template(
 }
 
 pub async fn normalize_entry_node_templates(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     nodes: &mut [Value],
 ) -> Result<(), NurError> {
+    let mut template_ids = HashSet::new();
+    let mut node_count = 0;
+
+    for node in nodes.iter() {
+        let node = node
+            .as_object()
+            .ok_or_else(|| NurError::UnprocessableEntity("Node is not a valid object".into()))?;
+
+        match node.get("blocks") {
+            Some(Value::Array(blocks)) => {
+                node_count += blocks.len();
+                for block in blocks {
+                    let block = block.as_object().ok_or_else(|| {
+                        NurError::UnprocessableEntity("Block is not a valid object".into())
+                    })?;
+                    if let Some(template_id) = node_template_id(block)? {
+                        template_ids.insert(template_id);
+                    }
+                }
+            }
+            Some(Value::Null) | None => {
+                node_count += 1;
+                if let Some(template_id) = node_template_id(node)? {
+                    template_ids.insert(template_id);
+                }
+            }
+            Some(_) => {
+                return Err(NurError::UnprocessableEntity(
+                    "Node blocks must be an array".into(),
+                ));
+            }
+        }
+    }
+
+    if node_count > MAX_ENTRY_NODES {
+        return Err(NurError::UnprocessableEntity(format!(
+            "An entry may contain at most {MAX_ENTRY_NODES} nodes"
+        )));
+    }
+
+    let template_ids = template_ids.into_iter().collect::<Vec<_>>();
+    let rows = if template_ids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as::<_, (i32, String, Value, Value)>(
+            "SELECT id, name, data, schema FROM content_node_templates WHERE id = ANY($1)",
+        )
+        .bind(&template_ids)
+        .fetch_all(&mut *connection)
+        .await?
+    };
+
+    let mut templates = HashMap::with_capacity(rows.len());
+    for (id, name, data, schema) in rows {
+        let template = ContentNodeTemplate {
+            id,
+            name,
+            data,
+            schema: serde_json::from_value(schema)?,
+            ..Default::default()
+        };
+        template
+            .validate_schema()
+            .map_err(NurError::UnprocessableEntity)?;
+        templates.insert(id, template);
+    }
+
+    if templates.len() != template_ids.len() {
+        return Err(NurError::UnprocessableEntity(
+            "The selected node template does not exist".into(),
+        ));
+    }
+
     for node in nodes {
         let node = node
             .as_object_mut()
@@ -1346,10 +1456,10 @@ pub async fn normalize_entry_node_templates(
                 let block = block.as_object_mut().ok_or_else(|| {
                     NurError::UnprocessableEntity("Block is not a valid object".into())
                 })?;
-                apply_node_template(pool, block).await?;
+                apply_node_template(&templates, block)?;
             }
         } else {
-            apply_node_template(pool, node).await?;
+            apply_node_template(&templates, node)?;
         }
     }
 
@@ -1366,33 +1476,24 @@ pub async fn normalize_entry_node_templates(
 /// - Updating existing nodes
 /// - Deleting nodes that are no longer in the array
 pub async fn sync_entry_nodes(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     entry_id: i32,
     nodes: &[Value],
 ) -> Result<(), NurError> {
-    // Get existing nodes from database
-    // TODO: i32, Option<String>, Option<Value> are not needed
-    let existing_nodes: Vec<ContentNodeRecord> = sqlx::query_as(
-        "SELECT id, order_index, name, text, data FROM content_nodes WHERE entry_id = $1 ORDER BY order_index",
-    )
-    .bind(entry_id)
-    .fetch_all(pool)
-    .await?;
+    let existing_nodes: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM content_nodes WHERE entry_id = $1")
+            .bind(entry_id)
+            .fetch_all(&mut *connection)
+            .await?;
 
-    let mut existing_ids = Vec::new();
+    let mut retained_ids = HashSet::new();
     let mut order_index = 1;
-
-    // TODO: work with transactions: let mut tx = pool.begin().await?;
 
     // Process each node in the incoming array
     for node in nodes {
-        let node_obj = match node.as_object() {
-            Some(obj) => obj,
-            None => {
-                error!("Node is not a valid object");
-                continue;
-            }
-        };
+        let node_obj = node
+            .as_object()
+            .ok_or_else(|| NurError::UnprocessableEntity("Node is not a valid object".into()))?;
 
         // Check if this node has blocks (nested structure)
         if let Some(blocks_arr) = node_obj.get("blocks").and_then(|b| b.as_array()) {
@@ -1400,31 +1501,24 @@ pub async fn sync_entry_nodes(
 
             // Process each block in the blocks array
             for block_value in blocks_arr {
-                let block_obj = match block_value.as_object() {
-                    Some(obj) => obj,
-                    None => {
-                        error!("Block in node is not a valid object");
-                        continue;
-                    }
-                };
+                let block_obj = block_value.as_object().ok_or_else(|| {
+                    NurError::UnprocessableEntity("Block is not a valid object".into())
+                })?;
 
-                let node_id = block_obj.get("id").and_then(Value::as_i64);
+                let node_id = optional_positive_i64(block_obj, "id", "node")?;
                 let node_name = block_obj.get("name").and_then(Value::as_str);
-                let media_id = block_obj
-                    .get("media_id")
-                    .and_then(Value::as_i64)
-                    .map(|v| v as i32);
+                let media_id = optional_positive_i32(block_obj, "media_id", "media")?;
                 let data = block_obj.get("data").cloned().unwrap_or(Value::Null);
-                let template_id = block_obj
-                    .get("template_id")
-                    .and_then(Value::as_i64)
-                    .map(|value| value as i32);
+                let template_id = node_template_id(block_obj)?;
 
                 match node_id {
                     Some(id) => {
-                        // Update existing node
-                        existing_ids.push(id);
-                        sqlx::query(
+                        if !retained_ids.insert(id) {
+                            return Err(NurError::UnprocessableEntity(
+                                "A node ID may only occur once".into(),
+                            ));
+                        }
+                        let result = sqlx::query(
                             "UPDATE content_nodes SET media_id = $1, order_index = $2, data = $3, template_id = $4, parent_id = $5 WHERE id = $6 AND entry_id = $7"
                         )
                         .bind(media_id)
@@ -1434,8 +1528,13 @@ pub async fn sync_entry_nodes(
                         .bind(parent_id)
                         .bind(id)
                         .bind(entry_id)
-                        .execute(pool)
+                        .execute(&mut *connection)
                         .await?;
+                        if result.rows_affected() == 0 {
+                            return Err(NurError::UnprocessableEntity(
+                                "Node does not belong to this entry".into(),
+                            ));
+                        }
 
                         // Set parent_id if this is the first node in the block
                         if parent_id.is_none() {
@@ -1454,14 +1553,14 @@ pub async fn sync_entry_nodes(
                         .bind(&data)
                         .bind(template_id)
                         .bind(parent_id)
-                        .fetch_one(pool)
+                        .fetch_one(&mut *connection)
                         .await?;
 
                         if parent_id.is_none() {
                             parent_id = Some(new_node_id);
                         }
 
-                        existing_ids.push(new_node_id);
+                        retained_ids.insert(new_node_id);
                     }
                 }
 
@@ -1469,24 +1568,21 @@ pub async fn sync_entry_nodes(
             }
         } else {
             // Simple node (not a block container)
-            let node_id = node_obj.get("id").and_then(Value::as_i64);
-            let media_id = node_obj
-                .get("media_id")
-                .and_then(Value::as_i64)
-                .map(|v| v as i32);
+            let node_id = optional_positive_i64(node_obj, "id", "node")?;
+            let media_id = optional_positive_i32(node_obj, "media_id", "media")?;
             let name = node_obj.get("name").and_then(|t| t.as_str());
             let text = node_obj.get("text").and_then(|t| t.as_str());
             let data = node_obj.get("data").cloned().unwrap_or(Value::Null);
-            let template_id = node_obj
-                .get("template_id")
-                .and_then(Value::as_i64)
-                .map(|value| value as i32);
+            let template_id = node_template_id(node_obj)?;
 
             match node_id {
                 Some(id) => {
-                    // Update existing node
-                    existing_ids.push(id);
-                    sqlx::query(
+                    if !retained_ids.insert(id) {
+                        return Err(NurError::UnprocessableEntity(
+                            "A node ID may only occur once".into(),
+                        ));
+                    }
+                    let result = sqlx::query(
                         "UPDATE content_nodes SET media_id = $1, order_index = $2, text = $3, data = $4, template_id = $5 WHERE id = $6 AND entry_id = $7"
                     )
                     .bind(media_id)
@@ -1496,8 +1592,15 @@ pub async fn sync_entry_nodes(
                     .bind(template_id)
                     .bind(id)
                     .bind(entry_id)
-                    .execute(pool)
+                    .execute(&mut *connection)
                     .await?;
+                    if result.rows_affected() == 0 {
+                        return Err(NurError::UnprocessableEntity(
+                            "Node does not belong to this entry".into(),
+                        ));
+                    }
+
+                    delete_content_media_for_node(&mut *connection, id).await?;
 
                     // Process text and media
                     if let Some(text_str) = text
@@ -1505,8 +1608,12 @@ pub async fn sync_entry_nodes(
                     {
                         let ast = to_mdast(text_str, &ParseOptions::default())?;
                         let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-                        delete_content_media_for_entry(pool, entry_id).await?;
-                        persist_content_media(pool, id, &tree).await?;
+                        crate::utils::ast_serialize::persist_content_media_on(
+                            &mut *connection,
+                            id,
+                            &tree,
+                        )
+                        .await?;
                     }
                 }
                 None => {
@@ -1521,7 +1628,7 @@ pub async fn sync_entry_nodes(
                     .bind(text)
                     .bind(&data)
                     .bind(template_id)
-                    .fetch_one(pool)
+                    .fetch_one(&mut *connection)
                     .await?;
 
                     // Process text and media
@@ -1530,10 +1637,15 @@ pub async fn sync_entry_nodes(
                     {
                         let ast = to_mdast(text_str, &ParseOptions::default())?;
                         let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-                        persist_content_media(pool, new_node_id, &tree).await?;
+                        crate::utils::ast_serialize::persist_content_media_on(
+                            &mut *connection,
+                            new_node_id,
+                            &tree,
+                        )
+                        .await?;
                     }
 
-                    existing_ids.push(new_node_id);
+                    retained_ids.insert(new_node_id);
                 }
             }
 
@@ -1542,11 +1654,11 @@ pub async fn sync_entry_nodes(
     }
 
     // Delete nodes that are no longer in the array
-    for (db_id, _, _, _, _) in &existing_nodes {
-        if !existing_ids.contains(db_id) {
+    for db_id in existing_nodes {
+        if !retained_ids.contains(&db_id) {
             sqlx::query("DELETE FROM content_nodes WHERE id = $1")
                 .bind(db_id)
-                .execute(pool)
+                .execute(&mut *connection)
                 .await?;
         }
     }
@@ -1562,17 +1674,18 @@ pub async fn update_entry_with_nodes(
     entry_id: i32,
     content: &Value,
 ) -> Result<(), NurError> {
+    let mut transaction = pool.begin().await?;
     let mut nodes = content
         .get("nodes")
         .cloned()
         .and_then(|nodes| nodes.as_array().cloned());
 
     if let Some(nodes) = &mut nodes {
-        normalize_entry_node_templates(pool, nodes).await?;
+        normalize_entry_node_templates(&mut transaction, nodes).await?;
     }
 
     if let Some(meta) = content.get("meta") {
-        upsert_entry_meta(pool, entry_id, meta).await?;
+        upsert_entry_meta(&mut transaction, entry_id, meta).await?;
     }
 
     // Update the entry record (nodes will be ignored by update_record)
@@ -1582,7 +1695,14 @@ pub async fn update_entry_with_nodes(
         let mut attempts = 0;
 
         loop {
-            match update_record(pool, &Table::ContentEntries, entry_id, &candidate).await {
+            match update_record(
+                &mut *transaction,
+                &Table::ContentEntries,
+                entry_id,
+                &candidate,
+            )
+            .await
+            {
                 Ok(()) => break,
                 Err(error) if is_entry_slug_conflict(&error) => {
                     if attempts >= MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS {
@@ -1596,12 +1716,14 @@ pub async fn update_entry_with_nodes(
             }
         }
     } else {
-        update_record(pool, &Table::ContentEntries, entry_id, content).await?;
+        update_record(&mut *transaction, &Table::ContentEntries, entry_id, content).await?;
     }
 
     if let Some(nodes) = nodes {
-        sync_entry_nodes(pool, entry_id, &nodes).await?;
+        sync_entry_nodes(&mut transaction, entry_id, &nodes).await?;
     }
+
+    transaction.commit().await?;
 
     Ok(())
 }
@@ -1610,9 +1732,11 @@ pub async fn update_entry_with_nodes(
 mod tests {
     use axum::http::Uri;
     use axum_extra::extract::Query;
+    use serde_json::json;
 
     use super::{
-        SLUG_RANDOM_SUFFIX_LEN, TEXT_NODE_SELECTOR, build_content_entries_query, slug_with_suffix,
+        SLUG_RANDOM_SUFFIX_LEN, TEXT_NODE_SELECTOR, build_content_entries_query, node_template_id,
+        optional_positive_i32, optional_positive_i64, slug_with_suffix,
     };
     use crate::db::fields::ContentEntryFields;
 
@@ -1635,6 +1759,26 @@ mod tests {
 
         assert_eq!(suffix.len(), SLUG_RANDOM_SUFFIX_LEN);
         assert!(suffix.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn node_identifiers_must_be_positive_and_fit_the_database_type() {
+        let valid = json!({"id": 42, "media_id": 7, "template_id": 3});
+        let valid = valid.as_object().expect("object");
+        assert_eq!(
+            optional_positive_i64(valid, "id", "node").unwrap(),
+            Some(42)
+        );
+        assert_eq!(
+            optional_positive_i32(valid, "media_id", "media").unwrap(),
+            Some(7)
+        );
+        assert_eq!(node_template_id(valid).unwrap(), Some(3));
+
+        for value in [json!(0), json!(-1), json!(i64::from(i32::MAX) + 1)] {
+            let invalid = json!({"template_id": value});
+            assert!(node_template_id(invalid.as_object().expect("object")).is_err());
+        }
     }
 
     #[test]

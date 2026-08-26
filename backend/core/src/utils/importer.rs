@@ -45,8 +45,8 @@ use crate::{
         fields::{AuthUserFields, ContentTypeFields, LocaleFields, Table},
         handles,
         models::{
-            ContentEntry, ContentMeta, ContentNodeDataField, ContentNodeDataKind, ContentType,
-            Locale,
+            ContentEntry, ContentMeta, ContentNodeDataField, ContentNodeDataKind,
+            ContentNodeTemplate, ContentType, Locale,
         },
         queries::QueryObj,
     },
@@ -285,7 +285,7 @@ async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<()
         total_count: None,
     };
 
-    handles::insert_record::<ContentMeta, i32>(pool, &Table::ContentMeta, &meta).await?;
+    handles::insert_record::<_, ContentMeta, i32>(pool, &Table::ContentMeta, &meta).await?;
 
     Ok(())
 }
@@ -365,28 +365,46 @@ async fn insert_meta_nodes(
             )));
         }
 
-        let template: Option<(i32, Value)> = sqlx::query_as(
-            "SELECT id, data FROM content_node_templates WHERE name = $1 ORDER BY id LIMIT 1",
+        let template: Option<(i32, Value, Value)> = sqlx::query_as(
+            "SELECT id, data, schema FROM content_node_templates WHERE name = $1 ORDER BY id LIMIT 1",
         )
         .bind(name)
         .fetch_optional(pool)
         .await?;
 
         let (template_id, data) = match template {
-            Some((template_id, template)) => {
-                (template_id, apply_template_defaults(&template, values))
+            Some((template_id, defaults, schema)) => {
+                let template = ContentNodeTemplate {
+                    id: template_id,
+                    name: name.to_string(),
+                    data: defaults.clone(),
+                    schema: serde_json::from_value(schema)?,
+                    ..Default::default()
+                };
+                template.validate_schema().map_err(NurError::BadRequest)?;
+
+                let mut node_data = if template.schema.is_empty() {
+                    apply_template_defaults(&defaults, values)
+                } else {
+                    values.clone()
+                };
+                template
+                    .apply_schema(&mut node_data)
+                    .map_err(NurError::BadRequest)?;
+                (template_id, node_data)
             }
             None => {
                 let defaults = template_schema(values);
-                let schema = serde_json::to_value(template_fields(values))?;
-                let template_id: i32 = sqlx::query_scalar(
-                    "INSERT INTO content_node_templates (name, data, schema) VALUES ($1, $2, $3) RETURNING id",
-                )
-                    .bind(name)
-                    .bind(defaults)
-                    .bind(schema)
-                    .fetch_one(pool)
-                    .await?;
+                let mut template = ContentNodeTemplate {
+                    name: name.to_string(),
+                    data: defaults,
+                    schema: template_fields(values),
+                    ..Default::default()
+                };
+                template
+                    .synchronize_data_with_schema()
+                    .map_err(NurError::BadRequest)?;
+                let template_id = handles::insert_node_template(pool, &template).await?;
                 (template_id, values.clone())
             }
         };

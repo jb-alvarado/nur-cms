@@ -262,6 +262,12 @@ Within `node`, the reserved value `@text` selects every node whose stored
 stored names, for example `node=block,@text`. The selector only
 affects filtering; it does not replace a null `name` in the response.
 
+Each `data` occurrence matches one node and combines its comma-separated
+fields with AND. Repeated `data` parameters are also combined with AND, but
+may match different nodes of the same entry. Requests accept at most eight
+`data` parameters, 16 fields per parameter, and 2048 bytes per parameter.
+Values use JSON scalar or structured syntax; unquoted values are strings.
+
 Entry fields:
 
 ```text

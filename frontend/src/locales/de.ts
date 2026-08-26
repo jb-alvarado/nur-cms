@@ -244,6 +244,7 @@ export default {
     },
     nodeTemplates: {
         title: 'Node-Vorlagen',
+        select: 'Bitte eine Node-Vorlage auswählen.',
     },
     block: {
         create: 'Block erstellen',

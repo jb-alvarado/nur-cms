@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, type ModelRef } from 'vue'
+import type { ContentNodeDataField, ContentNodeDataKind } from '@/types/models.d'
+import type { JsonValue } from '@/types/serde_json/JsonValue'
 
-type DataField = {
-    key: string
-    label?: string | null
-    kind?: 'string' | 'text' | 'boolean' | 'number' | 'json'
-}
+type DataField = Pick<ContentNodeDataField, 'key' | 'label' | 'kind'>
 
-const block: ModelRef<Record<string, any> | undefined> = defineModel('block')
+const block: ModelRef<Record<string, JsonValue> | undefined> = defineModel('block')
 const props = withDefaults(
     defineProps<{
         schema?: DataField[]
@@ -15,7 +13,7 @@ const props = withDefaults(
     { schema: () => [] },
 )
 
-function inferredKind(value: unknown): NonNullable<DataField['kind']> {
+function inferredKind(value: unknown): ContentNodeDataKind {
     if (typeof value === 'boolean') return 'boolean'
     if (typeof value === 'number') return 'number'
     if (value !== null && typeof value === 'object') return 'json'
@@ -35,6 +33,14 @@ const fields = computed<DataField[]>(() => {
 function updateNumber(key: string, event: Event) {
     const value = (event.currentTarget as HTMLInputElement).value
     if (block.value) block.value[key] = value === '' ? 0 : Number(value)
+}
+
+function updateString(key: string, event: Event) {
+    if (block.value) block.value[key] = (event.currentTarget as HTMLInputElement).value
+}
+
+function updateBoolean(key: string, event: Event) {
+    if (block.value) block.value[key] = (event.currentTarget as HTMLInputElement).checked
 }
 
 function updateJson(key: string, event: Event) {
@@ -66,8 +72,20 @@ function jsonValue(value: unknown): string {
             <label class="min-w-20" :class="{ 'pt-3': field.kind === 'text' || field.kind === 'json' }">
                 {{ field.label || field.key }}:
             </label>
-            <textarea v-if="field.kind === 'text'" v-model="block[field.key]" rows="3" class="textarea grow"></textarea>
-            <input v-else-if="field.kind === 'boolean'" v-model="block[field.key]" type="checkbox" class="checkbox" />
+            <textarea
+                v-if="field.kind === 'text'"
+                :value="String(block[field.key] ?? '')"
+                rows="3"
+                class="textarea grow"
+                @input="updateString(field.key, $event)"
+            ></textarea>
+            <input
+                v-else-if="field.kind === 'boolean'"
+                :checked="block[field.key] === true"
+                type="checkbox"
+                class="checkbox"
+                @change="updateBoolean(field.key, $event)"
+            />
             <input
                 v-else-if="field.kind === 'number'"
                 :value="block[field.key]"
@@ -82,7 +100,13 @@ function jsonValue(value: unknown): string {
                 class="textarea grow font-mono"
                 @change="updateJson(field.key, $event)"
             ></textarea>
-            <input v-else v-model="block[field.key]" type="text" class="input grow" />
+            <input
+                v-else
+                :value="String(block[field.key] ?? '')"
+                type="text"
+                class="input grow"
+                @input="updateString(field.key, $event)"
+            />
         </div>
     </div>
 </template>

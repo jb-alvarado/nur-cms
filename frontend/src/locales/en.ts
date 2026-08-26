@@ -243,6 +243,7 @@ export default {
     },
     nodeTemplates: {
         title: 'Node Templates',
+        select: 'Please select a node template.',
     },
     block: {
         create: 'Create Block',

@@ -4,30 +4,25 @@ import { cloneDeep } from 'es-toolkit/object'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
+import type { ContentNodeDataField, ContentNodeDataKind, ContentNodeTemplate } from '@/types/models.d'
+import type { RespondObj } from '@/types/query.d'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
-type DataKind = 'string' | 'text' | 'boolean' | 'number' | 'json'
-type TemplateField = {
-    key: string
-    label?: string | null
-    kind: DataKind
-    default: any
-}
-type TemplateDraft = {
-    id: number
-    name: string
-    data: Record<string, any>
+type TemplateField = Pick<ContentNodeDataField, 'key' | 'label' | 'kind'> & { default: unknown }
+type TemplateDraft = Pick<ContentNodeTemplate, 'id' | 'name'> & {
+    data: Record<string, unknown>
     schema: TemplateField[]
 }
+type SelectableTemplate = TemplateDraft & { check: boolean }
 
 const { t } = useI18n()
 const store = useIndex()
 
 const keyInput = ref('')
-const templates = ref<NodeTemplateExt[]>([])
+const templates = ref<SelectableTemplate[]>([])
 const select = ref(false)
-const selectCount = computed(() => templates.value.reduce((temp, item: any) => temp + (item.check ? 1 : 0), 0))
+const selectCount = computed(() => templates.value.reduce((count, item) => count + (item.check ? 1 : 0), 0))
 const ordering = ref('id')
 const template = ref<TemplateDraft>({
     id: 0,
@@ -40,19 +35,19 @@ const deleteModal = ref()
 const templateModal = ref()
 const isEditing = ref(false)
 
-const templateRows = computed(() => [
+const templateRows = computed<Array<{ name: string; field: 'id' | 'name' }>>(() => [
     { name: t('table.id'), field: 'id' },
     { name: t('mail.name'), field: 'name' },
 ])
 
-function kindFromValue(value: unknown): DataKind {
+function kindFromValue(value: unknown): ContentNodeDataKind {
     if (typeof value === 'boolean') return 'boolean'
     if (typeof value === 'number') return 'number'
     if (value !== null && typeof value === 'object') return 'json'
     return 'string'
 }
 
-function defaultForKind(kind: DataKind): any {
+function defaultForKind(kind: ContentNodeDataKind): unknown {
     switch (kind) {
         case 'boolean':
             return false
@@ -65,15 +60,25 @@ function defaultForKind(kind: DataKind): any {
     }
 }
 
-function templateData() {
+function templateData(): Record<string, unknown> {
     return Object.fromEntries(template.value.schema.map((field) => [field.key, field.default]))
 }
 
 async function selectTemplates() {
     try {
-        const response = await authFetch<RespondObj>(`/api/content/node/templates?ordering=${ordering.value}`)
+        const response = await authFetch<RespondObj<ContentNodeTemplate>>(
+            `/api/content/node/templates?ordering=${ordering.value}`,
+        )
         templates.value =
-            response.results.length > 0 ? response.results.map((item: any) => ({ check: false, ...item })) : []
+            response.results.length > 0
+                ? response.results.map((item) => ({
+                      check: false,
+                      id: item.id,
+                      name: item.name,
+                      data: item.data && typeof item.data === 'object' && !Array.isArray(item.data) ? item.data : {},
+                      schema: item.schema,
+                  }))
+                : []
     } catch (e) {
         store.msgAlert('error', String(e))
     }
@@ -106,6 +111,14 @@ function updateNumberDefault(field: TemplateField, event: Event) {
     field.default = value === '' ? 0 : Number(value)
 }
 
+function updateStringDefault(field: TemplateField, event: Event) {
+    field.default = (event.currentTarget as HTMLInputElement).value
+}
+
+function updateBooleanDefault(field: TemplateField, event: Event) {
+    field.default = (event.currentTarget as HTMLInputElement).checked
+}
+
 function updateJsonDefault(field: TemplateField, event: Event) {
     const input = event.currentTarget as HTMLTextAreaElement
     try {
@@ -122,17 +135,18 @@ function jsonValue(value: unknown): string {
 }
 
 function editTemplateByIndex(index: number) {
-    const node = templates.value[index] as unknown as
-        { id: number; name: string; data?: Record<string, unknown>; schema?: TemplateField[] } | undefined
+    const node = templates.value[index]
     if (!node) return
 
     const schema = node.schema?.length
         ? cloneDeep(node.schema)
-        : Object.entries(node.data ?? {}).map(([key, value]) => ({
-              key,
-              kind: kindFromValue(value),
-              default: cloneDeep(value),
-          }))
+        : Object.entries(node.data && typeof node.data === 'object' && !Array.isArray(node.data) ? node.data : {}).map(
+              ([key, value]) => ({
+                  key,
+                  kind: kindFromValue(value),
+                  default: cloneDeep(value),
+              }),
+          )
     template.value = { id: node.id, name: node.name, data: {}, schema }
     isEditing.value = true
     templateModal.value.showModal()
@@ -217,7 +231,7 @@ async function saveTemplate() {
                 <tbody>
                     <tr v-for="(col, i) in templates" :key="i">
                         <th><input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" /></th>
-                        <td v-for="row in templateRows" :key="row.field">{{ (col as any)[row.field] }}</td>
+                        <td v-for="row in templateRows" :key="row.field">{{ col[row.field] }}</td>
                         <td>
                             <button class="btn btn-sm p-1" @click="editTemplateByIndex(i)">
                                 <i class="bi bi-pencil-square text-lg"></i>
@@ -282,15 +296,17 @@ async function saveTemplate() {
                     </select>
                     <textarea
                         v-if="field.kind === 'text'"
-                        v-model="field.default"
+                        :value="String(field.default ?? '')"
                         rows="2"
                         class="textarea textarea-sm grow"
+                        @input="updateStringDefault(field, $event)"
                     ></textarea>
                     <input
                         v-else-if="field.kind === 'boolean'"
-                        v-model="field.default"
+                        :checked="field.default === true"
                         type="checkbox"
                         class="checkbox"
+                        @change="updateBooleanDefault(field, $event)"
                     />
                     <input
                         v-else-if="field.kind === 'number'"
@@ -308,10 +324,11 @@ async function saveTemplate() {
                     ></textarea>
                     <input
                         v-else
-                        v-model="field.default"
+                        :value="String(field.default ?? '')"
                         type="text"
                         class="input input-sm grow"
                         :placeholder="$t('common.defaultValue')"
+                        @input="updateStringDefault(field, $event)"
                     />
                     <button class="btn btn-sm" @click="removeField(index)"><i class="bi bi-x-lg"></i></button>
                 </div>

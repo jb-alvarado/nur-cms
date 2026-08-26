@@ -69,13 +69,9 @@ pub async fn template_insert(
             .synchronize_data_with_schema()
             .map_err(NurError::UnprocessableEntity)?;
 
-        return match handles::insert_node_template(&pool, &template).await {
-            Ok(id) => Ok(Json(id)),
-            Err(e) => {
-                error!("{e}");
-                Err(NurError::InternalServerError)
-            }
-        };
+        return handles::insert_node_template(&pool, &template)
+            .await
+            .map(Json);
     }
 
     Err(NurError::Forbidden(
@@ -94,13 +90,7 @@ pub async fn template_update(
             .synchronize_data_with_schema()
             .map_err(NurError::UnprocessableEntity)?;
 
-        return match handles::update_node_template(&pool, id, &template).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{e}");
-                Err(NurError::InternalServerError)
-            }
-        };
+        return handles::update_node_template(&pool, id, &template).await;
     }
 
     Err(NurError::Forbidden(

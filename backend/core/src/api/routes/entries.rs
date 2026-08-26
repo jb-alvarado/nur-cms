@@ -26,7 +26,9 @@ use crate::{
         serialize::*,
     },
     utils::{
-        ast_serialize::{persist_content_media, to_structure_root_mdast, truncate_structure_root},
+        ast_serialize::{
+            persist_content_media_on, to_structure_root_mdast, truncate_structure_root,
+        },
         errors::NurError,
     },
 };
@@ -255,16 +257,18 @@ pub async fn entry_insert(
         obj.remove("meta");
     }
 
+    let mut transaction = pool.begin().await?;
+
     if let Some(nodes_arr) = nodes.as_mut().and_then(Value::as_array_mut) {
-        handles::normalize_entry_node_templates(&pool, nodes_arr).await?;
+        handles::normalize_entry_node_templates(&mut transaction, nodes_arr).await?;
     }
 
-    let id = handles::insert_entry(&pool, &content).await?;
+    let id = handles::insert_entry_on(&mut transaction, &content).await?;
 
     if let Some(mut m) = meta {
         m["entry_id"] = Value::Number(id.into());
 
-        let _: i32 = handles::insert_record(&pool, &Table::ContentMeta, &m).await?;
+        let _: i32 = handles::insert_record(&mut *transaction, &Table::ContentMeta, &m).await?;
     }
 
     let mut order_index = 1;
@@ -288,7 +292,8 @@ pub async fn entry_insert(
                     }
 
                     let block_id: i64 =
-                        handles::insert_record(&pool, &Table::ContentNodes, &block).await?;
+                        handles::insert_record(&mut *transaction, &Table::ContentNodes, &block)
+                            .await?;
 
                     if parent_id.is_none() {
                         parent_id = Some(block_id.into());
@@ -306,19 +311,21 @@ pub async fn entry_insert(
                 }
 
                 let node_id: i64 =
-                    handles::insert_record(&pool, &Table::ContentNodes, &node).await?;
+                    handles::insert_record(&mut *transaction, &Table::ContentNodes, &node).await?;
 
                 if let Some(text) = node.get("text").and_then(|t| t.as_str()) {
                     let ast = to_mdast(text, &ParseOptions::gfm())?;
                     let tree: Value = serde_json::to_value(ast).unwrap_or_default();
 
-                    persist_content_media(&pool, node_id, &tree).await?;
+                    persist_content_media_on(&mut transaction, node_id, &tree).await?;
                 }
 
                 order_index += 1;
             }
         }
     }
+
+    transaction.commit().await?;
 
     Ok(Json(id))
 }

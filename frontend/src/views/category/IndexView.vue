@@ -12,7 +12,6 @@ store.routeType = 'category'
 store.selectAll = false
 store.ordering = 'id'
 
-
 store.visibleRows = [
     { active: true, up: false, name: t('table.id'), field: 'id' },
     { active: false, up: false, name: t('table.name'), field: 'name' },

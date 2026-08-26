@@ -14,6 +14,9 @@ use crate::db::fields::*;
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 const MAX_OFFSET: i64 = 1_000_000;
+const MAX_DATA_FILTERS: usize = 8;
+const MAX_DATA_FILTER_FIELDS: usize = 16;
+const MAX_DATA_FILTER_LENGTH: usize = 2_048;
 
 static RE_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"offset=\d+").unwrap());
 
@@ -71,7 +74,6 @@ pub struct QueryObj<T> {
     #[serde(
         default,
         rename = "data",
-        alias = "data_filter",
         deserialize_with = "deserialize_data_filters"
     )]
     pub data_filters: Vec<serde_json::Value>,
@@ -264,28 +266,48 @@ pub(crate) fn deserialize_data_filters<'de, D>(
 where
     D: Deserializer<'de>,
 {
-    Vec::<String>::deserialize(deserializer)?
+    let values = Vec::<String>::deserialize(deserializer)?;
+    if values.len() > MAX_DATA_FILTERS {
+        return Err(D::Error::custom(format!(
+            "at most {MAX_DATA_FILTERS} data filters are allowed"
+        )));
+    }
+
+    values
         .into_iter()
         .map(|value| parse_data_filter(&value).map_err(D::Error::custom))
         .collect()
 }
 
 pub(crate) fn parse_data_filter(value: &str) -> Result<serde_json::Value, String> {
-    let mut fields = serde_json::Map::new();
+    if value.len() > MAX_DATA_FILTER_LENGTH {
+        return Err(format!(
+            "a data filter may contain at most {MAX_DATA_FILTER_LENGTH} bytes"
+        ));
+    }
 
-    for field in split_data_filter_fields(value)? {
+    let mut fields = serde_json::Map::new();
+    let filter_fields = split_data_filter_fields(value)?;
+    if filter_fields.len() > MAX_DATA_FILTER_FIELDS {
+        return Err(format!(
+            "a data filter may contain at most {MAX_DATA_FILTER_FIELDS} fields"
+        ));
+    }
+
+    for field in filter_fields {
         let (key, raw_value) = field
             .split_once(':')
             .ok_or_else(|| "data must use key:value pairs".to_string())?;
         let key = key.trim();
         let raw_value = raw_value.trim();
 
-        if key.is_empty()
-            || key.len() > 64
-            || !key.chars().all(|character| {
-                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
-            })
-        {
+        let mut key_characters = key.chars();
+        let valid_start = key_characters
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
+        let valid_rest = key_characters
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
+        if key.len() > 64 || !valid_start || !valid_rest {
             return Err(format!("Invalid data filter key: {key}"));
         }
         if raw_value.is_empty() {
@@ -295,8 +317,15 @@ pub(crate) fn parse_data_filter(value: &str) -> Result<serde_json::Value, String
             return Err(format!("Duplicate data filter key: {key}"));
         }
 
-        let parsed_value = serde_json::from_str(raw_value)
-            .unwrap_or_else(|_| serde_json::Value::String(raw_value.to_string()));
+        let parsed_value = match serde_json::from_str(raw_value) {
+            Ok(value) => value,
+            Err(error) if raw_value.starts_with(['{', '[', '"']) => {
+                return Err(format!(
+                    "Invalid JSON value for data filter key {key}: {error}"
+                ));
+            }
+            Err(_) => serde_json::Value::String(raw_value.to_string()),
+        };
         fields.insert(key.to_string(), parsed_value);
     }
 
@@ -789,10 +818,25 @@ mod tests {
             "/api/content/entries?data=hidden",
             "/api/content/entries?data=hidden%3A",
             "/api/content/entries?data=hidden%3Atrue%2Chidden%3Afalse",
+            "/api/content/entries?data=1hidden%3Atrue",
+            "/api/content/entries?data=options%3A%7B%22enabled%22%3Atrue%5D",
         ] {
             let uri: Uri = uri.parse().expect("request URI");
             assert!(Query::<QueryObj<ContentEntryFields>>::try_from_uri(&uri).is_err());
         }
+    }
+
+    #[test]
+    fn rejects_too_many_node_data_filters() {
+        let query = (0..9)
+            .map(|index| format!("data=field{index}%3Atrue"))
+            .collect::<Vec<_>>()
+            .join("&");
+        let uri: Uri = format!("/api/content/entries?{query}")
+            .parse()
+            .expect("request URI");
+
+        assert!(Query::<QueryObj<ContentEntryFields>>::try_from_uri(&uri).is_err());
     }
 
     #[test]

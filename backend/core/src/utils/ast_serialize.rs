@@ -2,8 +2,7 @@ use std::collections::HashSet;
 
 use markdown::mdast::Node;
 use serde_json::{Map, Value, json};
-use sqlx::postgres::PgPool;
-use tracing::error;
+use sqlx::postgres::{PgConnection, PgPool};
 
 use crate::{
     NurError, PUBLIC_UPLOADS,
@@ -570,6 +569,15 @@ pub async fn persist_content_media(
     node_id: i64,
     ast: &Value,
 ) -> Result<(), NurError> {
+    let mut connection = pool.acquire().await?;
+    persist_content_media_on(&mut connection, node_id, ast).await
+}
+
+pub async fn persist_content_media_on(
+    connection: &mut PgConnection,
+    node_id: i64,
+    ast: &Value,
+) -> Result<(), NurError> {
     let mut images = Vec::new();
     collect_image_refs(ast, &mut images);
 
@@ -584,7 +592,14 @@ pub async fn persist_content_media(
             continue;
         };
 
-        if let Some(media_id) = handles::select_media_id_by_path(pool, &path, &filename).await? {
+        let media_id =
+            sqlx::query_scalar::<_, i32>("SELECT id FROM media WHERE path = $1 AND filename = $2")
+                .bind(&path)
+                .bind(&filename)
+                .fetch_optional(&mut *connection)
+                .await?;
+
+        if let Some(media_id) = media_id {
             if !seen.insert((media_id, image.ast_line)) {
                 continue;
             }
@@ -597,15 +612,12 @@ pub async fn persist_content_media(
                 end_offset: image.end_offset,
             };
 
-            if let Err(e) = handles::insert_record::<ContentNodeMedia, i64>(
-                pool,
+            handles::insert_record::<_, ContentNodeMedia, i64>(
+                &mut *connection,
                 &Table::ContentNodeMedia,
                 &link,
             )
-            .await
-            {
-                error!("content_media insert error: {e}");
-            }
+            .await?;
         }
     }
 

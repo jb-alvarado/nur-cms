@@ -13,7 +13,7 @@ watch(
                 progressContainer.value.scrollTop = progressContainer.value.scrollHeight + 50
             }
         })
-    }
+    },
 )
 </script>
 

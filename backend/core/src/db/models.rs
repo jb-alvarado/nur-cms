@@ -659,8 +659,34 @@ impl ContentNodeDataKind {
     }
 }
 
+const MAX_NODE_TEMPLATE_DATA_BYTES: usize = 262_144;
+
 impl ContentNodeTemplate {
     pub fn validate_schema(&self) -> Result<(), String> {
+        const MAX_TEMPLATE_NAME_LENGTH: usize = 255;
+        const MAX_TEMPLATE_FIELDS: usize = 64;
+
+        let name = self.name.trim();
+        if name.is_empty() || name.chars().count() > MAX_TEMPLATE_NAME_LENGTH {
+            return Err(format!(
+                "Node template name must contain between 1 and {MAX_TEMPLATE_NAME_LENGTH} characters"
+            ));
+        }
+        if self.schema.len() > MAX_TEMPLATE_FIELDS {
+            return Err(format!(
+                "A node template may contain at most {MAX_TEMPLATE_FIELDS} fields"
+            ));
+        }
+        if serde_json::to_vec(&self.data)
+            .map_err(|error| error.to_string())?
+            .len()
+            > MAX_NODE_TEMPLATE_DATA_BYTES
+        {
+            return Err(format!(
+                "Node template data may contain at most {MAX_NODE_TEMPLATE_DATA_BYTES} bytes"
+            ));
+        }
+
         let mut keys = std::collections::HashSet::new();
 
         for field in &self.schema {
@@ -676,6 +702,16 @@ impl ContentNodeTemplate {
             if !keys.insert(&field.key) {
                 return Err(format!("Duplicate node template field key: {}", field.key));
             }
+            if field
+                .label
+                .as_ref()
+                .is_some_and(|label| label.chars().count() > 255)
+            {
+                return Err(format!(
+                    "Label for node template field {} is too long",
+                    field.key
+                ));
+            }
             if !field.kind.matches_value(&field.default) {
                 return Err(format!(
                     "Invalid default value for node template field: {}",
@@ -689,7 +725,7 @@ impl ContentNodeTemplate {
 
     pub fn apply_schema(&self, data: &mut Value) -> Result<(), String> {
         if self.schema.is_empty() {
-            return Ok(());
+            return Self::validate_data_size(data);
         }
 
         let object = match data {
@@ -714,17 +750,37 @@ impl ContentNodeTemplate {
             }
         }
 
+        Self::validate_data_size(data)
+    }
+
+    fn validate_data_size(data: &Value) -> Result<(), String> {
+        if serde_json::to_vec(data)
+            .map_err(|error| error.to_string())?
+            .len()
+            > MAX_NODE_TEMPLATE_DATA_BYTES
+        {
+            return Err(format!(
+                "Node data may contain at most {MAX_NODE_TEMPLATE_DATA_BYTES} bytes"
+            ));
+        }
+
         Ok(())
     }
 
     pub fn synchronize_data_with_schema(&mut self) -> Result<(), String> {
         self.validate_schema()?;
-        let schema = self.schema.clone();
-        Self {
-            schema,
-            ..Default::default()
+        self.name = self.name.trim().to_string();
+
+        if !self.schema.is_empty() {
+            self.data = Value::Object(
+                self.schema
+                    .iter()
+                    .map(|field| (field.key.clone(), field.default.clone()))
+                    .collect(),
+            );
         }
-        .apply_schema(&mut self.data)
+
+        Ok(())
     }
 }
 
@@ -863,10 +919,14 @@ impl ColumnCounter for MailTarget {
 mod tests {
     use serde_json::json;
 
-    use super::{ContentNodeDataField, ContentNodeDataKind, ContentNodeTemplate};
+    use super::{
+        ContentNodeDataField, ContentNodeDataKind, ContentNodeTemplate,
+        MAX_NODE_TEMPLATE_DATA_BYTES,
+    };
 
     fn template() -> ContentNodeTemplate {
         ContentNodeTemplate {
+            name: "settings".into(),
             schema: vec![
                 ContentNodeDataField {
                     key: "mainpage".into(),
@@ -904,5 +964,37 @@ mod tests {
             .apply_schema(&mut unknown_field)
             .expect("extension fields remain supported");
         assert_eq!(unknown_field["extra"], true);
+    }
+
+    #[test]
+    fn template_definition_is_bounded_and_synchronizes_defaults() {
+        let mut template = template();
+        template.name = "  settings  ".into();
+        template.data = json!({ "obsolete": true });
+
+        template
+            .synchronize_data_with_schema()
+            .expect("valid template");
+
+        assert_eq!(template.name, "settings");
+        assert_eq!(template.data, json!({ "mainpage": false, "priority": 0 }));
+
+        template.name.clear();
+        assert!(template.validate_schema().is_err());
+
+        template.name = "settings".into();
+        template.schema = (0..65)
+            .map(|index| ContentNodeDataField {
+                key: format!("field_{index}"),
+                kind: ContentNodeDataKind::Boolean,
+                default: json!(false),
+                ..Default::default()
+            })
+            .collect();
+        assert!(template.validate_schema().is_err());
+
+        template.schema.clear();
+        template.data = json!({ "value": "x".repeat(MAX_NODE_TEMPLATE_DATA_BYTES) });
+        assert!(template.validate_schema().is_err());
     }
 }

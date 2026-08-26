@@ -14,7 +14,7 @@ const showLoginError = ref(false)
 
 onBeforeMount(async () => {
     if (auth.isLogin) {
-         await router.push({ name: 'home' })
+        await router.push({ name: 'home' })
     }
 })
 
