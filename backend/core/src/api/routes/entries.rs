@@ -3,7 +3,7 @@ use axum::{
     extract::{Extension, OriginalUri, Path, Query, State},
 };
 use chrono::Utc;
-use markdown::{ParseOptions, to_html, to_mdast};
+use markdown::{Options, ParseOptions, to_html_with_options, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -37,6 +37,10 @@ pub async fn entry_facets_select(
     Ok(Json(
         handles::select_content_entry_facets(&pool, &params).await?,
     ))
+}
+
+fn render_gfm_html(markdown: &str) -> Result<String, NurError> {
+    Ok(to_html_with_options(markdown, &Options::gfm())?)
 }
 
 pub async fn entries_select(
@@ -95,7 +99,7 @@ pub async fn entries_select(
                                 node.ast = Some(body);
                             }
                             OutputType::HTML => {
-                                let html = to_html(&text);
+                                let html = render_gfm_html(&text)?;
                                 node.html = Some(html);
                             }
                             _ => {}
@@ -208,7 +212,7 @@ pub async fn entry_select(
                                 node.ast = Some(body);
                             }
                             OutputType::HTML => {
-                                let html = to_html(&text);
+                                let html = render_gfm_html(&text)?;
                                 node.html = Some(html);
                             }
                             _ => {}
@@ -353,4 +357,20 @@ pub async fn entry_delete(
     Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_gfm_html;
+
+    #[test]
+    fn renders_gfm_tables_and_keeps_raw_html_escaped() {
+        let html =
+            render_gfm_html("| Name | Value |\n| --- | --- |\n| One | 1 |\n\n<span>raw</span>")
+                .expect("GFM rendering succeeds");
+
+        assert!(html.contains("<table>"));
+        assert!(html.contains("<th>Name</th>"));
+        assert!(html.contains("&lt;span&gt;raw&lt;/span&gt;"));
+    }
 }
