@@ -7,12 +7,32 @@ use tracing::debug;
 use crate::db::{
     fields::CommentFields,
     models::Comment,
-    queries::{QueryObj, RespondObj, WhereBuilder},
+    queries::{QueryObj, RespondObj, WhereBuilder, parse_ordering},
 };
 use crate::utils::errors::NurError;
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
+
+fn comment_ordering(ordering: &str) -> String {
+    parse_ordering(ordering)
+        .split(',')
+        .filter_map(|item| {
+            let mut parts = item.split_whitespace();
+            let column = parts.next()?;
+            let direction = parts.next()?;
+
+            if CommentFields::iter()
+                .any(|field| field.to_string() == column && !matches!(field, CommentFields::Entry))
+            {
+                Some(format!("c.{column} {direction}"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 pub async fn select_comments(
     pool: &PgPool,
@@ -82,19 +102,7 @@ pub async fn select_comments(
     // take builder back from where_chain
     qb = where_chain.into_inner();
 
-    let ordering = query_obj
-        .ordering
-        .split(',')
-        .filter_map(|item| {
-            let item = item.trim();
-            if CommentFields::iter().any(|f| item.contains(&f.to_string())) {
-                Some(format!("c.{item}"))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+    let ordering = comment_ordering(&query_obj.ordering);
     if !ordering.is_empty() {
         qb.push(format!(" ORDER BY {}", ordering));
     }
@@ -112,6 +120,21 @@ pub async fn select_comments(
     let data: Vec<Comment> = query.fetch_all(pool).await?;
 
     Ok(RespondObj::new(query_obj, data))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::comment_ordering;
+
+    #[test]
+    fn normalizes_descending_comment_ordering() {
+        assert_eq!(comment_ordering("-created_at"), "c.created_at DESC");
+        assert_eq!(
+            comment_ordering("created_at DESC,id ASC"),
+            "c.created_at DESC, c.id ASC"
+        );
+        assert!(comment_ordering("entry DESC").is_empty());
+    }
 }
 
 pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError> {

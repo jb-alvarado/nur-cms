@@ -506,7 +506,7 @@ where
     Ok(parse_ordering(&value))
 }
 
-fn parse_ordering(value: &str) -> String {
+pub(crate) fn parse_ordering(value: &str) -> String {
     value
         .split(',')
         .filter_map(|part| {
