@@ -4,10 +4,7 @@ use std::{
     string::ToString,
 };
 
-use argon2::{
-    Argon2, PasswordHasher,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHasher};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
@@ -254,16 +251,12 @@ where
 
                     separated.push_bind(dt);
                 } else if key == "password" {
-                    use argon2::{
-                        Argon2, PasswordHasher,
-                        password_hash::{SaltString, rand_core::OsRng},
-                    };
+                    use argon2::{Argon2, PasswordHasher};
                     let pw = s.clone();
                     let password_hash =
                         tokio::task::spawn_blocking(move || -> Result<String, NurError> {
-                            let salt = SaltString::generate(&mut OsRng);
                             let hash = Argon2::default()
-                                .hash_password(pw.as_bytes(), &salt)
+                                .hash_password(pw.as_bytes())
                                 .map_err(|_| NurError::InternalServerError)?;
 
                             Ok(hash.to_string())
@@ -359,9 +352,8 @@ where
                     let pw = s.clone();
                     let password_hash =
                         tokio::task::spawn_blocking(move || -> Result<String, NurError> {
-                            let salt = SaltString::generate(&mut OsRng);
                             let hash = Argon2::default()
-                                .hash_password(pw.as_bytes(), &salt)
+                                .hash_password(pw.as_bytes())
                                 .map_err(|_| NurError::InternalServerError)?;
 
                             Ok(hash.to_string())

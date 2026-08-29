@@ -12,9 +12,9 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-argon2 = { version = "0.5", features = ["std"] }
+argon2 = "0.6"
 axum = { version = "0.8", features = ["multipart", "macros"] }
-axum-extra = { version = "0.10", features = ["query"] }
+axum-extra = { version = "0.12", features = ["query"] }
 async-stream = "0.3"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
@@ -37,6 +37,7 @@ lettre = { version = "0.11", default-features = false, features = [
 libwebp-sys = "0.14"
 markdown = { version = "1", features = ["serde"] }
 mime_guess = "2"
+moka = { version = "0.12", default-features = false, features = ["sync"] }
 protect-axum = "0.2"
 rand = "0.10"
 real = { version = "0.1", features = ["axum"] }

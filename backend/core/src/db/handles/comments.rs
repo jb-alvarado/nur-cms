@@ -122,21 +122,6 @@ pub async fn select_comments(
     Ok(RespondObj::new(query_obj, data))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::comment_ordering;
-
-    #[test]
-    fn normalizes_descending_comment_ordering() {
-        assert_eq!(comment_ordering("-created_at"), "c.created_at DESC");
-        assert_eq!(
-            comment_ordering("created_at DESC,id ASC"),
-            "c.created_at DESC, c.id ASC"
-        );
-        assert!(comment_ordering("entry DESC").is_empty());
-    }
-}
-
 pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError> {
     let entry_id = c.entry_id.ok_or(NurError::InvalidInput)?;
     let text = c.text.as_deref().ok_or(NurError::InvalidInput)?;
@@ -213,4 +198,19 @@ pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError>
     let id = query.fetch_one(pool).await?;
 
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::comment_ordering;
+
+    #[test]
+    fn normalizes_descending_comment_ordering() {
+        assert_eq!(comment_ordering("-created_at"), "c.created_at DESC");
+        assert_eq!(
+            comment_ordering("created_at DESC,id ASC"),
+            "c.created_at DESC, c.id ASC"
+        );
+        assert!(comment_ordering("entry DESC").is_empty());
+    }
 }

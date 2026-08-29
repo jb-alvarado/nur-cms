@@ -7,7 +7,9 @@ use std::{
 
 use axum::{
     Router,
-    extract::{DefaultBodyLimit, Request},
+    extract::{DefaultBodyLimit, Extension, Request, State},
+    http::Method,
+    middleware::{self as axum_middleware, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
@@ -26,6 +28,7 @@ pub mod utils;
 use crate::{
     api::{
         auth::{decode_jwt, login, logout, refresh, verify},
+        entry_cache::EntryCache,
         routes::*,
     },
     db::{
@@ -60,7 +63,7 @@ where
         .unwrap_or(default)
 }
 
-fn env_bounded_i64(key: &str, default: i64, minimum: i64, maximum: i64) -> i64 {
+pub(crate) fn env_bounded_i64(key: &str, default: i64, minimum: i64, maximum: i64) -> i64 {
     env::var(key)
         .ok()
         .and_then(|value| value.parse::<i64>().ok())
@@ -151,7 +154,36 @@ pub async fn extract(req: &mut Request) -> Result<HashSet<Role>, AuthorizationEr
     }
 }
 
+async fn invalidate_entry_cache(
+    State(cache): State<EntryCache>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let mutates_content = matches!(
+        request.method(),
+        &Method::POST | &Method::PUT | &Method::DELETE
+    ) && matches!(
+        request.uri().path(),
+        path if path.starts_with("/content/")
+            || path.starts_with("/api/content/")
+            || path.starts_with("/media/")
+            || path.starts_with("/api/media/")
+            || path.starts_with("/locales/")
+            || path.starts_with("/api/locales/")
+            || path.starts_with("/configuration/")
+            || path.starts_with("/api/configuration/")
+    );
+    let response = next.run(request).await;
+
+    if mutates_content && response.status().is_success() {
+        cache.invalidate();
+    }
+
+    response
+}
+
 pub fn router_entries() -> (AuthRouter, ApiRouter) {
+    let entry_cache = EntryCache::from_env();
     let auth_routes = Router::new()
         .route("/login", post(login))
         .route("/refresh", post(refresh))
@@ -208,7 +240,8 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
             delete(template_delete).put(template_update),
         )
         .route("/tags", get(tags_select).post(tag_insert))
-        .route("/tags/{id}", put(tag_update));
+        .route("/tags/{id}", put(tag_update))
+        .layer(Extension(entry_cache.clone()));
 
     let media_routes = Router::new()
         .route("/", get(media_select))
@@ -229,7 +262,11 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .nest("/locales", locale_routes)
         .nest("/comments", comment_routes)
         .nest("/content", content_routes)
-        .nest("/media", media_routes);
+        .nest("/media", media_routes)
+        .layer(axum_middleware::from_fn_with_state(
+            entry_cache,
+            invalidate_entry_cache,
+        ));
 
     (auth_routes, api_routes)
 }

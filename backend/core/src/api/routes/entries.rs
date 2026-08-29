@@ -1,6 +1,7 @@
 use axum::{
     Json,
     extract::{Extension, OriginalUri, Path, State},
+    response::{IntoResponse, Response},
 };
 use axum_extra::extract::Query;
 use chrono::Utc;
@@ -18,11 +19,12 @@ use tracing::debug;
 
 use crate::{
     CONFIG,
+    api::entry_cache::{EntryCache, encode_json, json_response},
     db::{
         fields::{ContentEntryFields as CEF, ContentNodeFields as CNF, OutputType, Table},
         handles::{self, ContentEntryFacetQuery},
         models::{AuthUserMeta, Role},
-        queries::{QueryObj, RespondObj},
+        queries::QueryObj,
         serialize::*,
     },
     utils::{
@@ -35,11 +37,25 @@ use crate::{
 
 pub async fn entry_facets_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
+    Extension(cache): Extension<EntryCache>,
     Query(params): Query<ContentEntryFacetQuery>,
-) -> Result<Json<ContentEntryFacets>, NurError> {
-    Ok(Json(
-        handles::select_content_entry_facets(&pool, &params).await?,
-    ))
+    OriginalUri(original_uri): OriginalUri,
+) -> Result<Response, NurError> {
+    let cache_key = cache
+        .enabled()
+        .then(|| cache.entry_key(&original_uri.to_string(), "facets"));
+    if let Some(response) = cache_key.as_deref().and_then(|key| cache.get(key)) {
+        return Ok(json_response(response));
+    }
+
+    let facets = handles::select_content_entry_facets(&pool, &params).await?;
+    if let Some(key) = cache_key {
+        let response = encode_json(&facets)?;
+        cache.insert(key, response.clone());
+        return Ok(json_response(response));
+    }
+
+    Ok(Json(facets).into_response())
 }
 
 fn render_gfm_html(markdown: &str) -> Result<String, NurError> {
@@ -48,10 +64,11 @@ fn render_gfm_html(markdown: &str) -> Result<String, NurError> {
 
 pub async fn entries_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
+    Extension(cache): Extension<EntryCache>,
     Query(mut params): Query<QueryObj<CEF>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<RespondObj<ContentEntrySerializer>>, NurError> {
+) -> Result<Response, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
@@ -63,7 +80,8 @@ pub async fn entries_select(
         output = typ.clone();
     }
 
-    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+    let is_public = !details.has_any_authority(&[&Role::Admin, &Role::Author]);
+    if is_public {
         params.search_status = Some("published".to_string());
     }
 
@@ -72,6 +90,12 @@ pub async fn entries_select(
         && output == OutputType::AST
     {
         params.fields.push(CEF::Node(CNF::Embeds));
+    }
+
+    let cache_key = (is_public && cache.enabled())
+        .then(|| cache.entry_key(&original_uri.to_string(), &format!("{output:?}")));
+    if let Some(response) = cache_key.as_deref().and_then(|key| cache.get(key)) {
+        return Ok(json_response(response));
     }
 
     let mut content = handles::select_content_entries(&pool, &params).await?;
@@ -113,16 +137,23 @@ pub async fn entries_select(
         }
     }
 
-    Ok(Json(content))
+    if let Some(key) = cache_key {
+        let response = encode_json(&content)?;
+        cache.insert(key, response.clone());
+        return Ok(json_response(response));
+    }
+
+    Ok(Json(content).into_response())
 }
 
 pub async fn entry_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
+    Extension(cache): Extension<EntryCache>,
     Path((type_slug, slug)): Path<(String, String)>,
     Query(mut params): Query<QueryObj<CEF>>,
     OriginalUri(original_uri): OriginalUri,
     details: AuthDetails<Role>,
-) -> Result<Json<ContentEntrySerializer>, NurError> {
+) -> Result<Response, NurError> {
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
     params.type_slug = Some(type_slug);
@@ -143,8 +174,15 @@ pub async fn entry_select(
         params.fields.push(CEF::Node(CNF::Embeds));
     }
 
-    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+    let is_public = !details.has_any_authority(&[&Role::Admin, &Role::Author]);
+    if is_public {
         params.search_status = Some("published".to_string());
+    }
+
+    let cache_key = (is_public && cache.enabled())
+        .then(|| cache.entry_key(&original_uri.to_string(), &format!("{output:?}")));
+    if let Some(response) = cache_key.as_deref().and_then(|key| cache.get(key)) {
+        return Ok(json_response(response));
     }
 
     let character_limit = params.character_limit;
@@ -225,7 +263,13 @@ pub async fn entry_select(
             }
         }
 
-        return Ok(Json(content));
+        if let Some(key) = cache_key {
+            let response = encode_json(&content)?;
+            cache.insert(key, response.clone());
+            return Ok(json_response(response));
+        }
+
+        return Ok(Json(content).into_response());
     }
 
     Err(NurError::NotFound)
