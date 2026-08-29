@@ -11,6 +11,7 @@ A simple and fast (headless) content management system built with Rust and Vue.j
 - **Modern UI** - Vue 3 + TypeScript frontend with Tailwind CSS and DaisyUI
 - **RESTful API** - Clean API design
 - **Flexible Content Output** - Delivers content in 3 formats: Markdown, HTML, and AST (JSON structure)
+- **Public Entry Cache** - Configurable in-memory cache for public entry, list, and facet responses
 - **PostgreSQL Database** - Robust data storage with SQLx
 
 For detailed setup instructions and development workflow, see the [Developer Documentation](docs/developer.md).
@@ -21,6 +22,9 @@ The application can be configured via:
 
 - Environment variables (`.env` file)
 - Command-line arguments (see `cargo run -- --help`)
+
+See the [configuration reference](docs/configuration.md) for available environment variables,
+including the public entry cache.
 
 ## Authentication
 
