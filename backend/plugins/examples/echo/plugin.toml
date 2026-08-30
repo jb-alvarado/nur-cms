@@ -1,0 +1,40 @@
+[plugin]
+id = "echo"
+version = "0.1.0"
+api_version = 1
+cms_version = ">=0.16, <0.17"
+module = "target/wasm32-wasip2/release/nur_cms_echo_plugin.wasm"
+
+[migrations]
+directory = "migrations"
+
+[[routes]]
+id = "echo"
+method = "POST"
+path = "/api/plugins/echo"
+access = "public"
+
+[[routes]]
+id = "author"
+method = "GET"
+path = "/api/plugins/echo/author"
+access = "author"
+
+[[routes]]
+id = "editor"
+method = "GET"
+path = "/api/plugins/echo/editor"
+access = "admin,author"
+
+[[routes]]
+id = "root"
+method = "GET"
+path = "/plugin-echo"
+access = "public"
+
+[admin]
+
+[[admin.menu]]
+label = "Echo plugin"
+path = "/admin/plugins/echo"
+icon = "bi-puzzle"

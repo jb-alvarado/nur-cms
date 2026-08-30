@@ -1,0 +1,45 @@
+package nur:cms@0.1.0;
+
+interface types {
+  record header {
+    name: string,
+    value: string,
+  }
+
+  record identity {
+    user-id: s32,
+    roles: list<string>,
+  }
+
+  record request {
+    route-id: string,
+    method: string,
+    path: string,
+    query: option<string>,
+    headers: list<header>,
+    body: list<u8>,
+    identity: option<identity>,
+  }
+
+  record response {
+    status: u16,
+    headers: list<header>,
+    body: list<u8>,
+  }
+
+  variant plugin-error {
+    bad-request(string),
+    forbidden,
+    not-found,
+    failed(string),
+  }
+}
+
+interface http-handler {
+  use types.{request, response, plugin-error};
+  handle: func(request: request) -> result<response, plugin-error>;
+}
+
+world cms-plugin {
+  export http-handler;
+}

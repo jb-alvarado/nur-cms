@@ -21,3 +21,21 @@ responses immediately.
 
 Time-to-idle is refreshed on each cache hit. Time-to-live is an absolute maximum lifetime and is
 not extended by access.
+
+## Plugins
+
+Plugins are installed separately and must be explicitly enabled. See the [plugin documentation](plugins.md)
+for the package layout, manifest format, migration behavior, and HTTP interface.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NUR_PLUGINS` | empty | Comma-separated IDs of plugins to enable. |
+| `NUR_PLUGIN_DIR` | platform defaults | Additional plugin roots separated by the platform path separator. |
+| `NUR_PLUGIN_ALLOW_ROOT_ROUTES` | `0` | Set to `1` to permit non-reserved routes outside the plugin API namespace. |
+| `NUR_PLUGIN_FUEL` | `1000000` | Wasmtime fuel available to each request. |
+| `NUR_PLUGIN_MEMORY_LIMIT` | `67108864` | Maximum linear memory per plugin request in bytes. |
+| `NUR_PLUGIN_MODULE_SIZE_LIMIT` | `67108864` | Maximum size of a plugin WebAssembly component in bytes. |
+| `NUR_PLUGIN_TIMEOUT_MS` | `5000` | Wall-clock execution limit per plugin request. |
+| `NUR_PLUGIN_MAX_CONCURRENCY` | `8` | Maximum number of concurrent plugin executions. |
+| `NUR_PLUGIN_REQUEST_BODY_LIMIT` | `1048576` | Maximum request body passed to a plugin in bytes. |
+| `NUR_PLUGIN_RESPONSE_BODY_LIMIT` | `4194304` | Maximum response body accepted from a plugin in bytes. |

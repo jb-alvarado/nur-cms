@@ -44,6 +44,7 @@ use nur_core::{
     },
     utils::{cmd_args::add_user, errors::NurError, importer},
 };
+use nur_plugins::PluginManager;
 
 use utils::{
     extend_args::AppArgs,
@@ -158,6 +159,15 @@ async fn main() -> Result<(), NurError> {
         return Ok(());
     }
 
+    let plugin_manager = PluginManager::load(&pool).await.map_err(|error| {
+        error!(%error, "Failed to load plugins");
+        NurError::InternalServerError
+    })?;
+    let plugin_routes = plugin_manager.router().map_err(|error| {
+        error!(%error, "Failed to register plugin routes");
+        NurError::InternalServerError
+    })?;
+
     let (tx, _rx) = broadcast::channel(20);
 
     let sse_state = SseAuthState {
@@ -216,6 +226,7 @@ async fn main() -> Result<(), NurError> {
         )
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
+        .merge(plugin_routes)
         .layer(middlewares);
 
     #[cfg(not(debug_assertions))]
@@ -227,6 +238,7 @@ async fn main() -> Result<(), NurError> {
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_ui_routes())
         .nest("/sse", sse_router)
+        .merge(plugin_routes)
         .layer(middlewares);
 
     if cfg!(debug_assertions) || args.serve_static {

@@ -1,0 +1,31 @@
+[package]
+name = "nur_plugins"
+description = "Wasmtime plugin runtime for nur-cms"
+readme.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+axum = "0.8"
+nur_core = { path = "../core" }
+protect-axum = "0.2"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio", "postgres"
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+toml_edit = { version = "0.25", features = ["serde"] }
+tracing = "0.1"
+wasmtime = { version = "47", default-features = false, features = [
+    "component-model", "cranelift", "runtime", "std"
+] }
+wasmtime-wasi = { version = "47", default-features = false, features = ["p2"] }

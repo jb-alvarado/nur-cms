@@ -1,9 +1,11 @@
 /postgres-data
 /target
+/backend/plugins/examples/*/target/
 .env
 *.sql
 !migrations/*.sql
 !migrations_dev/*.sql
+!backend/plugins/**/*.sql
 
 uploads/
 !uploads/2025

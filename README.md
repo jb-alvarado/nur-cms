@@ -12,6 +12,7 @@ A simple and fast (headless) content management system built with Rust and Vue.j
 - **RESTful API** - Clean API design
 - **Flexible Content Output** - Delivers content in 3 formats: Markdown, HTML, and AST (JSON structure)
 - **Public Entry Cache** - Configurable in-memory cache for public entry, list, and facet responses
+- **WebAssembly Plugins** - Sandboxed Wasmtime plugins with API routes and isolated migrations
 - **PostgreSQL Database** - Robust data storage with SQLx
 
 For detailed setup instructions and development workflow, see the [Developer Documentation](docs/developer.md).
@@ -25,6 +26,9 @@ The application can be configured via:
 
 See the [configuration reference](docs/configuration.md) for available environment variables,
 including the public entry cache.
+
+See the [plugin documentation](docs/plugins.md) for building Wasmtime extensions with API routes,
+role-based access, plugin-local migrations, and future admin menu metadata.
 
 ## Authentication
 

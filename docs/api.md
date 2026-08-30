@@ -40,8 +40,9 @@ The built-in roles are:
 - `user`
 - `guest`
 
-Custom roles can currently read only their own user profile and request an SSE
-UUID. All other authorization checks explicitly list the permitted roles.
+For built-in core endpoints, custom roles can currently read only their own
+user profile and request an SSE UUID. Plugins may explicitly grant routes to
+custom role names in their manifests.
 
 ### Standard responses
 
@@ -735,6 +736,43 @@ validates the email address and checks the text for spam. `name` is limited to
     "allow_html": false
 }
 ```
+
+## Plugins
+
+Enabled Wasmtime plugins and their optional admin-panel metadata are listed at:
+
+```http
+GET /api/plugins
+Authorization: Bearer <access-token>
+```
+
+This endpoint is available to admins and authors:
+
+```json
+[
+    {
+        "id": "example",
+        "version": "0.1.0",
+        "admin": {
+            "entry": "admin/index.html",
+            "menu": [
+                {
+                    "label": "Example",
+                    "path": "/admin/plugins/example",
+                    "icon": "bi-puzzle"
+                }
+            ]
+        }
+    }
+]
+```
+
+Plugin-defined endpoints normally live below `/api/plugins/{plugin-id}`. Their methods, request
+and response formats, and access roles are declared by the individual plugin. A route can be
+public, restricted to one role such as `author`, or shared by multiple roles such as
+`admin,author`. Explicit non-reserved root routes may also be enabled by the server administrator.
+
+See [Plugins](plugins.md) for the manifest, runtime, security, and migration model.
 
 ## Server-Sent Events
 
