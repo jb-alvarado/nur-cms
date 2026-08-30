@@ -1,0 +1,39 @@
+[plugin]
+id = "community-site"
+version = "0.1.0"
+api_version = 1
+cms_version = ">=0.16, <0.17"
+module = "target/wasm32-wasip2/release/nur_cms_community_site_plugin.wasm"
+
+[assets]
+directory = "assets"
+
+# Public HTML pages are cached by the host. A successful write to the CMS API
+# invalidates this cache immediately.
+[cache]
+ttl_seconds = 300
+max_entries = 128
+
+[[routes]]
+id = "home"
+method = "GET"
+path = "/"
+access = "public"
+
+[[routes]]
+id = "privacy"
+method = "GET"
+path = "/privacy"
+access = "public"
+
+[[routes]]
+id = "events"
+method = "GET"
+path = "/events"
+access = "public"
+
+[[routes]]
+id = "event"
+method = "GET"
+path = "/events/{slug}"
+access = "public"

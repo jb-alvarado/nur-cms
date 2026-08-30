@@ -1,0 +1,79 @@
+:root {
+    color-scheme: light dark;
+    font-family: system-ui, sans-serif;
+}
+body {
+    margin: 0;
+    line-height: 1.55;
+    background: Canvas;
+}
+header,
+main {
+    max-width: 52rem;
+    margin: auto;
+    padding: 1rem 1.5rem;
+}
+header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+main {
+    padding-bottom: 3rem;
+}
+article > :first-child {
+    margin-top: 0;
+}
+article :is(img, video, iframe) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 1.25rem auto;
+    border-radius: 0.5rem;
+}
+article iframe {
+    width: 100%;
+    min-height: 22rem;
+}
+article pre {
+    overflow-x: auto;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, currentColor 8%, transparent);
+}
+article blockquote {
+    margin-inline: 0;
+    padding-left: 1rem;
+    border-left: 0.25rem solid color-mix(in srgb, currentColor 30%, transparent);
+}
+header a {
+    color: inherit;
+    font-weight: 700;
+    text-decoration: none;
+}
+nav {
+    display: flex;
+    gap: 1rem;
+}
+.events {
+    display: grid;
+    gap: 1rem;
+    padding: 0;
+    list-style: none;
+}
+.events li {
+    padding: 1rem;
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+    border-radius: 0.5rem;
+}
+.events h2 {
+    margin-top: 0;
+}
+.events :is(h1, h2, h3) + p {
+    margin-top: 0.5rem;
+}
+time {
+    font-size: 0.9rem;
+    opacity: 0.72;
+}

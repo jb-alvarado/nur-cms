@@ -14,7 +14,10 @@ use crate::db::{
     models::{ContentType, Role},
     queries::{QueryObj, RespondObj},
 };
-use crate::utils::errors::NurError;
+use crate::utils::{
+    editor_settings::{valid_entry_status, validate_hidden_entry_fields},
+    errors::NurError,
+};
 
 pub async fn types_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,
@@ -39,6 +42,7 @@ pub async fn type_insert(
     Json(content): Json<serde_json::Value>,
 ) -> Result<Json<i32>, NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
+        validate_type_editor_settings(&content)?;
         return match handles::insert_record(&pool, &Table::ContentTypes, &content).await {
             Ok(id) => Ok(Json(id)),
             Err(e) => {
@@ -79,7 +83,8 @@ pub async fn type_update(
     details: AuthDetails<Role>,
     Json(content): Json<Value>,
 ) -> Result<(), NurError> {
-    if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+    if details.has_any_authority(&[&Role::Admin]) {
+        validate_type_editor_settings(&content)?;
         return match handles::update_record(&pool, &Table::ContentTypes, id, &content).await {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -92,4 +97,49 @@ pub async fn type_update(
     Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
+}
+
+fn validate_type_editor_settings(content: &Value) -> Result<(), NurError> {
+    let Some(object) = content.as_object() else {
+        return Err(NurError::InvalidInput);
+    };
+
+    if let Some(status) = object.get("entry_default_status")
+        && !status.is_null()
+        && !status.as_str().is_some_and(valid_entry_status)
+    {
+        return Err(NurError::InvalidInput);
+    }
+
+    if let Some(fields) = object.get("entry_hidden_fields") {
+        let fields: Vec<String> =
+            serde_json::from_value(fields.clone()).map_err(|_| NurError::InvalidInput)?;
+        validate_hidden_entry_fields(&fields)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::validate_type_editor_settings;
+
+    #[test]
+    fn validates_type_editor_settings() {
+        assert!(
+            validate_type_editor_settings(&json!({
+                "entry_default_status": "published",
+                "entry_hidden_fields": ["end_time"]
+            }))
+            .is_ok()
+        );
+        assert!(
+            validate_type_editor_settings(&json!({ "entry_default_status": "pending" })).is_err()
+        );
+        assert!(
+            validate_type_editor_settings(&json!({ "entry_hidden_fields": ["unknown"] })).is_err()
+        );
+    }
 }

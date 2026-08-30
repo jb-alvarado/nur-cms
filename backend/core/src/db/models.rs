@@ -109,6 +109,54 @@ impl ColumnCounter for Configuration {
     }
 }
 
+#[derive(Clone, Debug, FromRow, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct CmsConfiguration {
+    pub frontend_name: String,
+    pub logo_media_id: Option<i32>,
+    pub admin_language: Option<String>,
+    pub entry_default_status: String,
+    pub entry_hidden_fields: Vec<String>,
+    pub hidden_menu_items: Vec<String>,
+    pub disabled_features: Vec<String>,
+}
+
+impl Default for CmsConfiguration {
+    fn default() -> Self {
+        Self {
+            frontend_name: "NUR CMS".into(),
+            logo_media_id: None,
+            admin_language: None,
+            entry_default_status: "draft".into(),
+            entry_hidden_fields: Vec::new(),
+            hidden_menu_items: Vec::new(),
+            disabled_features: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, FromRow, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+#[serde(rename_all = "snake_case")]
+pub struct BrandingConfiguration {
+    pub frontend_name: String,
+    pub logo_url: Option<String>,
+    pub logo_alt: Option<String>,
+    pub admin_language: Option<String>,
+}
+
+impl Default for BrandingConfiguration {
+    fn default() -> Self {
+        Self {
+            frontend_name: "NUR CMS".into(),
+            logo_url: None,
+            logo_alt: None,
+            admin_language: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
 #[serde(rename_all = "snake_case")]
@@ -258,6 +306,10 @@ pub struct ContentType {
     pub order_index: i32,
     #[serde(default)]
     pub use_meta: bool,
+    #[serde(default)]
+    pub entry_default_status: Option<String>,
+    #[serde(default)]
+    pub entry_hidden_fields: Vec<String>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -271,6 +323,8 @@ impl FromRow<'_, PgRow> for ContentType {
             slug: row.try_get("slug").unwrap_or_default(),
             order_index: row.try_get("order_index").unwrap_or_default(),
             use_meta: row.try_get("use_meta").unwrap_or(false),
+            entry_default_status: row.try_get("entry_default_status").ok(),
+            entry_hidden_fields: row.try_get("entry_hidden_fields").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })
     }

@@ -8,6 +8,12 @@ module = "target/wasm32-wasip2/release/nur_cms_echo_plugin.wasm"
 [migrations]
 directory = "migrations"
 
+# Optional server-side cache for this plugin's public GET and HEAD routes.
+# Individual routes can opt out with `cache = false`.
+[cache]
+ttl_seconds = 60
+max_entries = 64
+
 [[routes]]
 id = "echo"
 method = "POST"

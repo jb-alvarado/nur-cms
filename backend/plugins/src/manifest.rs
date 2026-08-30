@@ -18,6 +18,8 @@ pub struct Manifest {
     pub migrations: MigrationManifest,
     #[serde(default)]
     pub routes: Vec<RouteManifest>,
+    pub assets: Option<AssetsManifest>,
+    pub cache: Option<CacheManifest>,
     pub admin: Option<AdminManifest>,
 }
 
@@ -45,6 +47,21 @@ pub struct RouteManifest {
     pub path: String,
     #[serde(default = "public_access")]
     pub access: String,
+    #[serde(default)]
+    pub cache: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssetsManifest {
+    pub directory: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheManifest {
+    pub ttl_seconds: u64,
+    pub max_entries: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -68,6 +85,7 @@ pub struct InstalledPlugin {
     pub manifest: Manifest,
     pub root: PathBuf,
     pub module: PathBuf,
+    pub assets: Option<PathBuf>,
     pub manifest_checksum: Vec<u8>,
 }
 
@@ -113,6 +131,19 @@ impl RouteManifest {
             .filter(|role| unique.insert(role.clone()))
             .collect())
     }
+
+    pub fn cache_enabled(&self, plugin_cache_enabled: bool) -> Result<bool, Error> {
+        let public_get = self.roles()?.is_empty() && matches!(self.method.as_str(), "GET" | "HEAD");
+        match self.cache {
+            Some(true) if !plugin_cache_enabled || !public_get => Err(Error::Manifest(format!(
+                "route '{}' can be cached only when it is a public GET or HEAD route and the plugin has a [cache] section",
+                self.id
+            ))),
+            Some(true) => Ok(true),
+            Some(false) => Ok(false),
+            None => Ok(plugin_cache_enabled && public_get),
+        }
+    }
 }
 
 pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
@@ -125,18 +156,19 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
             "no more than 32 plugins can be enabled".into(),
         ));
     }
+    if let Some(id) = enabled.iter().find(|id| !valid_plugin_id(id)) {
+        return Err(Error::Manifest(format!(
+            "invalid enabled plugin id '{id}'; use 3-40 lowercase letters, digits, and hyphens"
+        )));
+    }
 
     let mut discovered = HashMap::new();
     for plugin_root in plugin_roots() {
-        let Ok(entries) = fs::read_dir(&plugin_root) else {
+        if !plugin_root.is_dir() {
             continue;
-        };
-        for entry in entries {
-            let entry = entry.map_err(Error::Io)?;
-            if !entry.file_type().map_err(Error::Io)?.is_dir() {
-                continue;
-            }
-            let root = entry.path();
+        }
+        for enabled_id in &enabled {
+            let root = plugin_root.join(enabled_id);
             let manifest_path = root.join("plugin.toml");
             if !manifest_path.is_file() {
                 continue;
@@ -156,8 +188,11 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
                 Error::Manifest(format!("{}: {error}", manifest_path.display()))
             })?;
             validate_manifest(&manifest)?;
-            if !enabled.contains(&manifest.plugin.id) {
-                continue;
+            if manifest.plugin.id != *enabled_id {
+                return Err(Error::Manifest(format!(
+                    "plugin directory '{enabled_id}' contains manifest for '{}'",
+                    manifest.plugin.id
+                )));
             }
             let root = fs::canonicalize(root).map_err(Error::Io)?;
             let module = contained_path(&root, &manifest.plugin.module, "module")?;
@@ -168,10 +203,25 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
                     module.display()
                 )));
             }
+            let assets = manifest
+                .assets
+                .as_ref()
+                .map(|assets| contained_path(&root, &assets.directory, "asset directory"))
+                .transpose()?;
+            if assets.as_ref().is_some_and(|assets| !assets.is_dir()) {
+                return Err(Error::Manifest(format!(
+                    "plugin '{}' asset directory does not exist",
+                    manifest.plugin.id
+                )));
+            }
+            if let Some(assets) = &assets {
+                validate_asset_tree(assets, &manifest.plugin.id)?;
+            }
             let plugin = InstalledPlugin {
                 manifest,
                 root,
                 module,
+                assets,
                 manifest_checksum: Sha256::digest(bytes).to_vec(),
             };
             let id = plugin.manifest.plugin.id.clone();
@@ -183,10 +233,12 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
         }
     }
 
-    let missing: Vec<_> = enabled
-        .difference(&discovered.keys().cloned().collect())
+    let mut missing: Vec<_> = enabled
+        .iter()
+        .filter(|id| !discovered.contains_key(*id))
         .cloned()
         .collect();
+    missing.sort();
     if !missing.is_empty() {
         return Err(Error::Manifest(format!(
             "enabled plugins were not found: {}",
@@ -197,6 +249,32 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
     let mut plugins: Vec<_> = discovered.into_values().collect();
     plugins.sort_by(|left, right| left.manifest.plugin.id.cmp(&right.manifest.plugin.id));
     Ok(plugins)
+}
+
+fn validate_asset_tree(root: &Path, plugin_id: &str) -> Result<(), Error> {
+    let mut directories = vec![root.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        for entry in fs::read_dir(&directory).map_err(Error::Io)? {
+            let entry = entry.map_err(Error::Io)?;
+            let file_type = entry.file_type().map_err(Error::Io)?;
+            if file_type.is_symlink() {
+                return Err(Error::Manifest(format!(
+                    "plugin '{plugin_id}' asset directory contains a symbolic link: {}",
+                    entry.path().display()
+                )));
+            }
+            if file_type.is_dir() {
+                directories.push(entry.path());
+            } else if !file_type.is_file() {
+                return Err(Error::Manifest(format!(
+                    "plugin '{plugin_id}' asset directory contains an unsupported file type: {}",
+                    entry.path().display()
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn schema_name(plugin_id: &str) -> String {
@@ -234,6 +312,15 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             plugin.id, plugin.api_version
         )));
     }
+    if let Some(cache) = &manifest.cache
+        && (!(1..=86_400).contains(&cache.ttl_seconds)
+            || !(1..=10_000).contains(&cache.max_entries))
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{}' cache settings are outside the supported limits",
+            plugin.id
+        )));
+    }
     let requirement = VersionReq::parse(&plugin.cms_version).map_err(|error| {
         Error::Manifest(format!(
             "plugin '{}' has invalid cms_version: {error}",
@@ -257,13 +344,28 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
         )));
     }
     for route in &manifest.routes {
-        if route.id.is_empty() || !route_ids.insert(&route.id) {
+        if !valid_route_id(&route.id) || !route_ids.insert(&route.id) {
             return Err(Error::Manifest(format!(
-                "plugin '{}' has an empty or duplicate route id",
+                "plugin '{}' has an invalid or duplicate route id",
                 plugin.id
             )));
         }
-        route.roles()?;
+        route.cache_enabled(manifest.cache.is_some())?;
+    }
+    if manifest.assets.is_some()
+        && manifest.routes.iter().any(|route| {
+            let assets_path = format!("/plugins/{}/assets", plugin.id);
+            route.path == assets_path
+                || route
+                    .path
+                    .strip_prefix(&assets_path)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{}' declares a route inside its reserved asset path",
+            plugin.id
+        )));
     }
     Ok(())
 }
@@ -281,6 +383,13 @@ fn valid_role(role: &str) -> bool {
         && role
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn valid_route_id(id: &str) -> bool {
+    (1..=80).contains(&id.len())
+        && id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_' | b'.')
+        })
 }
 
 fn enabled_plugins() -> HashSet<String> {
@@ -316,7 +425,10 @@ fn plugin_roots() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RouteManifest, schema_name, valid_plugin_id};
+    use super::{
+        CacheManifest, RouteManifest, schema_name, valid_plugin_id, valid_route_id,
+        validate_asset_tree,
+    };
 
     fn route(access: &str) -> RouteManifest {
         RouteManifest {
@@ -324,6 +436,7 @@ mod tests {
             method: "GET".into(),
             path: "/api/plugins/test".into(),
             access: access.into(),
+            cache: None,
         }
     }
 
@@ -344,5 +457,59 @@ mod tests {
         assert!(valid_plugin_id("my-plugin"));
         assert!(!valid_plugin_id("my_plugin"));
         assert_eq!(schema_name("my-plugin"), "nur_plugin_my_plugin");
+    }
+
+    #[test]
+    fn route_ids_are_bounded_and_log_safe() {
+        assert!(valid_route_id("public-feed.v1"));
+        assert!(!valid_route_id("line\nbreak"));
+        assert!(!valid_route_id(&"x".repeat(81)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn asset_trees_reject_symbolic_links() {
+        use std::{fs, os::unix::fs::symlink, time::SystemTime};
+
+        let unique = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system clock is after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "nur-cms-plugin-assets-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("test asset directory is created");
+        fs::write(root.join("site.css"), "body {}").expect("regular test asset is created");
+        assert!(validate_asset_tree(&root, "example").is_ok());
+
+        symlink("/etc/passwd", root.join("outside")).expect("test symbolic link is created");
+        assert!(validate_asset_tree(&root, "example").is_err());
+
+        fs::remove_dir_all(root).expect("test asset directory is removed");
+    }
+
+    #[test]
+    fn plugin_cache_has_bounded_settings() {
+        let cache = CacheManifest {
+            ttl_seconds: 300,
+            max_entries: 128,
+        };
+        assert!((1..=86_400).contains(&cache.ttl_seconds));
+        assert!((1..=10_000).contains(&cache.max_entries));
+    }
+
+    #[test]
+    fn caches_only_eligible_routes_by_default() {
+        assert!(route("public").cache_enabled(true).unwrap());
+        assert!(!route("author").cache_enabled(true).unwrap());
+
+        let mut post_route = route("public");
+        post_route.method = "POST".into();
+        assert!(!post_route.cache_enabled(true).unwrap());
+
+        let mut protected_cached = route("author");
+        protected_cached.cache = Some(true);
+        assert!(protected_cached.cache_enabled(true).is_err());
     }
 }

@@ -16,7 +16,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    ACCESS_LIFETIME_MINUTES, CONFIG, REFRESH_LIFETIME,
+    ACCESS_LIFETIME_MINUTES, CMS_CONFIG, CONFIG, REFRESH_LIFETIME,
     db::{
         fields::AuthUserFields,
         handles,
@@ -119,14 +119,6 @@ static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
         .expect("dummy password hash must be valid")
         .to_string()
 });
-
-fn frontend_name() -> String {
-    option_env!("FRONTEND_NAME")
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(ToString::to_string)
-        .unwrap_or_else(|| "NUR CMS".to_string())
-}
 
 fn email_two_factor_is_configured(config: &Configuration) -> bool {
     [
@@ -328,7 +320,7 @@ pub async fn login(
                         }
                     });
 
-                    let app_name = frontend_name();
+                    let app_name = CMS_CONFIG.read().await.frontend_name.clone();
                     let text = mail_body(&verification_code, &app_name);
 
                     let target = MailTarget::new(email, true);

@@ -72,7 +72,13 @@ async function login() {
 <template>
     <div class="h-dvh w-full flex justify-center items-center">
         <div class="w-96 min-w-full flex flex-col justify-center items-center px-4">
-            <h1 class="text-6xl xs:text-8xl">{{ $t('app.title') }}</h1>
+            <img
+                v-if="store.branding.logo_url"
+                :src="store.branding.logo_url"
+                :alt="store.branding.logo_alt ?? store.branding.frontend_name"
+                class="mb-5 size-32 object-contain"
+            />
+            <h1 class="text-center text-6xl xs:text-8xl">{{ store.branding.frontend_name }}</h1>
 
             <form class="mt-10" @submit.prevent="login">
                 <input

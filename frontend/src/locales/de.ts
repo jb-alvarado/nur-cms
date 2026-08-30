@@ -86,6 +86,13 @@ export default {
         slug: 'Slug',
         order: 'Position',
         useMeta: 'Meta verwenden',
+        defaultEntryStatus: 'Standardstatus für neue Entries',
+        hiddenEntryFields: 'Zusätzlich ausgeblendete Editor-Felder',
+        useGlobalSetting: 'Globale Einstellung verwenden',
+    },
+    configurationTabs: {
+        system: 'System',
+        cms: 'CMS',
     },
     locale: {
         title: 'Sprachen',
@@ -106,6 +113,38 @@ export default {
         notificationEmails: 'Benachrichtigungs-E-Mails',
         imageExtensions: 'Bilderweiterungen',
         imageResolutions: 'Bildauflösungen',
+    },
+    cmsSettings: {
+        title: 'CMS-Konfiguration',
+        frontendName: 'Frontend-Name',
+        adminLanguage: 'Sprache der Admin-Oberfläche',
+        adminLanguageAutomatic: 'Benutzerauswahl',
+        adminLanguageHelp: 'Eine feste Sprache blendet die Sprachauswahl aus und gilt für alle Administratoren.',
+        entryEditor: 'Entry-Editor',
+        defaultEntryStatus: 'Standardstatus für neue Entries',
+        hiddenEntryFieldsHelp:
+            'Ausgeblendete Felder gelten für alle Content-Typen und können pro Typ nicht wieder eingeblendet werden.',
+        logo: 'Logo',
+        selectLogo: 'Logo auswählen',
+        clearLogo: 'Logo entfernen',
+        features: 'Funktionen',
+        comments: 'Kommentare',
+        commentsHelp:
+            'Das Deaktivieren der Kommentare sperrt auch alle öffentlichen und administrativen Kommentar-API-Routen.',
+        menuEntries: 'Menüeinträge',
+        menuEntriesHelp: 'Ausgeblendete Einträge bleiben über ihre Routen und APIs erreichbar.',
+        updated: 'CMS-Konfiguration aktualisiert',
+    },
+    entryEditor: {
+        title: 'Titel',
+        slug: 'Slug',
+        author: 'Autor',
+        tags: 'Tags',
+        category: 'Kategorie',
+        startTime: 'Startzeit',
+        endTime: 'Endzeit',
+        status: 'Status',
+        delete: 'Löschen',
     },
     dialog: {
         deleteTitle: 'Auswahl löschen',
@@ -152,7 +191,7 @@ export default {
         tableCell2: 'Zelle 2',
     },
     app: {
-        title: __FRONTEND_NAME__,
+        title: 'NUR CMS',
     },
     media: {
         alt: 'Alt',

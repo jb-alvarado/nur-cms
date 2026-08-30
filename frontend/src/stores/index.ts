@@ -3,6 +3,9 @@ import { defineStore } from 'pinia'
 import { errMsg } from '@/utils/error'
 import { authFetch } from '@/composables/authFetch'
 
+let cmsConfigurationRequest: Promise<CmsConfiguration> | null = null
+let brandingRequest: Promise<BrandingConfiguration> | null = null
+
 export const useIndex = defineStore('index', {
     state: () => ({
         darkMode: false,
@@ -53,6 +56,23 @@ export const useIndex = defineStore('index', {
         loaded: false,
         selectAll: false,
         isLoaded: false,
+        cmsConfiguration: {
+            frontend_name: 'NUR CMS',
+            logo_media_id: null,
+            admin_language: null,
+            entry_default_status: 'draft',
+            entry_hidden_fields: [],
+            hidden_menu_items: [],
+            disabled_features: [],
+        } as CmsConfiguration,
+        cmsConfigurationLoaded: false,
+        branding: {
+            frontend_name: 'NUR CMS',
+            logo_url: null,
+            logo_alt: null,
+            admin_language: null,
+        } as BrandingConfiguration,
+        brandingLoaded: false,
     }),
 
     getters: {},
@@ -69,6 +89,68 @@ export const useIndex = defineStore('index', {
                     this.msgList.splice(index, 1)
                 }
             }, seconds * 1000)
+        },
+
+        isMenuVisible(id: string) {
+            return !this.cmsConfiguration.hidden_menu_items.includes(id)
+        },
+
+        isFeatureEnabled(feature: string) {
+            return !this.cmsConfiguration.disabled_features.includes(feature)
+        },
+
+        async selectCmsConfiguration() {
+            if (this.cmsConfigurationLoaded) return
+            if (cmsConfigurationRequest) {
+                try {
+                    this.cmsConfiguration = await cmsConfigurationRequest
+                    this.cmsConfigurationLoaded = true
+                } catch {
+                    // The initiating request reports the error and leaves retries enabled.
+                }
+                return
+            }
+
+            cmsConfigurationRequest = authFetch<CmsConfiguration>('/api/configuration/cms')
+            try {
+                this.cmsConfiguration = await cmsConfigurationRequest
+                this.cmsConfigurationLoaded = true
+            } catch (error) {
+                this.msgAlert('error', error instanceof Error ? error.message : String(error))
+            } finally {
+                cmsConfigurationRequest = null
+            }
+        },
+
+        async selectBranding(force = false) {
+            if (this.brandingLoaded && !force) return
+            if (brandingRequest) {
+                try {
+                    this.branding = await brandingRequest
+                    this.brandingLoaded = true
+                } catch {
+                    // The initiating request handles the error.
+                }
+                if (!force) return
+            }
+
+            brandingRequest = (async () => {
+                const response = await fetch('/api/configuration/branding')
+                if (!response.ok) {
+                    throw new Error(await errMsg(response))
+                }
+                return (await response.json()) as BrandingConfiguration
+            })()
+            try {
+                this.branding = await brandingRequest
+                this.brandingLoaded = true
+            } catch (error) {
+                if (force) {
+                    this.msgAlert('error', error instanceof Error ? error.message : String(error))
+                }
+            } finally {
+                brandingRequest = null
+            }
         },
 
         async selectAuthors() {

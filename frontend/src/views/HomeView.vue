@@ -15,8 +15,6 @@ dayjs.extend(localizedFormat)
 const { t, locale } = useI18n()
 const store = useIndex()
 const auth = useAuth()
-const frontendName = __FRONTEND_NAME__
-
 const lastUsers = ref<AuthUser[]>([])
 
 // Set dayjs locale based on i18n locale
@@ -55,8 +53,14 @@ useHead({
     <div class="relative h-[calc(100vh-90px)] w-full overflow-hidden">
         <div class="w-full h-full flex items-center justify-center">
             <div class="flex flex-col items-center text-center opacity-30">
-                <div id="homeLogo" class="size-64 sm:size-96" />
-                <h1 class="mt-3 text-3xl font-bold sm:mt-5 sm:text-5xl">{{ frontendName }}</h1>
+                <img
+                    v-if="store.branding.logo_url"
+                    :src="store.branding.logo_url"
+                    :alt="store.branding.logo_alt ?? store.branding.frontend_name"
+                    class="size-64 object-contain sm:size-96"
+                />
+                <div v-else id="homeLogo" class="size-64 sm:size-96" />
+                <h1 class="mt-3 text-3xl font-bold sm:mt-5 sm:text-5xl">{{ store.branding.frontend_name }}</h1>
             </div>
         </div>
         <div v-if="lastUsers.length > 0" class="absolute bg-base-200 z-10 top-5 right-2 p-3 rounded-md">

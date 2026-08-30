@@ -12,7 +12,7 @@ import AlertMsg from '@/components/AlertMsg.vue'
 import MenuSide from '@/components/MenuSide.vue'
 
 const route = useRoute()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const auth = useAuth()
 const store = useIndex()
 const mobileMenuOpen = ref(false)
@@ -22,8 +22,11 @@ const local = normalizeCode(localStorage.getItem('language') || 'en')
 const theme = ref(localStorage.getItem('theme') || (preferDark ? 'dark' : 'light'))
 
 store.darkMode = theme.value === 'dark'
+locale.value = local
+store.locale = local
 
 onBeforeMount(async () => {
+    await store.selectBranding()
     await auth.inspectToken()
 })
 
@@ -41,9 +44,26 @@ watch(
     },
 )
 
+watch(
+    () => store.branding.admin_language,
+    (configuredLanguage) => {
+        const next = normalizeCode(configuredLanguage ?? localStorage.getItem('language') ?? 'en')
+        if (locale.value === next) return
+
+        locale.value = next
+        store.locale = next
+        store.randomKey = (Math.random() + 1).toString(36).substring(7)
+    },
+    { immediate: true },
+)
+
 useHead({
+    titleTemplate: (title?: string) => {
+        const frontendName = store.branding.frontend_name
+        return !title || title === 'NUR CMS' || title === frontendName ? frontendName : `${title} | ${frontendName}`
+    },
     htmlAttrs: {
-        lang: computed(() => local),
+        lang: computed(() => locale.value),
         'data-theme': computed(() => (store.darkMode ? 'dark' : 'light')),
     },
 })
@@ -65,7 +85,9 @@ useHead({
                     >
                         <i class="bi bi-list text-2xl" aria-hidden="true"></i>
                     </label>
-                    <RouterLink to="/" class="btn btn-ghost text-lg">{{ t('app.title') }}</RouterLink>
+                    <RouterLink to="/" class="btn btn-ghost max-w-[calc(100%-3rem)] truncate text-lg">
+                        {{ store.branding.frontend_name }}
+                    </RouterLink>
                 </header>
                 <main v-if="store.isLoaded || route.meta.public" :class="mainClass">
                     <RouterView :key="route.fullPath + store.randomKey" />

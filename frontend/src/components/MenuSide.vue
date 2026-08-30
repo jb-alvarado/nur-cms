@@ -17,14 +17,8 @@ const store = useIndex()
 
 type LangOpt = { code: string; name: string }
 
-// Load language from localStorage on mount
-const savedLang = localStorage.getItem('language')
-if (savedLang) {
-    locale.value = normalizeCode(savedLang)
-    store.locale = savedLang
-}
-
 onBeforeMount(async () => {
+    await store.selectCmsConfiguration()
     await store.selectLocales()
     await store.selectTypes()
     await auth.selectAuthUser()
@@ -60,6 +54,8 @@ const languageOptions = computed<LangOpt[]>(() => {
 })
 
 function setLanguage(code: string) {
+    if (store.branding.admin_language) return
+
     const next = normalizeCode(code)
     locale.value = next
     store.locale = code
@@ -71,17 +67,33 @@ function setLanguage(code: string) {
 </script>
 
 <template>
-    <aside class="flex h-full 38 flex-col bg-base-300 pt-3">
+    <aside class="flex h-full w-38 flex-col bg-base-300 pt-3">
         <div class="flex justify-center">
-            <RouterLink class="text-xl font-bold" to="/">{{ $t('app.title') }}</RouterLink>
+            <RouterLink class="flex max-w-36 items-center gap-2 text-xl font-bold" to="/">
+                <img
+                    v-if="store.branding.logo_url"
+                    :src="store.branding.logo_url"
+                    :alt="store.branding.logo_alt ?? ''"
+                    class="size-8 shrink-0 object-contain"
+                />
+                <span class="truncate">{{ store.branding.frontend_name }}</span>
+            </RouterLink>
         </div>
         <div class="flex flex-col justify-center items-center mt-4">
             <div class="join join-vertical mb-2">
-                <RouterLink to="/author" class="btn join-item w-31 p-1 justify-normal items-center">
+                <RouterLink
+                    v-if="store.isMenuVisible('authors')"
+                    to="/author"
+                    class="btn join-item w-31 p-1 justify-normal items-center"
+                >
                     <i class="bi bi-person-lines-fill ps-0.5 text-2xl leading-0"></i>
                     {{ $t('button.author') }}
                 </RouterLink>
-                <RouterLink to="/category" class="btn join-item w-31 p-1 justify-normal items-center">
+                <RouterLink
+                    v-if="store.isMenuVisible('categories')"
+                    to="/category"
+                    class="btn join-item w-31 p-1 justify-normal items-center"
+                >
                     <i class="bi bi-boxes ps-0.5 text-2xl leading-0"></i>
                     {{ $t('button.category') }}
                 </RouterLink>
@@ -89,6 +101,7 @@ function setLanguage(code: string) {
             <div v-if="store.types.length > 0" class="join join-vertical">
                 <template v-for="item in store.types" :key="item.id">
                     <RouterLink
+                        v-if="store.isMenuVisible(`content:${item.slug}`)"
                         :to="`/content/${item.slug}`"
                         class="btn join-item w-31 p-1 justify-normal items-center"
                         @click="store.routeType = item.slug ?? ''"
@@ -98,13 +111,21 @@ function setLanguage(code: string) {
                     </RouterLink>
                 </template>
 
-                <RouterLink to="/media" class="btn join-item w-31 p-1 justify-normal items-center">
+                <RouterLink
+                    v-if="store.isMenuVisible('media')"
+                    to="/media"
+                    class="btn join-item w-31 p-1 justify-normal items-center"
+                >
                     <i class="bi bi-card-image ps-0.5 text-2xl leading-0"></i>
                     {{ $t('button.media') }}
                 </RouterLink>
             </div>
             <div class="mt-2">
-                <RouterLink to="/comment" class="btn join-item w-31 p-1 justify-normal items-center">
+                <RouterLink
+                    v-if="store.isFeatureEnabled('comments')"
+                    to="/comment"
+                    class="btn join-item w-31 p-1 justify-normal items-center"
+                >
                     <i class="bi bi-chat-left-text ps-0.5 text-2xl leading-0"></i>
                     {{ $t('button.comment') }}
                 </RouterLink>
@@ -139,11 +160,11 @@ function setLanguage(code: string) {
                 >
                     <i class="bi bi-gear text-lg" />
                 </RouterLink>
-                <div class="dropdown dropdown-top">
+                <div v-if="!store.branding.admin_language" class="dropdown dropdown-top dropdown-center">
                     <div tabindex="0" role="button" class="join-item btn btn-sm p-1.5" :title="t('common.language')">
                         <i class="bi bi-translate text-lg" />
                     </div>
-                    <ul tabindex="0" class="dropdown-content menu p-1.5 shadow bg-base-100 rounded-box w-40">
+                    <ul tabindex="0" class="dropdown-content menu w-31 rounded-box bg-base-100 p-1.5 shadow">
                         <li v-for="l in languageOptions" :key="l.code">
                             <button @click="setLanguage(l.code)">{{ l.name }}</button>
                         </li>

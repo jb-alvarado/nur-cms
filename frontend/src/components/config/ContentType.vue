@@ -5,6 +5,7 @@ import { useSortable } from '@vueuse/integrations/useSortable'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
 import { slugify } from '@/utils/slugify.js'
+import { entryEditorFieldDefinitions, entryEditorStatuses } from '@/config/editor-settings'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
@@ -20,7 +21,12 @@ const formType = ref<ContentTypeExt>({
     slug: '',
     order_index: 0,
     use_meta: false,
+    entry_default_status: null,
+    entry_hidden_fields: [],
 })
+const entryEditorFields = computed(() =>
+    entryEditorFieldDefinitions.map((field) => ({ ...field, label: t(field.label) })),
+)
 
 const deleteModal = ref()
 const typeModal = ref()
@@ -118,7 +124,11 @@ function updateSlug() {
 }
 
 function editType(type: ContentTypeExt) {
-    formType.value = { ...type }
+    formType.value = {
+        ...type,
+        entry_default_status: type.entry_default_status ?? null,
+        entry_hidden_fields: [...(type.entry_hidden_fields ?? [])],
+    }
     isEditing.value = true
     typeModal.value.showModal()
 }
@@ -128,6 +138,8 @@ function openCreateModal() {
     formType.value.name = ''
     formType.value.slug = ''
     formType.value.use_meta = false
+    formType.value.entry_default_status = null
+    formType.value.entry_hidden_fields = []
     isEditing.value = false
     typeModal.value.showModal()
 }
@@ -171,6 +183,8 @@ function saveType() {
             name: formType.value.name,
             slug: formType.value.slug,
             use_meta: formType.value.use_meta,
+            entry_default_status: formType.value.entry_default_status,
+            entry_hidden_fields: formType.value.entry_hidden_fields,
             ...(!isEditing.value ? { order_index: nextOrderIndex } : {}),
         }),
     })
@@ -181,6 +195,8 @@ function saveType() {
             formType.value.name = ''
             formType.value.slug = ''
             formType.value.use_meta = false
+            formType.value.entry_default_status = null
+            formType.value.entry_hidden_fields = []
 
             store.selectTypes()
             await typeSelect()
@@ -223,6 +239,7 @@ function saveType() {
                         <th class="w-10"></th>
                     </tr>
                 </thead>
+
                 <tbody ref="typeEL">
                     <tr
                         v-for="(col, i) in types"
@@ -267,6 +284,33 @@ function saveType() {
                 :placeholder="$t('contentType.name')"
                 @input="updateSlug()"
             />
+        </fieldset>
+        <fieldset class="fieldset">
+            <legend class="fieldset-legend">{{ $t('contentType.defaultEntryStatus') }}</legend>
+            <select v-model="formType.entry_default_status" class="select w-full">
+                <option :value="null">{{ $t('contentType.useGlobalSetting') }}</option>
+                <option v-for="status in entryEditorStatuses" :key="status" :value="status">
+                    {{ $t(`status.${status}`) }}
+                </option>
+            </select>
+        </fieldset>
+        <fieldset class="fieldset">
+            <legend class="fieldset-legend">{{ $t('contentType.hiddenEntryFields') }}</legend>
+            <div class="grid gap-2 sm:grid-cols-2">
+                <label
+                    v-for="field in entryEditorFields"
+                    :key="field.id"
+                    class="flex cursor-pointer items-center gap-2"
+                >
+                    <input
+                        v-model="formType.entry_hidden_fields"
+                        type="checkbox"
+                        class="checkbox checkbox-sm"
+                        :value="field.id"
+                    />
+                    <span>{{ field.label }}</span>
+                </label>
+            </div>
         </fieldset>
         <fieldset class="fieldset">
             <legend class="fieldset-legend">{{ $t('contentType.slug') }}</legend>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, inject, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -12,10 +12,15 @@ import { errMsg } from '@/utils/error'
 import { authFetch } from '@/composables/authFetch'
 import { closeDropdown, mediaPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
-import { genericEditConfigKey, type GenericEditField, type GenericEditStatus } from '@/types/generic-edit'
 import type { ContentNodeDataField, ContentNodeTemplate } from '@/types/models.d'
 import type { RespondObj as TypedRespondObj } from '@/types/query.d'
 import type { JsonValue } from '@/types/serde_json/JsonValue'
+import {
+    entryEditorStatuses,
+    isEntryEditorField,
+    type EntryEditorField,
+    type EntryEditorStatus,
+} from '@/config/editor-settings'
 
 import GenericBlock from './GenericBlock.vue'
 import GenericModal from './GenericModal.vue'
@@ -28,13 +33,16 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useIndex()
-const genericEditConfig = inject(genericEditConfigKey, {})
 
 const rootPath = route.path.replace(/\/[0-9/]+$/g, '')
 const routeType = String(route.params.type ?? store.routeType)
 const contentId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
-const defaultStatus = genericEditConfig[routeType]?.defaultStatus ?? genericEditConfig['*']?.defaultStatus ?? 'draft'
+const currentContentType = computed(() => store.types.find((item) => item.slug === routeType))
+const defaultStatus =
+    currentContentType.value?.entry_default_status ??
+    store.cmsConfiguration.entry_default_status ??
+    'draft'
 
 const deleteModal = ref()
 const mediaModal = ref()
@@ -133,17 +141,16 @@ type NodeTemplateSchema = {
 type NodeTemplateResponse = TypedRespondObj<Pick<ContentNodeTemplate, 'id'> & { schema: NodeTemplateSchema['schema'] }>
 const nodeTemplates = ref<NodeTemplateSchema[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
-const status: GenericEditStatus[] = ['draft', 'published', 'archived']
+const status: readonly EntryEditorStatus[] = entryEditorStatuses
 const currentNodeIndex = ref(-1)
 const templateCount = ref(0)
-const currentContentType = computed(() => store.types.find((item) => item.slug === store.routeType))
 const disabledFields = computed(() => {
-    return new Set<GenericEditField>([
-        ...(genericEditConfig['*']?.disabledFields ?? []),
-        ...(genericEditConfig[routeType]?.disabledFields ?? []),
+    return new Set<EntryEditorField>([
+        ...store.cmsConfiguration.entry_hidden_fields.filter(isEntryEditorField),
+        ...(currentContentType.value?.entry_hidden_fields ?? []).filter(isEntryEditorField),
     ])
 })
-const isFieldEnabled = (field: GenericEditField) => !disabledFields.value.has(field)
+const isFieldEnabled = (field: EntryEditorField) => !disabledFields.value.has(field)
 const showMetaFields = computed(() => {
     const hasEnabledMetaField = isFieldEnabled('start_time') || isFieldEnabled('end_time')
     const usesMeta =

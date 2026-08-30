@@ -3,10 +3,12 @@ import { ref, onBeforeMount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/stores/auth'
+import { useIndex } from '@/stores/index'
 
 const { t } = useI18n()
 const router = useRouter()
 const auth = useAuth()
+const store = useIndex()
 
 const verificationCode = ref('')
 const formError = ref('')
@@ -54,7 +56,13 @@ async function verify() {
         <RouterLink to="/login" class="btn btn-ghost absolute mt-5"> Login </RouterLink>
         <div class="w-full h-full flex justify-center items-center">
             <div class="w-96 min-w-full flex flex-col justify-center items-center px-4">
-                <h1 class="text-6xl xs:text-8xl">{{ $t('app.title') }}</h1>
+                <img
+                    v-if="store.branding.logo_url"
+                    :src="store.branding.logo_url"
+                    :alt="store.branding.logo_alt ?? store.branding.frontend_name"
+                    class="mb-5 size-32 object-contain"
+                />
+                <h1 class="text-center text-6xl xs:text-8xl">{{ store.branding.frontend_name }}</h1>
 
                 <form class="mt-10" @submit.prevent="verify">
                     <input

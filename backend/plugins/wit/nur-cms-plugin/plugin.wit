@@ -11,10 +11,16 @@ interface types {
     roles: list<string>,
   }
 
+  record path-param {
+    name: string,
+    value: string,
+  }
+
   record request {
     route-id: string,
     method: string,
     path: string,
+    path-params: list<path-param>,
     query: option<string>,
     headers: list<header>,
     body: list<u8>,
@@ -40,6 +46,21 @@ interface http-handler {
   handle: func(request: request) -> result<response, plugin-error>;
 }
 
+interface content {
+  use types.{plugin-error};
+
+  variant output-type {
+    markdown,
+    ast,
+    html,
+  }
+
+  /// Executes an entry-list query with the same filters and fields as the public
+  /// `/api/content/entries` endpoint. Entries are always restricted to `published`.
+  published-entries: func(query: string, output: output-type) -> result<list<u8>, plugin-error>;
+}
+
 world cms-plugin {
+  import content;
   export http-handler;
 }

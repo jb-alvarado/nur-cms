@@ -9,6 +9,8 @@ declare global {
     type AuthRole = import('./models.d').AuthRole
     type AuthUser = import('./serialized.d').AuthUserSerializer
     type Configuration = import('./models.d').Configuration
+    type CmsConfiguration = import('./models.d').CmsConfiguration
+    type BrandingConfiguration = import('./models.d').BrandingConfiguration
     type ContentAuthor = import('./models.d').ContentAuthor
     type CommentExt = import('./models.d').Comment
     type ContentCategory = import('./serialized.d').ContentCategorySerializer

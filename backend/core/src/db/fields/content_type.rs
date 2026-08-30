@@ -15,6 +15,8 @@ pub enum ContentTypeFields {
     Slug,
     OrderIndex,
     UseMeta,
+    EntryDefaultStatus,
+    EntryHiddenFields,
 }
 
 impl StrCompare for ContentTypeFields {
@@ -25,6 +27,8 @@ impl StrCompare for ContentTypeFields {
             Self::Slug => other == "slug",
             Self::OrderIndex => other == "order_index",
             Self::UseMeta => other == "use_meta",
+            Self::EntryDefaultStatus => other == "entry_default_status",
+            Self::EntryHiddenFields => other == "entry_hidden_fields",
         }
     }
 }
@@ -39,6 +43,8 @@ impl FromStr for ContentTypeFields {
             "slug" => Ok(Self::Slug),
             "order_index" => Ok(Self::OrderIndex),
             "use_meta" => Ok(Self::UseMeta),
+            "entry_default_status" => Ok(Self::EntryDefaultStatus),
+            "entry_hidden_fields" => Ok(Self::EntryHiddenFields),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -52,6 +58,8 @@ impl fmt::Display for ContentTypeFields {
             Self::Slug => write!(f, "slug"),
             Self::OrderIndex => write!(f, "order_index"),
             Self::UseMeta => write!(f, "use_meta"),
+            Self::EntryDefaultStatus => write!(f, "entry_default_status"),
+            Self::EntryHiddenFields => write!(f, "entry_hidden_fields"),
         }
     }
 }

@@ -126,14 +126,14 @@ Available fields:
 | Roles          | `id,name`                                                                                        |
 | Users          | `id,email,username,first_name,last_name,created_at,updated_at,last_login,role`                   |
 | Locales        | `id,code,name,tsv_dict`                                                                          |
-| Content types  | `id,name,slug,order_index,use_meta`                                                              |
+| Content types  | `id,name,slug,order_index,use_meta,entry_default_status,entry_hidden_fields`                     |
 | Categories     | `id,group_id,locale_id,name,slug,status,media_id,media,group_members`                            |
 | Tags           | `id,name,slug`                                                                                   |
 | Authors        | `id,first_name,last_name,slug,bio,media_id,media`                                                |
 | Entries        | See “Content entries”                                                                            |
 | Comments       | `id,entry_id,parent_id,user_id,author_name,author_email,text,status,created_at,updated_at,entry` |
 | Media          | `id,alt,filename,path,type,width,height,size,uploaded_by,created_at,media_variants`              |
-| Node templates | `id,name,data`                                                                                   |
+| Node templates | `id,name,data,schema`                                                                            |
 | Mail targets   | `id,name,subject,recipients,allow_html`                                                          |
 
 ## Authentication and token rotation
@@ -231,32 +231,32 @@ archived entries and filter by `status`.
 
 In addition to pagination, `fields`, and `ordering`, the entry list supports:
 
-| Parameter         | Description                                                              |
-| ----------------- | ------------------------------------------------------------------------ |
-| `type`            | Content-type slug                                                        |
-| `type_id`         | Content-type ID                                                          |
-| `exclude_types`   | Comma-separated content-type IDs to exclude                              |
-| `locale`          | Locale code                                                              |
-| `locale_id`       | Locale ID                                                                |
-| `category`        | Category slug                                                            |
-| `tag`             | Tag slug                                                                 |
-| `author`          | Author slug                                                              |
-| `slug`            | Exact entry slug                                                         |
-| `status`          | `draft`, `published`, or `archived`; always overridden for public access |
-| `id`              | Entry ID                                                                 |
-| `group_id`        | Translation group ID                                                     |
-| `grouped`         | Return results grouped by `group_id` when `true`                         |
-| `search`          | Search titles, authors, and localized node full text                     |
+| Parameter         | Description                                                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`            | Content-type slug                                                                                                                                                    |
+| `type_id`         | Content-type ID                                                                                                                                                      |
+| `exclude_types`   | Comma-separated content-type IDs to exclude                                                                                                                          |
+| `locale`          | Locale code                                                                                                                                                          |
+| `locale_id`       | Locale ID                                                                                                                                                            |
+| `category`        | Category slug                                                                                                                                                        |
+| `tag`             | Tag slug                                                                                                                                                             |
+| `author`          | Author slug                                                                                                                                                          |
+| `slug`            | Exact entry slug                                                                                                                                                     |
+| `status`          | `draft`, `published`, or `archived`; always overridden for public access                                                                                             |
+| `id`              | Entry ID                                                                                                                                                             |
+| `group_id`        | Translation group ID                                                                                                                                                 |
+| `grouped`         | Return results grouped by `group_id` when `true`                                                                                                                     |
+| `search`          | Search titles, authors, and localized node full text                                                                                                                 |
 | `data`            | Node-data containment filter, e.g. `hidden:true` or `featured:true,priority:2`; repeat it for independent AND filters, such as `data=hidden:true&data=mainpage:true` |
-| `created_after`   | Inclusive lower bound for `created_at`                                   |
-| `created_before`  | Exclusive upper bound for `created_at`                                   |
-| `start_time`      | Lower time bound for content metadata                                    |
-| `end_time`        | Upper time bound for content metadata                                    |
-| `output_type`     | `ast`, `html`, or `markdown`; only `admin`/`author` may override it      |
-| `character_limit` | AST text limit from `1` to `100000` characters                           |
-| `node`            | Exact node names or `@text`, comma-separated; `node_name` is an alias    |
-| `node_limit`      | Return at most `1` to `1000` nodes per entry; `blocks_limit` is an alias |
-| `blocks_random`   | Select nodes randomly instead of by their order                          |
+| `created_after`   | Inclusive lower bound for `created_at`                                                                                                                               |
+| `created_before`  | Exclusive upper bound for `created_at`                                                                                                                               |
+| `start_time`      | Lower time bound for content metadata                                                                                                                                |
+| `end_time`        | Upper time bound for content metadata                                                                                                                                |
+| `output_type`     | `ast`, `html`, or `markdown`; only `admin`/`author` may override it                                                                                                  |
+| `character_limit` | AST text limit from `1` to `100000` characters                                                                                                                       |
+| `node`            | Exact node names or `@text`, comma-separated; `node_name` is an alias                                                                                                |
+| `node_limit`      | Return at most `1` to `1000` nodes per entry; `blocks_limit` is an alias                                                                                             |
+| `blocks_random`   | Select nodes randomly instead of by their order                                                                                                                      |
 
 Within `node`, the reserved value `@text` selects every node whose stored
 `text` value is not null, regardless of its name. It can be combined with
@@ -390,7 +390,7 @@ the entry ID.
 | -------- | ------------------------- | ----------------- |
 | `GET`    | `/api/content/types`      | Public            |
 | `POST`   | `/api/content/types`      | `admin`           |
-| `PUT`    | `/api/content/types/{id}` | `admin`, `author` |
+| `PUT`    | `/api/content/types/{id}` | `admin`           |
 | `DELETE` | `/api/content/types/{id}` | `admin`           |
 
 Body fields: `name`, `slug`, `order_index`, `use_meta`.
@@ -670,10 +670,13 @@ requests.
 
 ## Configuration
 
-| Method | Path                 | Access  |
-| ------ | -------------------- | ------- |
-| `GET`  | `/api/configuration` | `admin` |
-| `PUT`  | `/api/configuration` | `admin` |
+| Method | Path                          | Access              |
+| ------ | ----------------------------- | ------------------- |
+| `GET`  | `/api/configuration`          | `admin`             |
+| `PUT`  | `/api/configuration`          | `admin`             |
+| `GET`  | `/api/configuration/branding` | public              |
+| `GET`  | `/api/configuration/cms`      | authenticated users |
+| `PUT`  | `/api/configuration/cms`      | `admin`             |
 
 PUT always updates the single configuration record with ID `1` and accepts a
 partial JSON object:
@@ -697,6 +700,49 @@ Allowed fields are `jwt_secret`, `output_type`, `mail_smtp`, `mail_port`,
 `image_extensions`, and `image_resolutions`. GET responses never include
 `jwt_secret` or `mail_password`. The backend reloads its runtime configuration
 immediately after a successful update.
+
+The CMS configuration is stored separately and PUT expects the complete
+object. `logo_media_id` must reference an uploaded image (including SVG):
+
+```json
+{
+    "frontend_name": "Example CMS",
+    "logo_media_id": 42,
+    "admin_language": "de",
+    "entry_default_status": "published",
+    "entry_hidden_fields": ["author", "category", "tags"],
+    "hidden_menu_items": ["authors", "content:note"],
+    "disabled_features": ["comments"]
+}
+```
+
+`hidden_menu_items` only changes the admin navigation. Stable IDs include
+`authors`, `categories`, `media`, and `content:<content-type-slug>`. Disabling
+`comments` through `disabled_features` also makes every `/api/comments` route
+return `404 Not Found`.
+
+`admin_language` may be a supported lowercase language code or `null`; the
+current admin frontend offers `de` and `en`. A fixed language applies to the
+login and complete admin interface and hides the user-facing language selector.
+With `null`, each browser can retain its own language selection. The storage
+format permits adding further translations without a database migration.
+
+`entry_default_status` configures new entries globally. `entry_hidden_fields`
+can contain `title`, `slug`, `author`, `tags`, `category`, `start_time`,
+`end_time`, `status`, and `delete`. Content types can override the default
+status and add further hidden editor fields; global hidden fields remain hidden.
+
+The public branding endpoint exposes only presentation data needed before
+login. It does not expose the media ID or feature settings:
+
+```json
+{
+    "frontend_name": "Example CMS",
+    "logo_url": "/uploads/2026/08/logo.svg",
+    "logo_alt": "Example logo",
+    "admin_language": "de"
+}
+```
 
 ## Contact form and mail targets
 

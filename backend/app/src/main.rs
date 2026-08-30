@@ -7,8 +7,9 @@ use std::{
 
 use axum::{
     Router,
-    extract::ConnectInfo,
-    http::Request,
+    body::Body,
+    extract::{ConnectInfo, State},
+    http::{Method, Request},
     middleware::{self},
     routing::{get, post},
 };
@@ -33,7 +34,7 @@ mod serve;
 mod utils;
 
 use nur_core::{
-    CONFIG, STORAGE,
+    CMS_CONFIG, CONFIG, STORAGE,
     db::handles,
     extract, init_db,
     middleware::governor::rate_limit,
@@ -44,7 +45,7 @@ use nur_core::{
     },
     utils::{cmd_args::add_user, errors::NurError, importer},
 };
-use nur_plugins::PluginManager;
+use nur_plugins::{PluginCacheInvalidator, PluginManager};
 
 use utils::{
     extend_args::AppArgs,
@@ -112,6 +113,26 @@ async fn resolve_real_ip(
     next.run(req).await
 }
 
+async fn invalidate_plugin_caches(
+    State(caches): State<PluginCacheInvalidator>,
+    request: Request<Body>,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().clone();
+    let response = next.run(request).await;
+
+    if response.status().is_success()
+        && matches!(
+            method,
+            Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+        )
+    {
+        caches.invalidate();
+    }
+
+    response
+}
+
 #[cfg(not(debug_assertions))]
 use serve::routes::admin_ui_routes;
 
@@ -144,6 +165,11 @@ async fn main() -> Result<(), NurError> {
         let mut cfg = CONFIG.write().await;
         *cfg = config;
     }
+    {
+        let config = handles::select_cms_configuration(&pool).await?;
+        let mut cfg = CMS_CONFIG.write().await;
+        *cfg = config;
+    }
 
     if args.core.add_user {
         add_user(&pool).await?;
@@ -167,6 +193,7 @@ async fn main() -> Result<(), NurError> {
         error!(%error, "Failed to register plugin routes");
         NurError::InternalServerError
     })?;
+    let plugin_cache_invalidator = plugin_manager.cache_invalidator();
 
     let (tx, _rx) = broadcast::channel(20);
 
@@ -193,13 +220,16 @@ async fn main() -> Result<(), NurError> {
                 axum::http::StatusCode::REQUEST_TIMEOUT,
                 std::time::Duration::from_secs(20),
             ));
-    let api_routes =
-        api_routes
-            .layer(ConcurrencyLimitLayer::new(64))
-            .layer(TimeoutLayer::with_status_code(
-                axum::http::StatusCode::REQUEST_TIMEOUT,
-                std::time::Duration::from_secs(300),
-            ));
+    let api_routes = api_routes
+        .layer(middleware::from_fn_with_state(
+            plugin_cache_invalidator,
+            invalidate_plugin_caches,
+        ))
+        .layer(ConcurrencyLimitLayer::new(64))
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            std::time::Duration::from_secs(300),
+        ));
 
     let sse_router = Router::new()
         .route(

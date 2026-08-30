@@ -1,14 +1,13 @@
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
 
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 // import vueDevTools from 'vite-plugin-vue-devtools'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, process.cwd(), '')
+export default defineConfig(() => {
     const frontendPkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
     const appVersion = frontendPkg.version || '0.0.0'
 
@@ -18,18 +17,8 @@ export default defineConfig(({ mode }) => {
         },
         base: '/admin/',
         root: './frontend',
-        plugins: [
-            tailwindcss(),
-            vue(),
-            {
-                name: 'frontend-name-html',
-                transformIndexHtml(html: string) {
-                    return html.replace('__FRONTEND_NAME__', env.FRONTEND_NAME || 'NUR CMS')
-                },
-            },
-        ],
+        plugins: [tailwindcss(), vue()],
         define: {
-            __FRONTEND_NAME__: JSON.stringify(env.FRONTEND_NAME || 'NUR CMS'),
             __APP_VERSION__: JSON.stringify(appVersion),
         },
         resolve: {

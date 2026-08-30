@@ -5,14 +5,7 @@ import { authFetch } from '@/composables/authFetch'
 
 type AuthChannelMessage = { type: 'tokens-updated'; access: string; refresh: string } | { type: 'logout' }
 
-const AUTH_NAMESPACE =
-    __FRONTEND_NAME__
-        .trim()
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'nur-cms'
+const AUTH_NAMESPACE = 'nur-cms'
 const AUTH_CHANNEL_NAME = `${AUTH_NAMESPACE}:auth`
 const TOKEN_REFRESH_LOCK = `${AUTH_NAMESPACE}:token-refresh`
 

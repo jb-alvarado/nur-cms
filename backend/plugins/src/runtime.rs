@@ -1,6 +1,14 @@
+use nur_core::{
+    db::{
+        fields::{ContentEntryFields, ContentNodeFields, OutputType},
+        handles,
+        queries::QueryObj,
+    },
+    utils::content_output::render_entry_nodes,
+};
 use std::{sync::Arc, time::Duration};
-
 use tokio::sync::Semaphore;
+use tracing::error;
 use wasmtime::{
     Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Linker},
@@ -25,6 +33,10 @@ pub struct Runtime {
     memory_limit: usize,
     timeout: Duration,
     semaphore: Arc<Semaphore>,
+    pool: sqlx::PgPool,
+    tokio_handle: tokio::runtime::Handle,
+    max_host_calls: usize,
+    content_response_body_limit: usize,
 }
 
 #[derive(Clone)]
@@ -35,9 +47,15 @@ pub struct PluginComponent {
 }
 
 struct HostState {
+    plugin_id: String,
     limits: StoreLimits,
     table: ResourceTable,
     wasi: WasiCtx,
+    pool: sqlx::PgPool,
+    tokio_handle: tokio::runtime::Handle,
+    host_calls_remaining: usize,
+    host_call_timeout: Duration,
+    content_response_body_limit: usize,
 }
 
 impl WasiView for HostState {
@@ -49,8 +67,10 @@ impl WasiView for HostState {
     }
 }
 
+impl bindings::nur::cms::types::Host for HostState {}
+
 impl Runtime {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new(pool: sqlx::PgPool) -> Result<Self, Error> {
         let mut config = Config::new();
         config.consume_fuel(true);
         config.epoch_interruption(true);
@@ -81,6 +101,15 @@ impl Runtime {
                 1,
                 64,
             ))),
+            pool,
+            tokio_handle: tokio::runtime::Handle::current(),
+            max_host_calls: env_usize("NUR_PLUGIN_MAX_HOST_CALLS", 16, 1, 128),
+            content_response_body_limit: env_usize(
+                "NUR_PLUGIN_RESPONSE_BODY_LIMIT",
+                4 * 1024 * 1024,
+                1024,
+                64 * 1024 * 1024,
+            ),
         })
     }
 
@@ -136,6 +165,7 @@ impl PluginComponent {
         let mut store = Store::new(
             &self.runtime.engine,
             HostState {
+                plugin_id: self.id.clone(),
                 limits: StoreLimitsBuilder::new()
                     .memory_size(self.runtime.memory_limit)
                     .instances(128)
@@ -145,6 +175,11 @@ impl PluginComponent {
                     .build(),
                 table: ResourceTable::new(),
                 wasi: WasiCtxBuilder::new().build(),
+                pool: self.runtime.pool.clone(),
+                tokio_handle: self.runtime.tokio_handle.clone(),
+                host_calls_remaining: self.runtime.max_host_calls,
+                host_call_timeout: self.runtime.timeout,
+                content_response_body_limit: self.runtime.content_response_body_limit,
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -156,6 +191,11 @@ impl PluginComponent {
             .div_ceil(u128::from(EPOCH_INTERVAL_MS));
         store.set_epoch_deadline(u64::try_from(ticks).unwrap_or(u64::MAX));
 
+        bindings::CmsPlugin::add_to_linker::<HostState, wasmtime::component::HasSelf<HostState>>(
+            &mut linker,
+            |state| state,
+        )
+        .map_err(Error::wasmtime)?;
         let instance = bindings::CmsPlugin::instantiate(&mut store, &self.component, &linker)
             .map_err(Error::wasmtime)?;
         instance
@@ -170,6 +210,85 @@ impl PluginComponent {
                 bindings::nur::cms::types::PluginError::NotFound => Error::PluginNotFound,
                 bindings::nur::cms::types::PluginError::Failed(message) => Error::Plugin(message),
             })
+    }
+}
+
+impl bindings::nur::cms::content::Host for HostState {
+    fn published_entries(
+        &mut self,
+        query: String,
+        output: bindings::nur::cms::content::OutputType,
+    ) -> Result<Vec<u8>, bindings::nur::cms::types::PluginError> {
+        if self.host_calls_remaining == 0 {
+            return Err(bindings::nur::cms::types::PluginError::Failed(
+                "plugin host-call limit exceeded".into(),
+            ));
+        }
+        self.host_calls_remaining -= 1;
+
+        if query.len() > 8 * 1024 {
+            return Err(bindings::nur::cms::types::PluginError::BadRequest(
+                "content query is too long".into(),
+            ));
+        }
+
+        let mut params: QueryObj<ContentEntryFields> = match serde_urlencoded::from_str(&query) {
+            Ok(params) => params,
+            Err(_) => {
+                return Err(bindings::nur::cms::types::PluginError::BadRequest(
+                    "invalid content query".into(),
+                ));
+            }
+        };
+        params.path = "/api/content/entries".into();
+        params.query = query;
+        params.search_status = Some("published".into());
+        let output = match output {
+            bindings::nur::cms::content::OutputType::Markdown => OutputType::Markdown,
+            bindings::nur::cms::content::OutputType::Ast => OutputType::AST,
+            bindings::nur::cms::content::OutputType::Html => OutputType::HTML,
+        };
+        if params
+            .fields
+            .contains(&ContentEntryFields::Node(ContentNodeFields::Text))
+            && !params
+                .fields
+                .contains(&ContentEntryFields::Node(ContentNodeFields::Embeds))
+            && output == OutputType::AST
+        {
+            params
+                .fields
+                .push(ContentEntryFields::Node(ContentNodeFields::Embeds));
+        }
+
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(self.host_call_timeout, async {
+                let mut entries = handles::select_content_entries(&self.pool, &params).await?;
+                if params
+                    .fields
+                    .contains(&ContentEntryFields::Node(ContentNodeFields::Text))
+                {
+                    render_entry_nodes(&mut entries.results, &output, params.character_limit)?;
+                }
+                serde_json::to_vec(&entries).map_err(nur_core::utils::errors::NurError::from)
+            })
+            .await
+        });
+        match result {
+            Ok(Ok(entries)) if entries.len() <= self.content_response_body_limit => Ok(entries),
+            Ok(Ok(_)) => Err(bindings::nur::cms::types::PluginError::Failed(
+                "content response exceeds plugin limit".into(),
+            )),
+            Ok(Err(error)) => {
+                error!(plugin = %self.plugin_id, %error, "plugin content query failed");
+                Err(bindings::nur::cms::types::PluginError::Failed(
+                    "content query failed".into(),
+                ))
+            }
+            Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
+                "content query timed out".into(),
+            )),
+        }
     }
 }
 
@@ -193,17 +312,18 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
 mod tests {
     use std::path::PathBuf;
 
+    use crate::Error;
+
     use super::{PluginComponent, Runtime, bindings};
 
     #[tokio::test]
+    #[ignore = "requires a prebuilt wasm32-wasip2 echo example"]
     async fn invokes_built_echo_component_when_available() {
         let module = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("examples/echo/target/wasm32-wasip2/release/nur_cms_echo_plugin.wasm");
-        if !module.is_file() {
-            return;
-        }
-
-        let runtime = Runtime::new().expect("runtime initializes");
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
+            .expect("test pool initializes");
+        let runtime = Runtime::new(pool).expect("runtime initializes");
         let component = wasmtime::component::Component::from_file(&runtime.engine, module)
             .expect("example component loads");
         let plugin = PluginComponent {
@@ -216,6 +336,7 @@ mod tests {
                 route_id: "root".into(),
                 method: "GET".into(),
                 path: "/plugin-echo".into(),
+                path_params: Vec::new(),
                 query: None,
                 headers: Vec::new(),
                 body: Vec::new(),
@@ -226,5 +347,37 @@ mod tests {
 
         assert_eq!(response.status, 200);
         assert_eq!(response.body, b"Hello from a nur-cms root plugin route");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a prebuilt wasm32-wasip2 community-site example"]
+    async fn loads_a_component_with_the_content_import_when_available() {
+        let module = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "examples/community-site/target/wasm32-wasip2/release/nur_cms_community_site_plugin.wasm",
+        );
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
+            .expect("test pool initializes");
+        let runtime = Runtime::new(pool).expect("runtime initializes");
+        let component = wasmtime::component::Component::from_file(&runtime.engine, module)
+            .expect("example component loads");
+        let plugin = PluginComponent {
+            id: "community-site".into(),
+            component,
+            runtime,
+        };
+        let result = plugin
+            .call(bindings::nur::cms::types::Request {
+                route_id: "missing".into(),
+                method: "GET".into(),
+                path: "/missing".into(),
+                path_params: Vec::new(),
+                query: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+                identity: None,
+            })
+            .await;
+
+        assert!(matches!(result, Err(Error::PluginNotFound)));
     }
 }

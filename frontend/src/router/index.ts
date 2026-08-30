@@ -84,13 +84,13 @@ const router = createRouter({
             path: '/comment',
             name: 'comment',
             component: () => import('../views/comment/IndexView.vue'),
-            meta: { showMenu: true },
+            meta: { showMenu: true, feature: 'comments' },
         },
         {
             path: '/comment/:id',
             name: 'comment edit',
             component: () => import('../views/comment/EditView.vue'),
-            meta: { showMenu: true },
+            meta: { showMenu: true, feature: 'comments' },
         },
         {
             path: '/media',
@@ -117,6 +117,10 @@ const router = createRouter({
 router.beforeEach(async (to, from) => {
     const auth = useAuth()
     const store = useIndex()
+
+    // The public branding request may have failed during initial application
+    // startup. Retry it on navigation until one request succeeds.
+    await store.selectBranding()
 
     // A successful password check starts the 2FA flow without issuing tokens.
     // Do not inspect tokens here: that would clear verificationPending because
@@ -147,6 +151,16 @@ router.beforeEach(async (to, from) => {
 
     if (!auth.isLogin && !isPublicRoute) {
         return { name: 'login' }
+    }
+
+    if (auth.isLogin) {
+        await store.selectCmsConfiguration()
+        if (to.path.startsWith('/content')) {
+            await store.selectTypes()
+        }
+        if (typeof to.meta.feature === 'string' && !store.isFeatureEnabled(to.meta.feature)) {
+            return { name: '404' }
+        }
     }
 
     if (auth.isLogin && isPublicRoute && to.name !== '404') {

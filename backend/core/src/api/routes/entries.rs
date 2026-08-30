@@ -5,17 +5,12 @@ use axum::{
 };
 use axum_extra::extract::Query;
 use chrono::Utc;
-use markdown::{Options, ParseOptions, to_html_with_options, to_mdast};
+use markdown::{ParseOptions, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
-
-#[cfg(debug_assertions)]
-use colored::Colorize;
-#[cfg(debug_assertions)]
-use tracing::debug;
 
 use crate::{
     CONFIG,
@@ -25,12 +20,9 @@ use crate::{
         handles::{self, ContentEntryFacetQuery},
         models::{AuthUserMeta, Role},
         queries::QueryObj,
-        serialize::*,
     },
     utils::{
-        ast_serialize::{
-            persist_content_media_on, to_structure_root_mdast, truncate_structure_root,
-        },
+        ast_serialize::persist_content_media_on, content_output::render_entry_nodes,
         errors::NurError,
     },
 };
@@ -56,10 +48,6 @@ pub async fn entry_facets_select(
     }
 
     Ok(Json(facets).into_response())
-}
-
-fn render_gfm_html(markdown: &str) -> Result<String, NurError> {
-    Ok(to_html_with_options(markdown, &Options::gfm())?)
 }
 
 pub async fn entries_select(
@@ -100,41 +88,8 @@ pub async fn entries_select(
 
     let mut content = handles::select_content_entries(&pool, &params).await?;
 
-    if params.fields.contains(&CEF::Node(CNF::Text)) && output != OutputType::Markdown {
-        for entry in &mut content.results {
-            for node_wrapper in &mut entry.nodes {
-                // Extract the nodes based on Single or Block variant
-                let nodes_to_process: Vec<&mut ContentNodeSerializer> = match node_wrapper {
-                    NodeSerializer::Single(node) => vec![node.as_mut()],
-                    NodeSerializer::Blocks(nodes) => nodes.iter_mut().collect(),
-                };
-
-                for node in nodes_to_process {
-                    let text = node.text.take().unwrap_or_default();
-                    node.text = None;
-
-                    if !text.is_empty() {
-                        match output {
-                            OutputType::AST => {
-                                let ast = to_mdast(&text, &ParseOptions::gfm())?;
-                                let mut body = to_structure_root_mdast(&ast, &mut node.embeds);
-
-                                if let Some(limit) = params.character_limit {
-                                    truncate_structure_root(&mut body, limit as usize);
-                                }
-
-                                node.ast = Some(body);
-                            }
-                            OutputType::HTML => {
-                                let html = render_gfm_html(&text)?;
-                                node.html = Some(html);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
+    if params.fields.contains(&CEF::Node(CNF::Text)) {
+        render_entry_nodes(&mut content.results, &output, params.character_limit)?;
     }
 
     if let Some(key) = cache_key {
@@ -197,70 +152,8 @@ pub async fn entry_select(
         .into_iter()
         .next()
     {
-        if params.fields.contains(&CEF::Node(CNF::Text)) && output != OutputType::Markdown {
-            for node_wrapper in &mut content.nodes {
-                // Extract the nodes based on Single or Block variant
-                let nodes_to_process: Vec<&mut ContentNodeSerializer> = match node_wrapper {
-                    NodeSerializer::Single(node) => vec![node.as_mut()],
-                    NodeSerializer::Blocks(nodes) => nodes.iter_mut().collect(),
-                };
-
-                for node in nodes_to_process {
-                    let text = node.text.take().unwrap_or_default();
-                    node.text = None;
-
-                    if !text.is_empty() {
-                        match output {
-                            OutputType::AST => {
-                                #[cfg(debug_assertions)]
-                                let timer = std::time::Instant::now();
-
-                                let ast = to_mdast(&text, &ParseOptions::gfm())?;
-
-                                #[cfg(debug_assertions)]
-                                debug!(
-                                    "{}",
-                                    format!("--> To mAST time: {:?}", timer.elapsed())
-                                        .bright_black()
-                                );
-
-                                #[cfg(debug_assertions)]
-                                let timer = std::time::Instant::now();
-
-                                let mut body = to_structure_root_mdast(&ast, &mut node.embeds);
-
-                                #[cfg(debug_assertions)]
-                                debug!(
-                                    "{}",
-                                    format!("--> To structure time: {:?}", timer.elapsed())
-                                        .bright_black()
-                                );
-
-                                if let Some(limit) = character_limit {
-                                    #[cfg(debug_assertions)]
-                                    let timer = std::time::Instant::now();
-
-                                    truncate_structure_root(&mut body, limit as usize);
-
-                                    #[cfg(debug_assertions)]
-                                    debug!(
-                                        "{}",
-                                        format!("--> Truncate time: {:?}", timer.elapsed())
-                                            .bright_black()
-                                    );
-                                }
-
-                                node.ast = Some(body);
-                            }
-                            OutputType::HTML => {
-                                let html = render_gfm_html(&text)?;
-                                node.html = Some(html);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
+        if params.fields.contains(&CEF::Node(CNF::Text)) {
+            render_entry_nodes(std::slice::from_mut(&mut content), &output, character_limit)?;
         }
 
         if let Some(key) = cache_key {
@@ -413,20 +306,4 @@ pub async fn entry_delete(
     Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::render_gfm_html;
-
-    #[test]
-    fn renders_gfm_tables_and_keeps_raw_html_escaped() {
-        let html =
-            render_gfm_html("| Name | Value |\n| --- | --- |\n| One | 1 |\n\n<span>raw</span>")
-                .expect("GFM rendering succeeds");
-
-        assert!(html.contains("<table>"));
-        assert!(html.contains("<th>Name</th>"));
-        assert!(html.contains("&lt;span&gt;raw&lt;/span&gt;"));
-    }
 }

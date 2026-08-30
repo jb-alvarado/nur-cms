@@ -1,27 +1,38 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use axum::{
     Json, Router,
     body::{Body, to_bytes},
-    extract::{Extension, Request, State},
+    extract::{Extension, Path, Request, State},
     http::{HeaderName, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{MethodFilter, get, on},
 };
+use moka::sync::Cache;
 use nur_core::db::models::{AuthUserMeta, Role};
 use protect_axum::authorities::AuthDetails;
 use serde::Serialize;
 use sqlx::PgPool;
+use tower_http::services::ServeDir;
 use tracing::{error, info};
 
 mod manifest;
 mod migrations;
 mod runtime;
 
-use manifest::{AdminManifest, InstalledPlugin, RouteManifest};
+use manifest::{AdminManifest, CacheManifest, InstalledPlugin, RouteManifest};
 use runtime::{PluginComponent, Runtime, bindings};
 
 pub const API_VERSION: u32 = 1;
+const FORWARDED_REQUEST_HEADERS: &[&str] =
+    &["accept", "accept-language", "content-type", "user-agent"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -67,9 +78,23 @@ pub struct PluginManager {
     metadata: Arc<Vec<PluginMetadata>>,
 }
 
+#[derive(Clone, Default)]
+pub struct PluginCacheInvalidator {
+    caches: Arc<Vec<RouteCache>>,
+}
+
+impl PluginCacheInvalidator {
+    pub fn invalidate(&self) {
+        for cache in self.caches.iter() {
+            cache.invalidate();
+        }
+    }
+}
+
 struct LoadedPlugin {
     installed: InstalledPlugin,
     component: PluginComponent,
+    cache: Option<RouteCache>,
 }
 
 #[derive(Clone)]
@@ -79,6 +104,22 @@ struct RouteState {
     roles: Vec<String>,
     request_body_limit: usize,
     response_body_limit: usize,
+    cache: Option<RouteCache>,
+}
+
+#[derive(Clone)]
+struct RouteCache {
+    responses: Cache<String, CachedResponse>,
+    ttl: Duration,
+    generation: Arc<AtomicU64>,
+}
+
+#[derive(Clone)]
+struct CachedResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+    expires_at: Instant,
 }
 
 impl PluginManager {
@@ -91,7 +132,7 @@ impl PluginManager {
             });
         }
 
-        let runtime = Runtime::new()?;
+        let runtime = Runtime::new(pool.clone())?;
         let mut plugins = Vec::with_capacity(installed.len());
         let mut metadata = Vec::with_capacity(installed.len());
         for plugin in installed {
@@ -103,9 +144,11 @@ impl PluginManager {
                 version: plugin.manifest.plugin.version.clone(),
                 admin: plugin.manifest.admin.clone(),
             });
+            let cache = plugin_cache(plugin.manifest.cache.as_ref());
             plugins.push(LoadedPlugin {
                 installed: plugin,
                 component,
+                cache,
             });
         }
 
@@ -136,6 +179,10 @@ impl PluginManager {
         );
 
         for plugin in &self.plugins {
+            if let Some(assets) = &plugin.installed.assets {
+                let path = format!("/plugins/{}/assets", plugin.installed.manifest.plugin.id);
+                router = router.nest_service(&path, ServeDir::new(assets));
+            }
             for route in &plugin.installed.manifest.routes {
                 validate_route(&plugin.installed.manifest.plugin.id, route, allow_root)?;
                 let method = method_filter(&route.method)?;
@@ -152,6 +199,10 @@ impl PluginManager {
                     roles: route.roles()?,
                     request_body_limit,
                     response_body_limit,
+                    cache: route
+                        .cache_enabled(plugin.cache.is_some())?
+                        .then(|| plugin.cache.clone())
+                        .flatten(),
                 });
                 let route_router = Router::new()
                     .route(&route.path, on(method, dispatch))
@@ -160,6 +211,17 @@ impl PluginManager {
             }
         }
         Ok(router)
+    }
+
+    pub fn cache_invalidator(&self) -> PluginCacheInvalidator {
+        PluginCacheInvalidator {
+            caches: Arc::new(
+                self.plugins
+                    .iter()
+                    .filter_map(|plugin| plugin.cache.clone())
+                    .collect(),
+            ),
+        }
     }
 }
 
@@ -177,6 +239,7 @@ async fn dispatch(
     State(state): State<Arc<RouteState>>,
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
+    path_params: Option<Path<HashMap<String, String>>>,
     request: Request,
 ) -> Response {
     let role_names: Vec<String> = details
@@ -192,7 +255,9 @@ async fn dispatch(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    match dispatch_inner(&state, user, role_names, request).await {
+    let path_params = plugin_path_params(path_params);
+
+    match dispatch_inner(&state, user, role_names, path_params, request).await {
         Ok(response) => response,
         Err(error) => {
             error!(plugin = %state.plugin.id, route = %state.route_id, %error, "plugin request failed");
@@ -211,36 +276,138 @@ async fn dispatch_inner(
     state: &RouteState,
     user: AuthUserMeta,
     roles: Vec<String>,
+    path_params: Vec<bindings::nur::cms::types::PathParam>,
     request: Request,
 ) -> Result<Response, Error> {
     let method = request.method().to_string();
     let uri = request.uri().clone();
     let headers = request_headers(request.headers());
+    let cache_key = state.cache.as_ref().map(|cache| {
+        cache.key(response_cache_key(
+            &state.route_id,
+            request.method(),
+            &uri,
+            &headers,
+        ))
+    });
+    if let (Some(cache), Some(key)) = (&state.cache, &cache_key)
+        && let Some(cached) = cache.responses.get(key)
+    {
+        if cached.expires_at > Instant::now() {
+            return build_response(cached.into_plugin_response(), state.response_body_limit);
+        }
+        cache.responses.invalidate(key);
+    }
     let body = to_bytes(request.into_body(), state.request_body_limit)
         .await
         .map_err(|error| Error::Plugin(error.to_string()))?;
-    let identity = (user.id >= 0).then_some(bindings::nur::cms::types::Identity {
-        user_id: user.id,
-        roles,
-    });
+    let identity = request_identity(state.roles.is_empty(), user, roles);
     let plugin_request = bindings::nur::cms::types::Request {
         route_id: state.route_id.clone(),
         method,
         path: uri.path().into(),
+        path_params,
         query: uri.query().map(ToOwned::to_owned),
         headers,
         body: body.to_vec(),
         identity,
     };
     let response = state.plugin.call(plugin_request).await?;
+    if response.status == StatusCode::OK.as_u16()
+        && response.body.len() <= state.response_body_limit
+        && let (Some(cache), Some(key)) = (&state.cache, cache_key)
+    {
+        cache.responses.insert(
+            key,
+            CachedResponse::from_plugin_response(&response, cache.ttl),
+        );
+    }
     build_response(response, state.response_body_limit)
 }
 
+fn plugin_path_params(
+    path_params: Option<Path<HashMap<String, String>>>,
+) -> Vec<bindings::nur::cms::types::PathParam> {
+    let Some(Path(path_params)) = path_params else {
+        return Vec::new();
+    };
+    let mut path_params: Vec<_> = path_params
+        .into_iter()
+        .map(|(name, value)| bindings::nur::cms::types::PathParam { name, value })
+        .collect();
+    path_params.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+    path_params
+}
+
+impl CachedResponse {
+    fn from_plugin_response(response: &bindings::nur::cms::types::Response, ttl: Duration) -> Self {
+        Self {
+            status: response.status,
+            headers: response
+                .headers
+                .iter()
+                .map(|header| (header.name.clone(), header.value.clone()))
+                .collect(),
+            body: response.body.clone(),
+            expires_at: Instant::now() + ttl,
+        }
+    }
+
+    fn into_plugin_response(self) -> bindings::nur::cms::types::Response {
+        bindings::nur::cms::types::Response {
+            status: self.status,
+            headers: self
+                .headers
+                .into_iter()
+                .map(|(name, value)| bindings::nur::cms::types::Header { name, value })
+                .collect(),
+            body: self.body,
+        }
+    }
+}
+
+fn plugin_cache(cache: Option<&CacheManifest>) -> Option<RouteCache> {
+    cache.map(|cache| RouteCache {
+        responses: Cache::new(cache.max_entries),
+        ttl: Duration::from_secs(cache.ttl_seconds),
+        generation: Arc::new(AtomicU64::new(0)),
+    })
+}
+
+impl RouteCache {
+    fn key(&self, key: String) -> String {
+        format!("{}:{key}", self.generation.load(Ordering::Acquire))
+    }
+
+    fn invalidate(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        self.responses.invalidate_all();
+    }
+}
+
+fn response_cache_key(
+    route_id: &str,
+    method: &Method,
+    uri: &axum::http::Uri,
+    headers: &[bindings::nur::cms::types::Header],
+) -> String {
+    let mut key = format!("{route_id}\n{method}\n{uri}");
+    for header in headers {
+        key.push('\n');
+        key.push_str(&header.name);
+        key.push(':');
+        key.push_str(&header.value.len().to_string());
+        key.push(':');
+        key.push_str(&header.value);
+    }
+
+    key
+}
+
 fn request_headers(headers: &axum::http::HeaderMap) -> Vec<bindings::nur::cms::types::Header> {
-    const ALLOWED: &[&str] = &["accept", "accept-language", "content-type", "user-agent"];
     headers
         .iter()
-        .filter(|(name, _)| ALLOWED.contains(&name.as_str()))
+        .filter(|(name, _)| FORWARDED_REQUEST_HEADERS.contains(&name.as_str()))
         .take(32)
         .filter_map(|(name, value)| {
             value
@@ -253,6 +420,17 @@ fn request_headers(headers: &axum::http::HeaderMap) -> Vec<bindings::nur::cms::t
                 })
         })
         .collect()
+}
+
+fn request_identity(
+    public_route: bool,
+    user: AuthUserMeta,
+    roles: Vec<String>,
+) -> Option<bindings::nur::cms::types::Identity> {
+    (!public_route && user.id >= 0).then_some(bindings::nur::cms::types::Identity {
+        user_id: user.id,
+        roles,
+    })
 }
 
 fn build_response(
@@ -394,7 +572,17 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
 
 #[cfg(test)]
 mod tests {
-    use super::{RouteManifest, route_shape, validate_route};
+    use std::{collections::HashMap, sync::Arc};
+
+    use axum::extract::Path;
+    use axum::http::{HeaderMap, HeaderValue, Method, Uri};
+    use nur_core::db::models::AuthUserMeta;
+
+    use super::{
+        PluginCacheInvalidator, RouteManifest, plugin_cache, plugin_path_params, request_identity,
+        response_cache_key, route_shape, validate_route,
+    };
+    use crate::manifest::CacheManifest;
 
     fn route(path: &str) -> RouteManifest {
         RouteManifest {
@@ -402,6 +590,7 @@ mod tests {
             method: "GET".into(),
             path: path.into(),
             access: "public".into(),
+            cache: None,
         }
     }
 
@@ -423,5 +612,68 @@ mod tests {
         assert_eq!(route_shape("/items/{id}").unwrap(), "/items/{}");
         assert_eq!(route_shape("/items/{slug}").unwrap(), "/items/{}");
         assert!(route_shape("/items/{broken").is_err());
+    }
+
+    #[test]
+    fn path_parameters_are_forwarded_by_name() {
+        let params = plugin_path_params(Some(Path(HashMap::from([
+            ("slug".into(), "summer-festival".into()),
+            ("year".into(), "2026".into()),
+        ]))));
+
+        assert_eq!(params[0].name, "slug");
+        assert_eq!(params[0].value, "summer-festival");
+        assert_eq!(params[1].name, "year");
+        assert_eq!(params[1].value, "2026");
+        assert!(plugin_path_params(None).is_empty());
+    }
+
+    #[test]
+    fn invalidating_plugin_caches_changes_the_cache_generation() {
+        let cache = plugin_cache(Some(&CacheManifest {
+            ttl_seconds: 60,
+            max_entries: 1,
+        }))
+        .expect("cache is configured");
+        let before = cache.key("home".into());
+
+        PluginCacheInvalidator {
+            caches: Arc::new(vec![cache.clone()]),
+        }
+        .invalidate();
+
+        let after = cache.key("home".into());
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn public_routes_never_receive_an_authenticated_identity() {
+        assert!(request_identity(true, AuthUserMeta::new(42), vec!["admin".into()]).is_none());
+
+        let identity = request_identity(false, AuthUserMeta::new(42), vec!["admin".into()])
+            .expect("protected route receives identity");
+        assert_eq!(identity.user_id, 42);
+    }
+
+    #[test]
+    fn cache_keys_include_method_and_every_forwarded_header() {
+        let uri: Uri = "/events?year=2026".parse().expect("URI is valid");
+        let mut headers = HeaderMap::new();
+        headers.insert("accept", HeaderValue::from_static("text/html"));
+        headers.insert("user-agent", HeaderValue::from_static("desktop"));
+        let desktop = response_cache_key(
+            "events",
+            &Method::GET,
+            &uri,
+            &super::request_headers(&headers),
+        );
+
+        headers.insert("user-agent", HeaderValue::from_static("mobile"));
+        let forwarded = super::request_headers(&headers);
+        let mobile = response_cache_key("events", &Method::GET, &uri, &forwarded);
+        let head = response_cache_key("events", &Method::HEAD, &uri, &forwarded);
+
+        assert_ne!(desktop, mobile);
+        assert_ne!(mobile, head);
     }
 }

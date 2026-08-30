@@ -18,7 +18,7 @@ use crate::db::{
 
 use crate::db::{
     fields::TSLanguage,
-    models::{Configuration, MailTarget, TSConfig},
+    models::{BrandingConfiguration, CmsConfiguration, Configuration, MailTarget, TSConfig},
     queries::{QueryObj, RespondObj},
 };
 use crate::utils::errors::NurError;
@@ -134,6 +134,66 @@ pub async fn select_configuration(pool: &PgPool) -> Result<Configuration, NurErr
         .await?;
 
     Ok(config)
+}
+
+pub async fn select_cms_configuration(pool: &PgPool) -> Result<CmsConfiguration, NurError> {
+    const QUERY: &str = "SELECT frontend_name, logo_media_id, admin_language, entry_default_status, \
+        entry_hidden_fields, hidden_menu_items, disabled_features FROM configuration_cms WHERE id = 1";
+
+    if let Some(configuration) = sqlx::query_as(QUERY).fetch_optional(pool).await? {
+        return Ok(configuration);
+    }
+
+    const INSERT_QUERY: &str = "INSERT INTO configuration_cms (id) VALUES (1) \
+        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id \
+        RETURNING frontend_name, logo_media_id, admin_language, entry_default_status, entry_hidden_fields, \
+        hidden_menu_items, disabled_features";
+
+    Ok(sqlx::query_as(INSERT_QUERY).fetch_one(pool).await?)
+}
+
+pub async fn select_branding_configuration(
+    pool: &PgPool,
+) -> Result<BrandingConfiguration, NurError> {
+    const QUERY: &str = "SELECT cc.frontend_name, \
+        CASE WHEN m.id IS NULL THEN NULL ELSE RTRIM(m.path, '/') || '/' || m.filename END AS logo_url, \
+        m.alt AS logo_alt, cc.admin_language FROM configuration_cms cc LEFT JOIN media m ON m.id = cc.logo_media_id \
+        AND m.type LIKE 'image/%' AND (m.path = '/uploads' OR m.path LIKE '/uploads/%') \
+        WHERE cc.id = 1";
+
+    if let Some(configuration) = sqlx::query_as(QUERY).fetch_optional(pool).await? {
+        return Ok(configuration);
+    }
+
+    select_cms_configuration(pool).await?;
+    Ok(sqlx::query_as(QUERY).fetch_one(pool).await?)
+}
+
+pub async fn update_cms_configuration(
+    pool: &PgPool,
+    configuration: &CmsConfiguration,
+) -> Result<(), NurError> {
+    const QUERY: &str = "UPDATE configuration_cms SET frontend_name = $1, logo_media_id = $2, \
+        admin_language = $3, entry_default_status = $4, entry_hidden_fields = $5, \
+        hidden_menu_items = $6, disabled_features = $7 WHERE id = 1 AND \
+        ($2::INTEGER IS NULL OR EXISTS (SELECT 1 FROM media WHERE id = $2 AND type LIKE 'image/%'))";
+
+    let result = sqlx::query(QUERY)
+        .bind(&configuration.frontend_name)
+        .bind(configuration.logo_media_id)
+        .bind(&configuration.admin_language)
+        .bind(&configuration.entry_default_status)
+        .bind(&configuration.entry_hidden_fields)
+        .bind(&configuration.hidden_menu_items)
+        .bind(&configuration.disabled_features)
+        .execute(pool)
+        .await?;
+
+    if result.rows_affected() != 1 {
+        return Err(NurError::InvalidInput);
+    }
+
+    Ok(())
 }
 
 pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget, NurError> {

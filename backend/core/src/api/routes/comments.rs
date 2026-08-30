@@ -1,6 +1,8 @@
 use axum::{
     Extension, Json,
-    extract::{OriginalUri, Path, Query, State},
+    extract::{OriginalUri, Path, Query, Request, State},
+    middleware::Next,
+    response::{IntoResponse, Response},
 };
 use chrono::Utc;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
@@ -11,12 +13,7 @@ use tokio::sync::broadcast::Sender;
 use tracing::error;
 
 use crate::{
-    AuthUserMeta,
-    sse::{SSELevel, SSEMessage},
-    utils::errors::NurError,
-};
-use crate::{
-    CONFIG,
+    AuthUserMeta, CMS_CONFIG, CONFIG,
     db::{
         fields::{CommentFields, Table},
         handles,
@@ -24,8 +21,32 @@ use crate::{
         queries::{QueryObj, RespondObj},
     },
     mail::client::{Msg, message},
-    utils::spam_detection::{evaluate_text, validate_email_address},
+    sse::{SSELevel, SSEMessage},
+    utils::{
+        errors::NurError,
+        spam_detection::{evaluate_text, validate_email_address},
+    },
 };
+
+pub async fn comments_feature_guard(request: Request, next: Next) -> Response {
+    let disabled = {
+        let configuration = CMS_CONFIG.read().await;
+        feature_disabled(&configuration, "comments")
+    };
+
+    if disabled {
+        return NurError::NotFound.into_response();
+    }
+
+    next.run(request).await
+}
+
+fn feature_disabled(configuration: &crate::db::models::CmsConfiguration, feature: &str) -> bool {
+    configuration
+        .disabled_features
+        .iter()
+        .any(|disabled| disabled == feature)
+}
 
 async fn notify(comment: Comment) -> Result<(), NurError> {
     let author_name = comment.author_name.unwrap_or_default();
@@ -214,4 +235,20 @@ pub async fn comment_delete(
     Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::models::CmsConfiguration;
+
+    use super::feature_disabled;
+
+    #[test]
+    fn comments_are_enabled_by_default_and_can_be_disabled() {
+        let mut configuration = CmsConfiguration::default();
+        assert!(!feature_disabled(&configuration, "comments"));
+
+        configuration.disabled_features.push("comments".into());
+        assert!(feature_disabled(&configuration, "comments"));
+    }
 }

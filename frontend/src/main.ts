@@ -9,20 +9,16 @@ import { initAuthChannel } from './stores/auth.ts'
 import App from './App.vue'
 import router from './router'
 
-const frontendName = __FRONTEND_NAME__
 const app = createApp(App)
 
 const head = createHead({
     init: [
         {
-            title: frontendName,
-            titleTemplate: `%s | ${frontendName}`,
+            title: 'NUR CMS',
             htmlAttrs: { lang: 'en' },
         },
     ],
 })
-
-document.title = frontendName
 
 app.use(i18nInstance)
 app.use(head)

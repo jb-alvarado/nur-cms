@@ -37,5 +37,6 @@ for the package layout, manifest format, migration behavior, and HTTP interface.
 | `NUR_PLUGIN_MODULE_SIZE_LIMIT` | `67108864` | Maximum size of a plugin WebAssembly component in bytes. |
 | `NUR_PLUGIN_TIMEOUT_MS` | `5000` | Wall-clock execution limit per plugin request. |
 | `NUR_PLUGIN_MAX_CONCURRENCY` | `8` | Maximum number of concurrent plugin executions. |
+| `NUR_PLUGIN_MAX_HOST_CALLS` | `16` | Maximum number of CMS host-interface calls during one plugin request. |
 | `NUR_PLUGIN_REQUEST_BODY_LIMIT` | `1048576` | Maximum request body passed to a plugin in bytes. |
-| `NUR_PLUGIN_RESPONSE_BODY_LIMIT` | `4194304` | Maximum response body accepted from a plugin in bytes. |
+| `NUR_PLUGIN_RESPONSE_BODY_LIMIT` | `4194304` | Maximum HTTP response or individual CMS host response accepted from a plugin in bytes. |

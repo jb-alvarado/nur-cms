@@ -33,7 +33,7 @@ use crate::{
     },
     db::{
         handles,
-        models::{AuthUserMeta, Configuration, Role},
+        models::{AuthUserMeta, CmsConfiguration, Configuration, Role},
     },
     file::routes::{upload_chunk, upload_status},
     utils::{cmd_args::Args, errors::NurError},
@@ -104,6 +104,8 @@ pub static IMAGE_PROCESSING_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| {
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
+pub static CMS_CONFIG: LazyLock<Arc<RwLock<CmsConfiguration>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(CmsConfiguration::default())));
 
 pub async fn init_db() -> Result<PgPool, NurError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -203,7 +205,10 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .route("/", get(auth_user_select).post(auth_user_insert))
         .route("/{id}", delete(auth_user_delete).put(auth_user_update));
 
-    let config_routes = Router::new().route("/", get(config_select).put(config_update));
+    let config_routes = Router::new()
+        .route("/", get(config_select).put(config_update))
+        .route("/cms", get(cms_config_select).put(cms_config_update))
+        .route("/branding", get(branding_config_select));
 
     let locale_routes = Router::new()
         .route("/", get(locale_select).post(locale_insert))
@@ -211,7 +216,8 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
 
     let comment_routes = Router::new()
         .route("/", get(comments_select).post(comment_insert))
-        .route("/{id}", delete(comment_delete).put(comment_update));
+        .route("/{id}", delete(comment_delete).put(comment_update))
+        .layer(axum_middleware::from_fn(comments_feature_guard));
 
     let content_routes = Router::new()
         .route("/types", get(types_select).post(type_insert))
