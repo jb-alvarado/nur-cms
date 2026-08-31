@@ -2664,6 +2664,7 @@ name = "nur_plugins"
 version = "0.16.0"
 dependencies = [
  "axum",
+ "colored",
  "moka",
  "nur_core",
  "protect-axum",

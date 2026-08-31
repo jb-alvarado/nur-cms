@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 axum = "0.8"
+colored = "3"
 moka = { version = "0.12", default-features = false, features = ["sync"] }
 nur_core = { path = "../core" }
 protect-axum = "0.2"

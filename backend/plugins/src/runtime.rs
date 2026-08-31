@@ -1,3 +1,4 @@
+use colored::Colorize;
 use nur_core::{
     db::{
         fields::{ContentEntryFields, ContentNodeFields, OutputType},
@@ -6,7 +7,11 @@ use nur_core::{
     },
     utils::content_output::render_entry_nodes,
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tracing::{error, info, warn};
 use wasmtime::{
@@ -37,6 +42,7 @@ pub struct Runtime {
     tokio_handle: tokio::runtime::Handle,
     max_host_calls: usize,
     content_response_body_limit: usize,
+    metrics_enabled: bool,
 }
 
 #[derive(Clone)]
@@ -56,6 +62,7 @@ struct HostState {
     host_calls_remaining: usize,
     host_call_timeout: Duration,
     content_response_body_limit: usize,
+    metrics_enabled: bool,
 }
 
 impl WasiView for HostState {
@@ -111,6 +118,7 @@ impl Runtime {
                 1024,
                 64 * 1024 * 1024,
             ),
+            metrics_enabled: env_bool("NUR_PLUGIN_METRICS", false),
         })
     }
 
@@ -195,6 +203,7 @@ impl PluginComponent {
         &self,
         request: bindings::nur::cms::types::Request,
     ) -> Result<bindings::nur::cms::types::Response, Error> {
+        let call_started = Instant::now();
         let mut linker = Linker::new(&self.runtime.engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(Error::wasmtime)?;
         let mut store = Store::new(
@@ -215,6 +224,7 @@ impl PluginComponent {
                 host_calls_remaining: self.runtime.max_host_calls,
                 host_call_timeout: self.runtime.timeout,
                 content_response_body_limit: self.runtime.content_response_body_limit,
+                metrics_enabled: self.runtime.metrics_enabled,
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -226,25 +236,106 @@ impl PluginComponent {
             .div_ceil(u128::from(EPOCH_INTERVAL_MS));
         store.set_epoch_deadline(u64::try_from(ticks).unwrap_or(u64::MAX));
 
+        let instantiate_started = Instant::now();
         bindings::CmsPlugin::add_to_linker::<HostState, wasmtime::component::HasSelf<HostState>>(
             &mut linker,
             |state| state,
         )
         .map_err(Error::wasmtime)?;
-        let instance = bindings::CmsPlugin::instantiate(&mut store, &self.component, &linker)
-            .map_err(Error::wasmtime)?;
-        instance
+        let instance = match bindings::CmsPlugin::instantiate(&mut store, &self.component, &linker)
+        {
+            Ok(instance) => instance,
+            Err(error) => {
+                self.log_metrics(
+                    "instantiate",
+                    instantiate_started.elapsed(),
+                    call_started.elapsed(),
+                    self.runtime.fuel,
+                    &store,
+                );
+                return Err(Error::wasmtime(error));
+            }
+        };
+        self.log_metrics(
+            "instantiate",
+            instantiate_started.elapsed(),
+            call_started.elapsed(),
+            self.runtime.fuel,
+            &store,
+        );
+
+        let fuel_after_instantiation = store.get_fuel().unwrap_or(0);
+        let handler_started = Instant::now();
+        let result = instance
             .nur_cms_http_handler()
             .call_handle(&mut store, &request)
-            .map_err(Error::wasmtime)?
-            .map_err(|error| match error {
-                bindings::nur::cms::types::PluginError::BadRequest(message) => {
-                    Error::PluginBadRequest(message)
-                }
-                bindings::nur::cms::types::PluginError::Forbidden => Error::PluginForbidden,
-                bindings::nur::cms::types::PluginError::NotFound => Error::PluginNotFound,
-                bindings::nur::cms::types::PluginError::Failed(message) => Error::Plugin(message),
-            })
+            .map_err(Error::wasmtime)
+            .and_then(|result| {
+                result.map_err(|error| match error {
+                    bindings::nur::cms::types::PluginError::BadRequest(message) => {
+                        Error::PluginBadRequest(message)
+                    }
+                    bindings::nur::cms::types::PluginError::Forbidden => Error::PluginForbidden,
+                    bindings::nur::cms::types::PluginError::NotFound => Error::PluginNotFound,
+                    bindings::nur::cms::types::PluginError::Failed(message) => {
+                        Error::Plugin(message)
+                    }
+                })
+            });
+        self.log_metrics(
+            "handler",
+            handler_started.elapsed(),
+            call_started.elapsed(),
+            fuel_after_instantiation,
+            &store,
+        );
+        result
+    }
+
+    fn log_metrics(
+        &self,
+        phase: &'static str,
+        phase_elapsed: Duration,
+        total_elapsed: Duration,
+        fuel_at_phase_start: u64,
+        store: &Store<HostState>,
+    ) {
+        if !self.runtime.metrics_enabled {
+            return;
+        }
+
+        let fuel_remaining = store.get_fuel().unwrap_or(0);
+        let host_calls = self
+            .runtime
+            .max_host_calls
+            .saturating_sub(store.data().host_calls_remaining);
+        let phase_ms = format!("{:.2}", phase_elapsed.as_secs_f64() * 1_000.0).yellow();
+        let total_ms = format!("{:.2}", total_elapsed.as_secs_f64() * 1_000.0).yellow();
+        let fuel_budget = self.runtime.fuel.to_string().yellow();
+        let phase_fuel_used = fuel_at_phase_start
+            .saturating_sub(fuel_remaining)
+            .to_string()
+            .yellow();
+        let total_fuel_used = self
+            .runtime
+            .fuel
+            .saturating_sub(fuel_remaining)
+            .to_string()
+            .yellow();
+        let fuel_remaining = fuel_remaining.to_string().yellow();
+        let host_calls = host_calls.to_string().yellow();
+        info!(
+            plugin = %self.id,
+            phase,
+            phase_ms = %phase_ms,
+            total_ms = %total_ms,
+            fuel_budget = %fuel_budget,
+            phase_fuel_used = %phase_fuel_used,
+            total_fuel_used = %total_fuel_used,
+            fuel_remaining = %fuel_remaining,
+            host_calls = %host_calls,
+            "plugin runtime metrics"
+        );
     }
 }
 
@@ -303,6 +394,7 @@ impl bindings::nur::cms::content::Host for HostState {
                 .push(ContentEntryFields::Node(ContentNodeFields::Embeds));
         }
 
+        let host_call_started = Instant::now();
         let result = self.tokio_handle.block_on(async {
             tokio::time::timeout(self.host_call_timeout, async {
                 let mut entries = handles::select_content_entries(&self.pool, &params).await?;
@@ -316,6 +408,7 @@ impl bindings::nur::cms::content::Host for HostState {
             })
             .await
         });
+        self.log_content_query_metrics(&result, host_call_started.elapsed());
         match result {
             Ok(Ok(entries)) if entries.len() <= self.content_response_body_limit => Ok(entries),
             Ok(Ok(_)) => Err(bindings::nur::cms::types::PluginError::Failed(
@@ -334,11 +427,54 @@ impl bindings::nur::cms::content::Host for HostState {
     }
 }
 
+impl HostState {
+    fn log_content_query_metrics(
+        &self,
+        result: &Result<
+            Result<Vec<u8>, nur_core::utils::errors::NurError>,
+            tokio::time::error::Elapsed,
+        >,
+        elapsed: Duration,
+    ) {
+        if !self.metrics_enabled {
+            return;
+        }
+
+        let (outcome, response_bytes) = match result {
+            Ok(Ok(entries)) if entries.len() <= self.content_response_body_limit => {
+                ("ok", entries.len())
+            }
+            Ok(Ok(entries)) => ("response-too-large", entries.len()),
+            Ok(Err(_)) => ("error", 0),
+            Err(_) => ("timeout", 0),
+        };
+        info!(
+            plugin = %self.plugin_id,
+            host_call = "published_entries",
+            outcome,
+            duration_ms = %format!("{:.2}", elapsed.as_secs_f64() * 1_000.0).yellow(),
+            response_bytes = %response_bytes.to_string().yellow(),
+            "plugin host-call metrics"
+        );
+    }
+}
+
 fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
     std::env::var(key)
         .ok()
         .and_then(|value| value.parse().ok())
         .filter(|value| (minimum..=maximum).contains(value))
+        .unwrap_or(default)
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| match value.as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
         .unwrap_or(default)
 }
 
