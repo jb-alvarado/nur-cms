@@ -129,8 +129,10 @@ startup to prevent links outside the plugin package.
 ## Route cache
 
 Caching is disabled unless a plugin declares `[cache]`. It creates a separate in-memory Moka cache for that
-plugin. Only public `GET` and `HEAD` routes may be cached. All eligible routes are cached by default; set
-`cache = false` on an individual route to opt out.
+plugin. `NUR_PLUGIN_CACHE_MEMORY_LIMIT` is a shared approximate byte budget divided equally among all
+configured plugin caches. Each cache is constrained by both its share of that budget and the manifest's
+`max_entries`. Only public `GET` and `HEAD` routes may be cached. All eligible routes are cached by default;
+set `cache = false` on an individual route to opt out.
 
 The cache key includes the route, method, path, query string, and all request headers forwarded to the plugin.
 Cached routes skip Wasm instantiation on a hit. The cache is local to one nur-cms process and is cleared on
@@ -162,7 +164,9 @@ explicitly qualified core objects. Only install plugins from trusted sources.
 
 Each request gets a fresh Wasmtime store with no inherited environment, network, standard input, or
 filesystem access. Execution is bounded by fuel, epoch interruption, host-call limits, database timeouts,
-linear-memory limits, body limits, and a global concurrency semaphore. Wasmtime runs on Tokio's blocking
+linear-memory limits, body limits, and a global concurrency semaphore. Requests that arrive while all plugin
+execution slots are occupied receive `503 Service Unavailable` instead of entering an unbounded queue. An
+outer HTTP deadline also covers request preparation and response handling. Wasmtime runs on Tokio's blocking
 pool so plugin code does not block an asynchronous Axum worker.
 
 See [configuration.md](configuration.md) for all runtime variables and defaults.

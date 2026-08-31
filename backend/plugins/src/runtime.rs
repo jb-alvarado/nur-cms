@@ -7,7 +7,7 @@ use nur_core::{
     utils::content_output::render_entry_nodes,
 };
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tracing::error;
 use wasmtime::{
     Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
@@ -15,7 +15,7 @@ use wasmtime::{
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::{Error, manifest::InstalledPlugin};
+use crate::{Error, manifest::InstalledPlugin, plugin_timeout};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -94,7 +94,7 @@ impl Runtime {
                 1024 * 1024,
                 512 * 1024 * 1024,
             ),
-            timeout: Duration::from_millis(env_u64("NUR_PLUGIN_TIMEOUT_MS", 5_000, 100, 60_000)),
+            timeout: plugin_timeout(),
             semaphore: Arc::new(Semaphore::new(env_usize(
                 "NUR_PLUGIN_MAX_CONCURRENCY",
                 8,
@@ -141,10 +141,7 @@ impl PluginComponent {
         &self,
         request: bindings::nur::cms::types::Request,
     ) -> Result<bindings::nur::cms::types::Response, Error> {
-        let permit = Arc::clone(&self.runtime.semaphore)
-            .acquire_owned()
-            .await
-            .map_err(|_| Error::Plugin("plugin runtime is shutting down".into()))?;
+        let permit = acquire_runtime_permit(Arc::clone(&self.runtime.semaphore))?;
         let component = self.clone();
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
@@ -211,6 +208,13 @@ impl PluginComponent {
                 bindings::nur::cms::types::PluginError::Failed(message) => Error::Plugin(message),
             })
     }
+}
+
+fn acquire_runtime_permit(semaphore: Arc<Semaphore>) -> Result<OwnedSemaphorePermit, Error> {
+    semaphore.try_acquire_owned().map_err(|error| match error {
+        TryAcquireError::NoPermits => Error::Busy,
+        TryAcquireError::Closed => Error::Plugin("plugin runtime is shutting down".into()),
+    })
 }
 
 impl bindings::nur::cms::content::Host for HostState {
@@ -310,17 +314,30 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf, sync::Arc};
+
+    use tokio::sync::Semaphore;
 
     use crate::Error;
 
-    use super::{PluginComponent, Runtime, bindings};
+    use super::{PluginComponent, Runtime, acquire_runtime_permit, bindings};
+
+    #[test]
+    fn rejects_work_when_runtime_capacity_is_exhausted() {
+        let semaphore = Arc::new(Semaphore::new(1));
+        let _permit =
+            acquire_runtime_permit(Arc::clone(&semaphore)).expect("capacity is available");
+
+        assert!(matches!(
+            acquire_runtime_permit(semaphore),
+            Err(Error::Busy)
+        ));
+    }
 
     #[tokio::test]
     #[ignore = "requires a prebuilt wasm32-wasip2 echo example"]
     async fn invokes_built_echo_component_when_available() {
-        let module = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/echo/target/wasm32-wasip2/release/nur_cms_echo_plugin.wasm");
+        let module = example_component("echo", "nur_cms_echo_plugin");
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
             .expect("test pool initializes");
         let runtime = Runtime::new(pool).expect("runtime initializes");
@@ -352,9 +369,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a prebuilt wasm32-wasip2 community-site example"]
     async fn loads_a_component_with_the_content_import_when_available() {
-        let module = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "examples/community-site/target/wasm32-wasip2/release/nur_cms_community_site_plugin.wasm",
-        );
+        let module = example_component("community-site", "nur_cms_community_site_plugin");
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
             .expect("test pool initializes");
         let runtime = Runtime::new(pool).expect("runtime initializes");
@@ -379,5 +394,29 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(Error::PluginNotFound)));
+    }
+
+    fn example_component(example: &str, artifact: &str) -> PathBuf {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join(example)
+            .join("target/wasm32-wasip2");
+        let release = target.join("release").join(format!("{artifact}.wasm"));
+        if release.is_file() {
+            return release;
+        }
+
+        fs::read_dir(target.join("debug/deps"))
+            .expect("WASIp2 example test component is built")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.extension().and_then(|extension| extension.to_str()) == Some("wasm")
+                    && path
+                        .file_stem()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with(artifact))
+            })
+            .expect("WASIp2 example test component exists")
     }
 }

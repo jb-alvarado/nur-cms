@@ -9,9 +9,24 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: nur_cms
+          POSTGRES_PASSWORD: nur_cms
+          POSTGRES_DB: nur_cms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nur_cms -d nur_cms_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       CARGO_INCREMENTAL: 0
       CARGO_BUILD_JOBS: 1
+      DATABASE_URL: postgres://nur_cms:nur_cms@localhost:5432/nur_cms_test
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -21,14 +36,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-wasip2
       - name: Install frontend dependencies
         run: npm ci
       - name: Validate frontend
         run: |
+          npx eslint frontend/src --max-warnings=0
           npm run type-check
           npm run build
+      - name: Check plugin examples
+        run: |
+          cargo check --manifest-path backend/plugins/examples/echo/Cargo.toml --target wasm32-wasip2
+          cargo check --manifest-path backend/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2
+          cargo test --manifest-path backend/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --no-run
+          cargo test --manifest-path backend/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --no-run
       - name: Validate Rust
         run: |
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo check --workspace --all-targets
+          cargo test --workspace
+          cargo test -p nur_plugins runtime::tests::invokes_built_echo_component_when_available -- --ignored --exact
+          cargo test -p nur_plugins runtime::tests::loads_a_component_with_the_content_import_when_available -- --ignored --exact
+      - name: Test plugin migrations
+        run: cargo test -p nur_plugins migrations::tests::applies_plugin_migrations_once_and_records_them -- --ignored --exact

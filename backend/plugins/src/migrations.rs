@@ -247,12 +247,95 @@ async fn apply_migration(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{env, path::PathBuf};
 
-    use super::parse_migration;
+    use sqlx::PgPool;
+
+    use super::{migrate_plugin, parse_migration};
+    use crate::manifest::{
+        InstalledPlugin, Manifest, MigrationManifest, PluginManifest, schema_name,
+    };
 
     #[test]
     fn rejects_migration_without_numeric_prefix() {
         assert!(parse_migration(PathBuf::from("invalid.sql")).is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires PostgreSQL via DATABASE_URL"]
+    async fn applies_plugin_migrations_once_and_records_them() {
+        let database_url = env::var("DATABASE_URL").expect("DATABASE_URL is configured");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("test database is available");
+        sqlx::migrate!("../../migrations")
+            .run(&pool)
+            .await
+            .expect("core migrations apply");
+
+        let plugin_id = "ci-echo";
+        let schema = schema_name(plugin_id);
+        remove_test_plugin(&pool, plugin_id, &schema).await;
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/echo");
+        let plugin = InstalledPlugin {
+            manifest: Manifest {
+                plugin: PluginManifest {
+                    id: plugin_id.into(),
+                    version: "0.1.0".into(),
+                    api_version: 1,
+                    cms_version: ">=0.16, <0.17".into(),
+                    module: "unused.wasm".into(),
+                },
+                migrations: MigrationManifest {
+                    directory: Some("migrations".into()),
+                },
+                routes: Vec::new(),
+                assets: None,
+                cache: None,
+                admin: None,
+            },
+            module: root.join("unused.wasm"),
+            root,
+            assets: None,
+            manifest_checksum: vec![1, 2, 3],
+        };
+
+        migrate_plugin(&pool, &plugin)
+            .await
+            .expect("plugin migration applies");
+        migrate_plugin(&pool, &plugin)
+            .await
+            .expect("reapplying plugin migration is idempotent");
+
+        let migration_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public._plugin_migrations WHERE plugin_id = $1",
+        )
+        .bind(plugin_id)
+        .fetch_one(&pool)
+        .await
+        .expect("migration record can be read");
+        let table_name = format!("{schema}.echo_messages");
+        let migrated_table: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
+            .bind(table_name)
+            .fetch_one(&pool)
+            .await
+            .expect("plugin table can be inspected");
+
+        assert_eq!(migration_count, 1);
+        assert!(migrated_table.is_some());
+        remove_test_plugin(&pool, plugin_id, &schema).await;
+    }
+
+    async fn remove_test_plugin(pool: &PgPool, plugin_id: &str, schema: &str) {
+        sqlx::query("DELETE FROM public.plugin_registry WHERE plugin_id = $1")
+            .bind(plugin_id)
+            .execute(pool)
+            .await
+            .expect("test plugin registry entry can be removed");
+        let drop_schema = format!("DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
+        sqlx::query(sqlx::AssertSqlSafe(drop_schema))
+            .execute(pool)
+            .await
+            .expect("test plugin schema can be removed");
     }
 }

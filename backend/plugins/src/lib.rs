@@ -20,7 +20,7 @@ use nur_core::db::models::{AuthUserMeta, Role};
 use protect_axum::authorities::AuthDetails;
 use serde::Serialize;
 use sqlx::PgPool;
-use tower_http::services::ServeDir;
+use tower_http::{services::ServeDir, timeout::TimeoutLayer};
 use tracing::{error, info};
 
 mod manifest;
@@ -50,6 +50,8 @@ pub enum Error {
     PluginNotFound,
     #[error("plugin timed out")]
     Timeout,
+    #[error("plugin runtime is busy")]
+    Busy,
     #[error("invalid plugin value")]
     InvalidValue,
     #[error(transparent)]
@@ -133,6 +135,11 @@ impl PluginManager {
         }
 
         let runtime = Runtime::new(pool.clone())?;
+        let configured_caches = installed
+            .iter()
+            .filter(|plugin| plugin.manifest.cache.is_some())
+            .count();
+        let cache_capacity = plugin_cache_capacity(configured_caches);
         let mut plugins = Vec::with_capacity(installed.len());
         let mut metadata = Vec::with_capacity(installed.len());
         for plugin in installed {
@@ -144,7 +151,7 @@ impl PluginManager {
                 version: plugin.manifest.plugin.version.clone(),
                 admin: plugin.manifest.admin.clone(),
             });
-            let cache = plugin_cache(plugin.manifest.cache.as_ref());
+            let cache = plugin_cache(plugin.manifest.cache.as_ref(), cache_capacity);
             plugins.push(LoadedPlugin {
                 installed: plugin,
                 component,
@@ -210,7 +217,10 @@ impl PluginManager {
                 router = router.merge(route_router);
             }
         }
-        Ok(router)
+        Ok(router.layer(TimeoutLayer::with_status_code(
+            StatusCode::GATEWAY_TIMEOUT,
+            plugin_timeout() + Duration::from_millis(250),
+        )))
     }
 
     pub fn cache_invalidator(&self) -> PluginCacheInvalidator {
@@ -263,6 +273,7 @@ async fn dispatch(
             error!(plugin = %state.plugin.id, route = %state.route_id, %error, "plugin request failed");
             match error {
                 Error::Timeout => StatusCode::GATEWAY_TIMEOUT.into_response(),
+                Error::Busy => StatusCode::SERVICE_UNAVAILABLE.into_response(),
                 Error::PluginBadRequest(_) => StatusCode::BAD_REQUEST.into_response(),
                 Error::PluginForbidden => StatusCode::FORBIDDEN.into_response(),
                 Error::PluginNotFound => StatusCode::NOT_FOUND.into_response(),
@@ -366,12 +377,48 @@ impl CachedResponse {
     }
 }
 
-fn plugin_cache(cache: Option<&CacheManifest>) -> Option<RouteCache> {
+fn plugin_cache(cache: Option<&CacheManifest>, capacity: u64) -> Option<RouteCache> {
     cache.map(|cache| RouteCache {
-        responses: Cache::new(cache.max_entries),
+        responses: Cache::builder()
+            .max_capacity(capacity)
+            .weigher(cache_weigher(capacity, cache.max_entries))
+            .build(),
         ttl: Duration::from_secs(cache.ttl_seconds),
         generation: Arc::new(AtomicU64::new(0)),
     })
+}
+
+fn plugin_cache_capacity(configured_caches: usize) -> u64 {
+    if configured_caches == 0 {
+        return 0;
+    }
+    env_u64(
+        "NUR_PLUGIN_CACHE_MEMORY_LIMIT",
+        64 * 1024 * 1024,
+        1024 * 1024,
+        1024 * 1024 * 1024,
+    ) / u64::try_from(configured_caches).unwrap_or(u64::MAX)
+}
+
+fn cache_weigher(
+    capacity: u64,
+    max_entries: u64,
+) -> impl Fn(&String, &CachedResponse) -> u32 + Send + Sync + 'static {
+    let minimum_weight = capacity
+        .div_ceil(max_entries.max(1))
+        .clamp(1, u64::from(u32::MAX)) as u32;
+    move |key, response| cache_entry_weight(key, response).max(minimum_weight)
+}
+
+fn cache_entry_weight(key: &str, response: &CachedResponse) -> u32 {
+    let header_bytes = response.headers.iter().fold(0_u64, |total, (name, value)| {
+        total.saturating_add(name.len() as u64 + value.len() as u64)
+    });
+    let bytes = key.len() as u64
+        + response.body.len() as u64
+        + header_bytes
+        + std::mem::size_of::<CachedResponse>() as u64;
+    u32::try_from(bytes).unwrap_or(u32::MAX)
 }
 
 impl RouteCache {
@@ -570,6 +617,18 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
         .unwrap_or(default)
 }
 
+fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| (minimum..=maximum).contains(value))
+        .unwrap_or(default)
+}
+
+fn plugin_timeout() -> Duration {
+    Duration::from_millis(env_u64("NUR_PLUGIN_TIMEOUT_MS", 5_000, 100, 60_000))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
@@ -579,8 +638,9 @@ mod tests {
     use nur_core::db::models::AuthUserMeta;
 
     use super::{
-        PluginCacheInvalidator, RouteManifest, plugin_cache, plugin_path_params, request_identity,
-        response_cache_key, route_shape, validate_route,
+        CachedResponse, PluginCacheInvalidator, RouteManifest, cache_entry_weight, cache_weigher,
+        plugin_cache, plugin_path_params, request_identity, response_cache_key, route_shape,
+        validate_route,
     };
     use crate::manifest::CacheManifest;
 
@@ -630,10 +690,13 @@ mod tests {
 
     #[test]
     fn invalidating_plugin_caches_changes_the_cache_generation() {
-        let cache = plugin_cache(Some(&CacheManifest {
-            ttl_seconds: 60,
-            max_entries: 1,
-        }))
+        let cache = plugin_cache(
+            Some(&CacheManifest {
+                ttl_seconds: 60,
+                max_entries: 1,
+            }),
+            1024,
+        )
         .expect("cache is configured");
         let before = cache.key("home".into());
 
@@ -644,6 +707,20 @@ mod tests {
 
         let after = cache.key("home".into());
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn cache_weight_accounts_for_payload_headers_and_entry_limit() {
+        let response = CachedResponse {
+            status: 200,
+            headers: vec![("content-type".into(), "text/plain".into())],
+            body: vec![0; 256],
+            expires_at: std::time::Instant::now(),
+        };
+        assert!(cache_entry_weight("cache-key", &response) >= 256);
+
+        let weigher = cache_weigher(1024, 2);
+        assert_eq!(weigher(&"a".into(), &response), 512);
     }
 
     #[test]
