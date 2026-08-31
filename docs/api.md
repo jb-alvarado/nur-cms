@@ -386,12 +386,12 @@ the entry ID.
 
 ### Content types
 
-| Method   | Path                      | Access            |
-| -------- | ------------------------- | ----------------- |
-| `GET`    | `/api/content/types`      | Public            |
-| `POST`   | `/api/content/types`      | `admin`           |
-| `PUT`    | `/api/content/types/{id}` | `admin`           |
-| `DELETE` | `/api/content/types/{id}` | `admin`           |
+| Method   | Path                      | Access  |
+| -------- | ------------------------- | ------- |
+| `GET`    | `/api/content/types`      | Public  |
+| `POST`   | `/api/content/types`      | `admin` |
+| `PUT`    | `/api/content/types/{id}` | `admin` |
+| `DELETE` | `/api/content/types/{id}` | `admin` |
 
 Body fields: `name`, `slug`, `order_index`, `use_meta`.
 
@@ -792,7 +792,8 @@ GET /api/plugins
 Authorization: Bearer <access-token>
 ```
 
-This endpoint is available to admins and authors:
+This endpoint is available to authenticated users. Admin metadata is omitted when the current role is not
+listed in the plugin admin component's `access` declaration:
 
 ```json
 [
@@ -800,7 +801,10 @@ This endpoint is available to admins and authors:
         "id": "example",
         "version": "0.1.0",
         "admin": {
-            "entry": "admin/index.html",
+            "entry": "admin/index.js",
+            "element": "nur-cms-example",
+            "access": "admin,author",
+            "styles": ["admin.css"],
             "menu": [
                 {
                     "label": "Example",

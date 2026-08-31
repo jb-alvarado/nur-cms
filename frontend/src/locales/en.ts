@@ -93,6 +93,15 @@ export default {
         system: 'System',
         cms: 'CMS',
     },
+    plugin: {
+        loading: 'Loading plugin',
+        unavailable: 'This plugin admin page is unavailable.',
+        loadFailed: 'The plugin admin page could not be loaded.',
+        stylesheetLoadFailed: 'The plugin stylesheet could not be loaded: {url}',
+        registrationMissing: 'The plugin did not register its declared custom element.',
+        requestNamespace: 'Plugin requests must target the plugin’s own API namespace.',
+        navigationNamespace: 'Plugin navigation must stay inside the plugin’s admin route.',
+    },
     locale: {
         title: 'Locales',
         code: 'Code',

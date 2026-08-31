@@ -40,9 +40,7 @@ const contentId = Number(route.params.id ?? 0)
 const groupID = Number(route.params.group_id ?? 0)
 const currentContentType = computed(() => store.types.find((item) => item.slug === routeType))
 const defaultStatus =
-    currentContentType.value?.entry_default_status ??
-    store.cmsConfiguration.entry_default_status ??
-    'draft'
+    currentContentType.value?.entry_default_status ?? store.cmsConfiguration.entry_default_status ?? 'draft'
 
 const deleteModal = ref()
 const mediaModal = ref()

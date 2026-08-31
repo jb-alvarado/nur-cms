@@ -21,7 +21,8 @@ example/
 ```
 
 The module, asset, and migration directories must resolve inside the package directory. Symbolic links
-and special files are not allowed in the public asset tree.
+and special files are not allowed in the public asset tree. Production plugin directories must not be
+writable by the nur-cms runtime user or by any account that can upload content through the application.
 
 During development, nur-cms also searches `backend/plugins/examples`. Linux installations additionally
 search `/usr/share/nur-cms/plugins` and `/var/lib/nur-cms/plugins`. Extra roots can be supplied with
@@ -66,7 +67,10 @@ path = "/api/plugins/example/preview"
 access = "author"
 
 [admin]
-entry = "admin/index.html"
+entry = "admin/index.js"
+element = "nur-cms-example"
+access = "admin,author"
+styles = ["admin.css"]
 
 [[admin.menu]]
 label = "Example"
@@ -103,8 +107,49 @@ Query parameters are not route parameters and remain available as the raw query 
 The host performs authorization before invoking WebAssembly. Plugins never receive JWTs, cookies,
 database credentials, or unrestricted request headers.
 
-`GET /api/plugins` returns enabled plugin and admin metadata to admins and authors. Admin assets and
-sandboxed admin pages are reserved by the manifest but are not loaded into the Vue application yet.
+`GET /api/plugins` returns enabled plugin metadata to authenticated users. Admin metadata is included
+only when the current user's role is listed in the component's `access` declaration.
+
+## Admin web components
+
+An optional `[admin]` section can add pages to the CMS admin interface. `entry` is a JavaScript module,
+`element` is the custom element it registers, `access` is a comma-separated list of authenticated CMS
+roles, and `styles` is an optional list of CSS files. `access` defaults to `admin,author`. All paths are
+relative to the declared asset directory. `entry` and `element` are required when an admin menu item is
+declared. The element name must be lowercase and contain a hyphen. Set
+`NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1` to explicitly permit browser-side plugin code.
+
+The CMS loads the module once when an admin route below `/admin/plugins/<plugin-id>` is visited, creates the
+declared element, and supplies this `context` property before connecting it:
+
+```js
+class ExamplePlugin extends HTMLElement {
+    async connectedCallback() {
+        const response = await this.context.request('/api/plugins/example/items')
+        const data = await response.json()
+        // Render with DOM APIs, a framework, or a custom-element library.
+    }
+}
+
+customElements.define('nur-cms-example', ExamplePlugin)
+```
+
+`context.request(path, init)` uses the CMS access-token and refresh flow, but only permits requests inside
+that plugin's `/api/plugins/<plugin-id>` namespace. `context.locale()`, `context.navigate(path)`, and
+`context.notify(variance, text)` provide the current admin locale, navigation within the plugin's admin
+route, and CMS notifications. The context does not pass tokens as function arguments, but same-origin
+plugin JavaScript executes with the administrator's browser privileges and must be considered capable of
+reading or using credentials available to the CMS frontend.
+
+Admin web components execute as JavaScript in the administrator's browser and therefore are trusted code.
+The Wasmtime sandbox protects backend WasM modules only; install frontend-capable plugins from trusted
+sources.
+
+Plugin CSS is loaded into the admin document. It must use a plugin-specific prefix such as
+`.nur-example-*` to avoid affecting the CMS or other plugins. Tailwind utility classes in runtime-loaded
+plugin files are not part of the CMS build and are therefore not a stable styling API. CMS DaisyUI theme
+variables remain available, including `--color-base-200`, `--color-primary`, and `--radius-box`. A custom
+element that creates its own Shadow Root must bundle or inject the styles required inside that root.
 
 ## Public content access
 
@@ -191,5 +236,5 @@ cargo build --manifest-path backend/plugins/examples/echo/Cargo.toml --target wa
 Then run nur-cms with:
 
 ```sh
-NUR_PLUGINS=echo NUR_PLUGIN_ALLOW_ROOT_ROUTES=1 cargo run -p nur-cms
+NUR_PLUGINS=echo NUR_PLUGIN_ALLOW_ROOT_ROUTES=1 NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1 cargo run -p nur-cms
 ```

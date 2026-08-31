@@ -68,6 +68,11 @@ pub struct CacheManifest {
 #[serde(deny_unknown_fields)]
 pub struct AdminManifest {
     pub entry: Option<String>,
+    pub element: Option<String>,
+    #[serde(default = "admin_access")]
+    pub access: String,
+    #[serde(default)]
+    pub styles: Vec<String>,
     #[serde(default)]
     pub menu: Vec<AdminMenuItem>,
 }
@@ -93,43 +98,13 @@ fn public_access() -> String {
     "public".into()
 }
 
+fn admin_access() -> String {
+    "admin,author".into()
+}
+
 impl RouteManifest {
     pub fn roles(&self) -> Result<Vec<String>, Error> {
-        let roles: Vec<String> = self
-            .access
-            .split(',')
-            .map(str::trim)
-            .filter(|role| !role.is_empty())
-            .map(ToOwned::to_owned)
-            .collect();
-
-        if roles.is_empty() {
-            return Err(Error::Manifest(format!(
-                "route '{}' has an empty access declaration",
-                self.id
-            )));
-        }
-        if roles.iter().any(|role| role == "public") {
-            if roles.len() != 1 {
-                return Err(Error::Manifest(format!(
-                    "route '{}' cannot combine public with authenticated roles",
-                    self.id
-                )));
-            }
-            return Ok(Vec::new());
-        }
-        if roles.iter().any(|role| !valid_role(role)) {
-            return Err(Error::Manifest(format!(
-                "route '{}' contains an invalid access role",
-                self.id
-            )));
-        }
-
-        let mut unique = HashSet::new();
-        Ok(roles
-            .into_iter()
-            .filter(|role| unique.insert(role.clone()))
-            .collect())
+        parse_access(&self.access, &format!("route '{}'", self.id), true)
     }
 
     pub fn cache_enabled(&self, plugin_cache_enabled: bool) -> Result<bool, Error> {
@@ -144,6 +119,50 @@ impl RouteManifest {
             None => Ok(plugin_cache_enabled && public_get),
         }
     }
+}
+
+impl AdminManifest {
+    pub fn roles(&self, plugin_id: &str) -> Result<Vec<String>, Error> {
+        parse_access(
+            &self.access,
+            &format!("plugin '{plugin_id}' admin component"),
+            false,
+        )
+    }
+}
+
+fn parse_access(access: &str, context: &str, allow_public: bool) -> Result<Vec<String>, Error> {
+    let roles: Vec<String> = access
+        .split(',')
+        .map(str::trim)
+        .filter(|role| !role.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+
+    if roles.is_empty() {
+        return Err(Error::Manifest(format!(
+            "{context} has an empty access declaration"
+        )));
+    }
+    if roles.iter().any(|role| role == "public") {
+        if !allow_public || roles.len() != 1 {
+            return Err(Error::Manifest(format!(
+                "{context} cannot use public together with authenticated access"
+            )));
+        }
+        return Ok(Vec::new());
+    }
+    if roles.iter().any(|role| !valid_role(role)) {
+        return Err(Error::Manifest(format!(
+            "{context} contains an invalid access role"
+        )));
+    }
+
+    let mut unique = HashSet::new();
+    Ok(roles
+        .into_iter()
+        .filter(|role| unique.insert(role.clone()))
+        .collect())
 }
 
 pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
@@ -188,6 +207,18 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
                 Error::Manifest(format!("{}: {error}", manifest_path.display()))
             })?;
             validate_manifest(&manifest)?;
+            if manifest
+                .admin
+                .as_ref()
+                .and_then(|admin| admin.entry.as_ref())
+                .is_some()
+                && env::var("NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS").as_deref() != Ok("1")
+            {
+                return Err(Error::Manifest(format!(
+                    "plugin '{}' declares browser-side admin code; set NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1 to trust and enable it",
+                    manifest.plugin.id
+                )));
+            }
             if manifest.plugin.id != *enabled_id {
                 return Err(Error::Manifest(format!(
                     "plugin directory '{enabled_id}' contains manifest for '{}'",
@@ -229,6 +260,7 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
             if let Some(assets) = &assets {
                 validate_asset_tree(assets, &manifest.plugin.id)?;
             }
+            validate_admin_assets(&manifest, assets.as_deref())?;
             let plugin = InstalledPlugin {
                 manifest,
                 root,
@@ -260,6 +292,20 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
 
     let mut plugins: Vec<_> = discovered.into_values().collect();
     plugins.sort_by(|left, right| left.manifest.plugin.id.cmp(&right.manifest.plugin.id));
+    let mut elements = HashSet::new();
+    for plugin in &plugins {
+        if let Some(element) = plugin
+            .manifest
+            .admin
+            .as_ref()
+            .and_then(|admin| admin.element.as_ref())
+            && !elements.insert(element)
+        {
+            return Err(Error::Manifest(format!(
+                "admin custom element '{element}' is declared by more than one plugin"
+            )));
+        }
+    }
     Ok(plugins)
 }
 
@@ -390,6 +436,84 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             plugin.id
         )));
     }
+    if let Some(admin) = &manifest.admin {
+        admin.roles(&plugin.id)?;
+        let unique_styles: HashSet<_> = admin.styles.iter().collect();
+        if admin.styles.len() > 16
+            || unique_styles.len() != admin.styles.len()
+            || admin.styles.iter().any(|style| !valid_admin_style(style))
+        {
+            return Err(Error::Manifest(format!(
+                "plugin '{}' has invalid or duplicate admin styles",
+                plugin.id
+            )));
+        }
+        match (&admin.entry, &admin.element) {
+            (Some(entry), Some(element))
+                if valid_admin_entry(entry) && valid_custom_element_name(element) => {}
+            (Some(_), Some(_)) => {
+                return Err(Error::Manifest(format!(
+                    "plugin '{}' has an invalid admin entry or custom element name",
+                    plugin.id
+                )));
+            }
+            (None, None) if admin.menu.is_empty() && admin.styles.is_empty() => {}
+            (None, None) => {
+                return Err(Error::Manifest(format!(
+                    "plugin '{}' declares admin menu items without an admin entry and custom element",
+                    plugin.id
+                )));
+            }
+            _ => {
+                return Err(Error::Manifest(format!(
+                    "plugin '{}' must declare both admin entry and custom element",
+                    plugin.id
+                )));
+            }
+        }
+        if admin.menu.len() > 32
+            || admin
+                .menu
+                .iter()
+                .any(|item| !valid_admin_menu_item(item, &plugin.id))
+        {
+            return Err(Error::Manifest(format!(
+                "plugin '{}' has invalid admin menu metadata",
+                plugin.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_admin_assets(manifest: &Manifest, assets: Option<&Path>) -> Result<(), Error> {
+    let Some(admin) = &manifest.admin else {
+        return Ok(());
+    };
+    if admin.entry.is_none() && admin.styles.is_empty() {
+        return Ok(());
+    }
+    let assets = assets.ok_or_else(|| {
+        Error::Manifest(format!(
+            "plugin '{}' declares an admin entry without an asset directory",
+            manifest.plugin.id
+        ))
+    })?;
+    for (path, kind) in admin
+        .entry
+        .iter()
+        .map(|entry| (entry, "admin entry"))
+        .chain(admin.styles.iter().map(|style| (style, "admin stylesheet")))
+    {
+        let path = contained_path(assets, path, &manifest.plugin.id, kind)?;
+        if !path.is_file() {
+            return Err(Error::Manifest(format!(
+                "plugin '{}' {kind} does not exist: {}",
+                manifest.plugin.id,
+                path.display()
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -406,6 +530,83 @@ fn valid_role(role: &str) -> bool {
         && role
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn valid_admin_entry(entry: &str) -> bool {
+    valid_admin_asset_path(entry)
+        && matches!(
+            Path::new(entry)
+                .extension()
+                .and_then(|value| value.to_str()),
+            Some("js" | "mjs")
+        )
+}
+
+fn valid_admin_style(style: &str) -> bool {
+    valid_admin_asset_path(style)
+        && Path::new(style)
+            .extension()
+            .and_then(|value| value.to_str())
+            == Some("css")
+}
+
+fn valid_admin_asset_path(entry: &str) -> bool {
+    !entry.is_empty()
+        && entry.len() <= 512
+        && entry.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment.len() <= 128
+                && !matches!(segment, "." | "..")
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        })
+}
+
+fn valid_custom_element_name(name: &str) -> bool {
+    (3..=80).contains(&name.len())
+        && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && name.contains('-')
+        && !name.ends_with('-')
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && !matches!(
+            name,
+            "annotation-xml"
+                | "color-profile"
+                | "font-face"
+                | "font-face-src"
+                | "font-face-uri"
+                | "font-face-format"
+                | "font-face-name"
+                | "missing-glyph"
+        )
+}
+
+fn valid_admin_menu_item(item: &AdminMenuItem, plugin_id: &str) -> bool {
+    let namespace = format!("/admin/plugins/{plugin_id}");
+    !item.label.is_empty()
+        && item.label.len() <= 80
+        && !item.label.chars().any(char::is_control)
+        && item.path.len() <= 512
+        && (item.path == namespace
+            || item
+                .path
+                .strip_prefix(&namespace)
+                .is_some_and(|suffix| suffix.starts_with('/')))
+        && !item.path.contains("//")
+        && !item
+            .path
+            .split('/')
+            .any(|segment| matches!(segment, "." | ".."))
+        && item.icon.as_ref().is_none_or(|icon| {
+            (3..=80).contains(&icon.len())
+                && icon.starts_with("bi-")
+                && icon
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        })
 }
 
 fn valid_route_id(id: &str) -> bool {
@@ -449,8 +650,9 @@ fn plugin_roots() -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CacheManifest, RouteManifest, contained_path, schema_name, valid_plugin_id, valid_route_id,
-        validate_asset_tree,
+        AdminManifest, AdminMenuItem, CacheManifest, RouteManifest, contained_path, schema_name,
+        valid_admin_entry, valid_admin_menu_item, valid_admin_style, valid_custom_element_name,
+        valid_plugin_id, valid_route_id, validate_asset_tree,
     };
 
     #[test]
@@ -485,6 +687,49 @@ mod tests {
     #[test]
     fn rejects_public_combined_with_roles() {
         assert!(route("public,author").roles().is_err());
+    }
+
+    #[test]
+    fn admin_entries_and_custom_element_names_are_restricted() {
+        assert!(valid_admin_entry("admin/echo.js"));
+        assert!(valid_admin_entry("admin/echo.mjs"));
+        assert!(!valid_admin_entry("admin/echo.css"));
+        assert!(!valid_admin_entry("../echo.js"));
+        assert!(valid_admin_style("admin/echo.css"));
+        assert!(!valid_admin_style("admin/echo.js"));
+        assert!(valid_custom_element_name("nur-cms-echo"));
+        assert!(!valid_custom_element_name("NurCmsEcho"));
+        assert!(!valid_custom_element_name("font-face"));
+    }
+
+    #[test]
+    fn admin_access_requires_authenticated_roles() {
+        let mut admin = AdminManifest {
+            entry: Some("admin.js".into()),
+            element: Some("nur-cms-test".into()),
+            access: "admin,author".into(),
+            styles: Vec::new(),
+            menu: Vec::new(),
+        };
+        assert_eq!(admin.roles("test").unwrap(), ["admin", "author"]);
+
+        admin.access = "public".into();
+        assert!(admin.roles("test").is_err());
+    }
+
+    #[test]
+    fn admin_menu_stays_inside_plugin_namespace() {
+        let mut item = AdminMenuItem {
+            label: "Example".into(),
+            path: "/admin/plugins/example/settings".into(),
+            icon: Some("bi-puzzle".into()),
+        };
+        assert!(valid_admin_menu_item(&item, "example"));
+
+        item.path = "/configuration".into();
+        assert!(!valid_admin_menu_item(&item, "example"));
+        item.path = "/admin/plugins/example/../other".into();
+        assert!(!valid_admin_menu_item(&item, "example"));
     }
 
     #[test]

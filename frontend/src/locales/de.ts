@@ -94,6 +94,15 @@ export default {
         system: 'System',
         cms: 'CMS',
     },
+    plugin: {
+        loading: 'Plugin wird geladen',
+        unavailable: 'Diese Plugin-Adminseite ist nicht verfügbar.',
+        loadFailed: 'Die Plugin-Adminseite konnte nicht geladen werden.',
+        stylesheetLoadFailed: 'Das Plugin-Stylesheet konnte nicht geladen werden: {url}',
+        registrationMissing: 'Das Plugin hat sein angegebenes Custom Element nicht registriert.',
+        requestNamespace: 'Plugin-Anfragen müssen den eigenen API-Namensraum des Plugins verwenden.',
+        navigationNamespace: 'Die Plugin-Navigation muss innerhalb der eigenen Adminroute bleiben.',
+    },
     locale: {
         title: 'Sprachen',
         code: 'Code',

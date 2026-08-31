@@ -2,9 +2,12 @@ import { nextTick } from 'vue'
 import { defineStore } from 'pinia'
 import { errMsg } from '@/utils/error'
 import { authFetch } from '@/composables/authFetch'
+import type { PluginMetadata } from '@/types/plugins'
 
 let cmsConfigurationRequest: Promise<CmsConfiguration> | null = null
 let brandingRequest: Promise<BrandingConfiguration> | null = null
+let pluginRequest: Promise<PluginMetadata[]> | null = null
+let pluginRequestGeneration = 0
 
 export const useIndex = defineStore('index', {
     state: () => ({
@@ -73,6 +76,8 @@ export const useIndex = defineStore('index', {
             admin_language: null,
         } as BrandingConfiguration,
         brandingLoaded: false,
+        plugins: [] as PluginMetadata[],
+        pluginsLoaded: false,
     }),
 
     getters: {},
@@ -151,6 +156,44 @@ export const useIndex = defineStore('index', {
             } finally {
                 brandingRequest = null
             }
+        },
+
+        async selectPlugins() {
+            if (this.pluginsLoaded) return
+            const generation = pluginRequestGeneration
+            if (pluginRequest) {
+                try {
+                    const plugins = await pluginRequest
+                    if (generation === pluginRequestGeneration) {
+                        this.plugins = plugins
+                        this.pluginsLoaded = true
+                    }
+                } catch {
+                    // The initiating request reports the error and leaves retries enabled.
+                }
+                return
+            }
+
+            const request = authFetch<PluginMetadata[]>('/api/plugins')
+            pluginRequest = request
+            try {
+                const plugins = await request
+                if (generation === pluginRequestGeneration) {
+                    this.plugins = plugins
+                    this.pluginsLoaded = true
+                }
+            } catch (error) {
+                this.msgAlert('error', error instanceof Error ? error.message : String(error))
+            } finally {
+                if (pluginRequest === request) pluginRequest = null
+            }
+        },
+
+        resetPlugins() {
+            pluginRequestGeneration += 1
+            pluginRequest = null
+            this.plugins = []
+            this.pluginsLoaded = false
         },
 
         async selectAuthors() {

@@ -122,7 +122,12 @@ selectConfiguration()
         <div class="grid gap-4">
             <label class="form-control">
                 <span class="label-text mb-1 font-semibold">{{ $t('cmsSettings.frontendName') }}</span>
-                <input v-model="configuration.frontend_name" type="text" maxlength="160" class="input input-bordered w-full" />
+                <input
+                    v-model="configuration.frontend_name"
+                    type="text"
+                    maxlength="160"
+                    class="input input-bordered w-full"
+                />
             </label>
 
             <label class="form-control">

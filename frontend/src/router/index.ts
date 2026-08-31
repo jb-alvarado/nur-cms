@@ -4,6 +4,7 @@ import LoginView from '@/views/LoginView.vue'
 
 import { useAuth } from '@/stores/auth'
 import { useIndex } from './../stores/index'
+import { pluginAllowsRole } from '@/types/plugins'
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -105,6 +106,12 @@ const router = createRouter({
             meta: { showMenu: true },
         },
         {
+            path: '/admin/plugins/:pluginId/:pathMatch(.*)*',
+            name: 'plugin admin',
+            component: () => import('../views/PluginView.vue'),
+            meta: { showMenu: true },
+        },
+        {
             path: '/:pathMatch(.*)*',
             name: '404',
             component: () => import('../views/404NotFount.vue'),
@@ -155,6 +162,18 @@ router.beforeEach(async (to, from) => {
 
     if (auth.isLogin) {
         await store.selectCmsConfiguration()
+        if (to.path.startsWith('/admin/plugins/')) {
+            await store.selectPlugins()
+            const pluginId = typeof to.params.pluginId === 'string' ? to.params.pluginId : ''
+            const plugin = store.plugins.find(
+                (item) =>
+                    item.id === pluginId &&
+                    item.admin?.entry &&
+                    item.admin.element &&
+                    pluginAllowsRole(item, auth.role),
+            )
+            if (!plugin) return { name: '404' }
+        }
         if (to.path.startsWith('/content')) {
             await store.selectTypes()
         }

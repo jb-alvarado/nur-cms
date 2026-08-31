@@ -2,11 +2,14 @@
 id = "echo"
 version = "0.1.0"
 api_version = 1
-cms_version = ">=0.16, <0.17"
+cms_version = ">=0.16"
 module = "target/wasm32-wasip2/release/nur_cms_echo_plugin.wasm"
 
 [migrations]
 directory = "migrations"
+
+[assets]
+directory = "assets"
 
 # Optional server-side cache for this plugin's public GET and HEAD routes.
 # Individual routes can opt out with `cache = false`.
@@ -39,6 +42,10 @@ path = "/plugin-echo"
 access = "public"
 
 [admin]
+entry = "admin.js"
+element = "nur-cms-echo"
+access = "admin,author"
+styles = ["admin.css"]
 
 [[admin.menu]]
 label = "Echo plugin"

@@ -99,6 +99,7 @@ export const useAuth = defineStore('auth', {
             this.user = {}
             this.uuid = null
             this.verificationPending = false
+            useIndex().resetPlugins()
 
             if (shouldBroadcast) {
                 broadcast({ type: 'logout' })

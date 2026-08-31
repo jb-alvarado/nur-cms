@@ -239,10 +239,32 @@ async fn plugin_index(
     State(metadata): State<Arc<Vec<PluginMetadata>>>,
     details: AuthDetails<Role>,
 ) -> Response {
-    if !details.authorities.contains(&Role::Admin) && !details.authorities.contains(&Role::Author) {
+    let role_names: Vec<String> = details
+        .authorities
+        .iter()
+        .filter(|role| !matches!(role, Role::Guest))
+        .map(ToString::to_string)
+        .collect();
+    if role_names.is_empty() {
         return StatusCode::FORBIDDEN.into_response();
     }
-    Json(&*metadata).into_response()
+
+    let visible: Vec<_> = metadata
+        .iter()
+        .cloned()
+        .map(|mut plugin| {
+            let allowed = plugin.admin.as_ref().is_some_and(|admin| {
+                admin
+                    .roles(&plugin.id)
+                    .is_ok_and(|required| required.iter().any(|role| role_names.contains(role)))
+            });
+            if !allowed {
+                plugin.admin = None;
+            }
+            plugin
+        })
+        .collect();
+    Json(visible).into_response()
 }
 
 async fn dispatch(
