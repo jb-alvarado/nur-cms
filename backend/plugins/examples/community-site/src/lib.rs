@@ -175,32 +175,136 @@ fn node_html(node: &Value) -> Vec<String> {
 /// deliberately restores a small, attribute-restricted subset used by its
 /// trusted demo content instead of accepting arbitrary tags.
 fn restore_allowed_raw_html(html: &str) -> String {
-    static DIV: OnceLock<Regex> = OnceLock::new();
-    static IMAGE: OnceLock<Regex> = OnceLock::new();
-    let div = DIV.get_or_init(|| {
-        Regex::new(r#"&lt;div(?: class="([A-Za-z0-9_: -]{1,256})")?&gt;"#)
-            .expect("the allowed div regex is valid")
-    });
-    let image = IMAGE.get_or_init(|| {
-        Regex::new(
-            r#"&lt;img src="(https://[A-Za-z0-9./?=_%-]{1,2048})" alt="([^"&<>]{0,256})"[ \t\r\n]*/?&gt;"#,
-        )
-        .expect("the allowed image regex is valid")
-    });
+    // Validate the value of a "class" attribute.
+    fn valid_class(value: &str) -> bool {
+        !value.is_empty()
+            && value.len() <= 256
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b' ' | b'-'))
+    }
 
-    let html = div.replace_all(html, |captures: &Captures<'_>| {
-        captures.get(1).map_or_else(
-            || "<div>".to_string(),
-            |class| format!(r#"<div class="{}">"#, class.as_str()),
-        )
-    });
-    let html = image.replace_all(&html, |captures: &Captures<'_>| {
-        format!(r#"<img src="{}" alt="{}" />"#, &captures[1], &captures[2])
-    });
+    // Validate an image source URL.
+    // Only HTTPS URLs and a limited set of safe characters are allowed.
+    fn valid_src(value: &str) -> bool {
+        value.len() <= 2048
+            && value.starts_with("https://")
+            && value.bytes().all(|b| {
+                b.is_ascii_alphanumeric()
+                    || matches!(b, b':' | b'/' | b'.' | b'?' | b'=' | b'_' | b'%' | b'-')
+            })
+    }
 
-    html.replace("&lt;/div&gt;", "</div>")
-        .replace("&lt;i&gt;", "<i>")
-        .replace("&lt;/i&gt;", "</i>")
+    // Validate the image alt text.
+    fn valid_alt(value: &str) -> bool {
+        value.len() <= 256
+            && !value
+                .bytes()
+                .any(|b| matches!(b, b'"' | b'&' | b'<' | b'>'))
+    }
+
+    // Preallocate roughly enough space for the result.
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+
+    while !rest.is_empty() {
+        // Restore </div>.
+        if let Some(next) = rest.strip_prefix("&lt;/div&gt;") {
+            out.push_str("</div>");
+            rest = next;
+            continue;
+        }
+
+        // Restore <i>.
+        if let Some(next) = rest.strip_prefix("&lt;i&gt;") {
+            out.push_str("<i>");
+            rest = next;
+            continue;
+        }
+
+        // Restore </i>.
+        if let Some(next) = rest.strip_prefix("&lt;/i&gt;") {
+            out.push_str("</i>");
+            rest = next;
+            continue;
+        }
+
+        // Restore a plain <div>.
+        if let Some(next) = rest.strip_prefix("&lt;div&gt;") {
+            out.push_str("<div>");
+            rest = next;
+            continue;
+        }
+
+        // Restore <div class="..."> if the class value is valid.
+        if let Some(after_prefix) = rest.strip_prefix(r#"&lt;div class=""#) {
+            if let Some(end) = after_prefix.find(r#""&gt;"#) {
+                let class = &after_prefix[..end];
+
+                if valid_class(class) {
+                    out.push_str(r#"<div class=""#);
+                    out.push_str(class);
+                    out.push_str(r#"">"#);
+
+                    rest = &after_prefix[end + r#""&gt;"#.len()..];
+                    continue;
+                }
+            }
+        }
+
+        // Restore <img src="..." alt="..." /> if all attributes are valid.
+        if let Some(after_prefix) = rest.strip_prefix(r#"&lt;img src=""#) {
+            if let Some(src_end) = after_prefix.find(r#"" alt=""#) {
+                let src = &after_prefix[..src_end];
+                let after_src = &after_prefix[src_end + r#"" alt=""#.len()..];
+
+                if valid_src(src) {
+                    if let Some(alt_end) = after_src.find('"') {
+                        let alt = &after_src[..alt_end];
+                        let after_alt = &after_src[alt_end + 1..];
+
+                        if valid_alt(alt) {
+                            // Allow whitespace before the optional self-closing slash.
+                            let whitespace_len = after_alt
+                                .bytes()
+                                .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+                                .count();
+
+                            let ending = &after_alt[whitespace_len..];
+
+                            // Accept both "&gt;" and "/&gt;" endings.
+                            let consumed = if ending.starts_with("/&gt;") {
+                                Some(whitespace_len + "/&gt;".len())
+                            } else if ending.starts_with("&gt;") {
+                                Some(whitespace_len + "&gt;".len())
+                            } else {
+                                None
+                            };
+
+                            if let Some(consumed) = consumed {
+                                out.push_str(r#"<img src=""#);
+                                out.push_str(src);
+                                out.push_str(r#"" alt=""#);
+                                out.push_str(alt);
+                                out.push_str(r#"" />"#);
+
+                                rest = &after_alt[consumed..];
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // No allowed HTML pattern matched.
+        // Copy the next Unicode character unchanged.
+        let ch = rest.chars().next().unwrap();
+        out.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+
+    out
 }
 
 fn valid_slug(slug: &str) -> bool {
