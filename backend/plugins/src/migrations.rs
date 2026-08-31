@@ -92,7 +92,12 @@ fn read_migrations(plugin: &InstalledPlugin) -> Result<BTreeMap<i64, Migration>,
     let Some(directory) = &plugin.manifest.migrations.directory else {
         return Ok(BTreeMap::new());
     };
-    let directory = contained_path(&plugin.root, directory, "migration directory")?;
+    let directory = contained_path(
+        &plugin.root,
+        directory,
+        &plugin.manifest.plugin.id,
+        "migration directory",
+    )?;
     if !directory.is_dir() {
         return Err(Error::Migration(format!(
             "plugin '{}' migration path is not a directory",

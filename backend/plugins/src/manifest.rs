@@ -195,7 +195,12 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
                 )));
             }
             let root = fs::canonicalize(root).map_err(Error::Io)?;
-            let module = contained_path(&root, &manifest.plugin.module, "module")?;
+            let module = contained_path(
+                &root,
+                &manifest.plugin.module,
+                &manifest.plugin.id,
+                "module",
+            )?;
             if !module.is_file() {
                 return Err(Error::Manifest(format!(
                     "plugin '{}' module does not exist: {}",
@@ -206,7 +211,14 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
             let assets = manifest
                 .assets
                 .as_ref()
-                .map(|assets| contained_path(&root, &assets.directory, "asset directory"))
+                .map(|assets| {
+                    contained_path(
+                        &root,
+                        &assets.directory,
+                        &manifest.plugin.id,
+                        "asset directory",
+                    )
+                })
                 .transpose()?;
             if assets.as_ref().is_some_and(|assets| !assets.is_dir()) {
                 return Err(Error::Manifest(format!(
@@ -281,11 +293,22 @@ pub fn schema_name(plugin_id: &str) -> String {
     format!("nur_plugin_{}", plugin_id.replace('-', "_"))
 }
 
-pub fn contained_path(root: &Path, relative: &str, kind: &str) -> Result<PathBuf, Error> {
-    let path = fs::canonicalize(root.join(relative)).map_err(Error::Io)?;
+pub fn contained_path(
+    root: &Path,
+    relative: &str,
+    plugin_id: &str,
+    kind: &str,
+) -> Result<PathBuf, Error> {
+    let expected_path = root.join(relative);
+    let path = fs::canonicalize(&expected_path).map_err(|error| {
+        Error::Manifest(format!(
+            "plugin '{plugin_id}' {kind} cannot be accessed at '{}': {error}",
+            expected_path.display()
+        ))
+    })?;
     if !path.starts_with(root) {
         return Err(Error::Manifest(format!(
-            "plugin {kind} must stay inside {}",
+            "plugin '{plugin_id}' {kind} must stay inside {}",
             root.display()
         )));
     }
@@ -426,9 +449,21 @@ fn plugin_roots() -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CacheManifest, RouteManifest, schema_name, valid_plugin_id, valid_route_id,
+        CacheManifest, RouteManifest, contained_path, schema_name, valid_plugin_id, valid_route_id,
         validate_asset_tree,
     };
+
+    #[test]
+    fn missing_plugin_paths_include_context() {
+        let root = std::env::temp_dir();
+        let relative = format!("nur-cms-missing-plugin-path-{}", std::process::id());
+        let error = contained_path(&root, &relative, "example", "module")
+            .expect_err("missing path is rejected")
+            .to_string();
+
+        assert!(error.contains("plugin 'example' module"));
+        assert!(error.contains(&root.join(relative).display().to_string()));
+    }
 
     fn route(access: &str) -> RouteManifest {
         RouteManifest {

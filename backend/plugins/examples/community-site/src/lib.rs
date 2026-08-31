@@ -9,7 +9,9 @@ use bindings::{
     exports::nur::cms::http_handler::{Guest, PluginError, Request, Response},
     nur::cms::{content, types::Header},
 };
+use regex::{Captures, Regex};
 use serde_json::Value;
+use std::sync::OnceLock;
 
 struct CommunitySite;
 
@@ -18,19 +20,11 @@ impl Guest for CommunitySite {
         let html = match request.route_id.as_str() {
             "home" => page(
                 "Home",
-                render_entry(
-                    "article",
-                    "first-article",
-                    content::OutputType::Html,
-                )?,
+                render_entry("article", "first-article", content::OutputType::Html)?,
             ),
             "privacy" => page(
                 "Privacy Policy",
-                render_entry(
-                    "page",
-                    "privacy-policy",
-                    content::OutputType::Html,
-                )?,
+                render_entry("page", "privacy-policy", content::OutputType::Html)?,
             ),
             "events" => page("Events", render_events()?),
             "event" => page("Event", render_event(path_param(&request, "slug")?)?),
@@ -173,8 +167,40 @@ fn node_html(node: &Value) -> Vec<String> {
     node.get("html")
         .and_then(Value::as_str)
         .filter(|html| !html.trim().is_empty())
-        .map(|html| vec![html.to_string()])
+        .map(|html| vec![restore_allowed_raw_html(html)])
         .unwrap_or_default()
+}
+
+/// The CMS HTML output escapes raw Markdown HTML by design. This example
+/// deliberately restores a small, attribute-restricted subset used by its
+/// trusted demo content instead of accepting arbitrary tags.
+fn restore_allowed_raw_html(html: &str) -> String {
+    static DIV: OnceLock<Regex> = OnceLock::new();
+    static IMAGE: OnceLock<Regex> = OnceLock::new();
+    let div = DIV.get_or_init(|| {
+        Regex::new(r#"&lt;div(?: class="([A-Za-z0-9_: -]{1,256})")?&gt;"#)
+            .expect("the allowed div regex is valid")
+    });
+    let image = IMAGE.get_or_init(|| {
+        Regex::new(
+            r#"&lt;img src="(https://[A-Za-z0-9./?=_%-]{1,2048})" alt="([^"&<>]{0,256})"[ \t\r\n]*/?&gt;"#,
+        )
+        .expect("the allowed image regex is valid")
+    });
+
+    let html = div.replace_all(html, |captures: &Captures<'_>| {
+        captures.get(1).map_or_else(
+            || "<div>".to_string(),
+            |class| format!(r#"<div class="{}">"#, class.as_str()),
+        )
+    });
+    let html = image.replace_all(&html, |captures: &Captures<'_>| {
+        format!(r#"<img src="{}" alt="{}" />"#, &captures[1], &captures[2])
+    });
+
+    html.replace("&lt;/div&gt;", "</div>")
+        .replace("&lt;i&gt;", "<i>")
+        .replace("&lt;/i&gt;", "</i>")
 }
 
 fn valid_slug(slug: &str) -> bool {
@@ -217,3 +243,21 @@ fn html_response(body: String) -> Response {
 }
 
 bindings::export!(CommunitySite with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::restore_allowed_raw_html;
+
+    #[test]
+    fn restores_the_allowed_demo_html_only() {
+        let html = r#"&lt;div class="flex justify-center"&gt;&lt;img src="https://picsum.photos/id/237/200/300" alt="image1" /&gt;&lt;/div&gt; Here is &lt;i&gt;inline&lt;/i&gt; HTML. &lt;script&gt;alert(1)&lt;/script&gt;"#;
+        let restored = restore_allowed_raw_html(html);
+
+        assert!(restored.contains(r#"<div class="flex justify-center">"#));
+        assert!(
+            restored.contains(r#"<img src="https://picsum.photos/id/237/200/300" alt="image1" />"#)
+        );
+        assert!(restored.contains("Here is <i>inline</i> HTML."));
+        assert!(restored.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+}
