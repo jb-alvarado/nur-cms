@@ -9,9 +9,7 @@ use bindings::{
     exports::nur::cms::http_handler::{Guest, PluginError, Request, Response},
     nur::cms::{content, types::Header},
 };
-use regex::{Captures, Regex};
 use serde_json::Value;
-use std::sync::OnceLock;
 
 struct CommunitySite;
 
@@ -207,7 +205,7 @@ fn restore_allowed_raw_html(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
 
-    while !rest.is_empty() {
+    'scan: while !rest.is_empty() {
         // Restore </div>.
         if let Some(next) = rest.strip_prefix("&lt;/div&gt;") {
             out.push_str("</div>");
@@ -236,64 +234,75 @@ fn restore_allowed_raw_html(html: &str) -> String {
             continue;
         }
 
-        // Restore <div class="..."> if the class value is valid.
-        if let Some(after_prefix) = rest.strip_prefix(r#"&lt;div class=""#) {
-            if let Some(end) = after_prefix.find(r#""&gt;"#) {
+        // `markdown` escapes attribute quotes in raw HTML as `&quot;`. Accept
+        // that actual renderer output as well as literal quotes for callers
+        // that provide already-escaped HTML themselves.
+        for (prefix, suffix) in [
+            (r#"&lt;div class=&quot;"#, "&quot;&gt;"),
+            (r#"&lt;div class=""#, r#""&gt;"#),
+        ] {
+            if let Some(after_prefix) = rest.strip_prefix(prefix)
+                && let Some(end) = after_prefix.find(suffix)
+            {
                 let class = &after_prefix[..end];
-
                 if valid_class(class) {
                     out.push_str(r#"<div class=""#);
                     out.push_str(class);
                     out.push_str(r#"">"#);
-
-                    rest = &after_prefix[end + r#""&gt;"#.len()..];
-                    continue;
+                    rest = &after_prefix[end + suffix.len()..];
+                    continue 'scan;
                 }
             }
         }
 
-        // Restore <img src="..." alt="..." /> if all attributes are valid.
-        if let Some(after_prefix) = rest.strip_prefix(r#"&lt;img src=""#) {
-            if let Some(src_end) = after_prefix.find(r#"" alt=""#) {
-                let src = &after_prefix[..src_end];
-                let after_src = &after_prefix[src_end + r#"" alt=""#.len()..];
+        // Restore an image only if both attributes match the restrictive
+        // allowlist. Attribute delimiters can be either escaped `&quot;` values
+        // (the CMS renderer output) or literal quotes.
+        for (prefix, separator, quote) in [
+            (r#"&lt;img src=&quot;"#, "&quot; alt=&quot;", "&quot;"),
+            (r#"&lt;img src=""#, r#"" alt=""#, r#"""#),
+        ] {
+            let Some(after_prefix) = rest.strip_prefix(prefix) else {
+                continue;
+            };
+            let Some(src_end) = after_prefix.find(separator) else {
+                continue;
+            };
+            let src = &after_prefix[..src_end];
+            let after_src = &after_prefix[src_end + separator.len()..];
+            if !valid_src(src) {
+                continue;
+            }
+            let Some(alt_end) = after_src.find(quote) else {
+                continue;
+            };
+            let alt = &after_src[..alt_end];
+            let after_alt = &after_src[alt_end + quote.len()..];
+            if !valid_alt(alt) {
+                continue;
+            }
 
-                if valid_src(src) {
-                    if let Some(alt_end) = after_src.find('"') {
-                        let alt = &after_src[..alt_end];
-                        let after_alt = &after_src[alt_end + 1..];
-
-                        if valid_alt(alt) {
-                            // Allow whitespace before the optional self-closing slash.
-                            let whitespace_len = after_alt
-                                .bytes()
-                                .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
-                                .count();
-
-                            let ending = &after_alt[whitespace_len..];
-
-                            // Accept both "&gt;" and "/&gt;" endings.
-                            let consumed = if ending.starts_with("/&gt;") {
-                                Some(whitespace_len + "/&gt;".len())
-                            } else if ending.starts_with("&gt;") {
-                                Some(whitespace_len + "&gt;".len())
-                            } else {
-                                None
-                            };
-
-                            if let Some(consumed) = consumed {
-                                out.push_str(r#"<img src=""#);
-                                out.push_str(src);
-                                out.push_str(r#"" alt=""#);
-                                out.push_str(alt);
-                                out.push_str(r#"" />"#);
-
-                                rest = &after_alt[consumed..];
-                                continue;
-                            }
-                        }
-                    }
-                }
+            // Allow whitespace before the optional self-closing slash.
+            let whitespace_len = after_alt
+                .bytes()
+                .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+                .count();
+            let ending = &after_alt[whitespace_len..];
+            let consumed = if ending.starts_with("/&gt;") {
+                Some(whitespace_len + "/&gt;".len())
+            } else if ending.starts_with("&gt;") {
+                Some(whitespace_len + "&gt;".len())
+            } else {
+                None
+            };
+            if let Some(consumed) = consumed {
+                out.push_str(r#"<img src=""#);
+                out.push_str(src);
+                out.push_str(r#"" alt=""#);
+                out.push_str(alt);
+                out.push_str(r#"" />"#);
+                rest = &after_alt[consumed..];
+                continue 'scan;
             }
         }
 
@@ -354,12 +363,27 @@ mod tests {
 
     #[test]
     fn restores_the_allowed_demo_html_only() {
-        let html = r#"&lt;div class="flex justify-center"&gt;&lt;img src="https://picsum.photos/id/237/200/300" alt="image1" /&gt;&lt;/div&gt; Here is &lt;i&gt;inline&lt;/i&gt; HTML. &lt;script&gt;alert(1)&lt;/script&gt;"#;
+        let html = r#"&lt;div class=&quot;flex justify-center&quot;&gt;&lt;div class=&quot;grid&quot;&gt;
+
+&lt;img src=&quot;https://picsum.photos/id/237/200/300&quot; alt=&quot;image1&quot; /&gt;
+
+&lt;img src=&quot;https://picsum.photos/id/29/200/300&quot; alt=&quot;image2&quot; /&gt;
+
+&lt;img src=&quot;https://picsum.photos/id/19/200/300&quot; alt=&quot;image3&quot; /&gt;
+
+&lt;/div&gt;&lt;/div&gt; Here is &lt;i&gt;inline&lt;/i&gt; HTML. &lt;script&gt;alert(1)&lt;/script&gt;"#;
         let restored = restore_allowed_raw_html(html);
 
         assert!(restored.contains(r#"<div class="flex justify-center">"#));
+        assert!(restored.contains(r#"<div class="grid">"#));
         assert!(
             restored.contains(r#"<img src="https://picsum.photos/id/237/200/300" alt="image1" />"#)
+        );
+        assert!(
+            restored.contains(r#"<img src="https://picsum.photos/id/29/200/300" alt="image2" />"#)
+        );
+        assert!(
+            restored.contains(r#"<img src="https://picsum.photos/id/19/200/300" alt="image3" />"#)
         );
         assert!(restored.contains("Here is <i>inline</i> HTML."));
         assert!(restored.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));

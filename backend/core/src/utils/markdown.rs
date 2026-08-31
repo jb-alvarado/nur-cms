@@ -16,11 +16,14 @@ mod tests {
     #[test]
     fn renders_gfm_tables_and_keeps_raw_html_escaped() {
         let html =
-            render_gfm_html("| Name | Value |\n| --- | --- |\n| One | 1 |\n\n<span>raw</span>")
+            render_gfm_html("| Name | Value |\n| --- | --- |\n| One | 1 |\n\n<span>raw</span>\n\n<img src=\"https://example.test/image.jpg\" alt=\"Example\" />")
                 .expect("GFM rendering succeeds");
 
         assert!(html.contains("<table>"));
         assert!(html.contains("<th>Name</th>"));
         assert!(html.contains("&lt;span&gt;raw&lt;/span&gt;"));
+        assert!(html.contains(
+            "&lt;img src=&quot;https://example.test/image.jpg&quot; alt=&quot;Example&quot; /&gt;"
+        ));
     }
 }
