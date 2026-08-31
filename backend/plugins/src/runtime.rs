@@ -6,11 +6,11 @@ use nur_core::{
     },
     utils::content_output::render_entry_nodes,
 };
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
-use tracing::error;
+use tracing::{error, info, warn};
 use wasmtime::{
-    Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
+    Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Linker},
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
@@ -75,6 +75,7 @@ impl Runtime {
         config.consume_fuel(true);
         config.epoch_interruption(true);
         config.wasm_component_model(true);
+        configure_compilation_cache(&mut config)?;
         let engine = Arc::new(Engine::new(&config).map_err(Error::wasmtime)?);
         let epoch_engine = Arc::clone(&engine);
         tokio::spawn(async move {
@@ -133,6 +134,43 @@ impl Runtime {
             component,
             runtime: self.clone(),
         })
+    }
+}
+
+fn configure_compilation_cache(config: &mut Config) -> Result<(), Error> {
+    if std::env::var("NUR_PLUGIN_COMPILATION_CACHE").as_deref() == Ok("0") {
+        info!("plugin compilation cache is disabled");
+        return Ok(());
+    }
+
+    let directory = std::env::var_os("NUR_PLUGIN_COMPILATION_CACHE_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let explicitly_configured = directory.is_some();
+    let mut cache_config = CacheConfig::new();
+    if let Some(directory) = directory {
+        cache_config.with_directory(directory);
+    }
+    cache_config.with_files_total_size_soft_limit(env_u64(
+        "NUR_PLUGIN_COMPILATION_CACHE_SIZE",
+        512 * 1024 * 1024,
+        16 * 1024 * 1024,
+        16 * 1024 * 1024 * 1024,
+    ));
+
+    match Cache::new(cache_config) {
+        Ok(cache) => {
+            info!(directory = %cache.directory().display(), "enabled plugin compilation cache");
+            config.cache(Some(cache));
+            Ok(())
+        }
+        Err(error) if explicitly_configured => Err(Error::Plugin(format!(
+            "failed to configure plugin compilation cache: {error}"
+        ))),
+        Err(error) => {
+            warn!(%error, "plugin compilation cache is unavailable; continuing without it");
+            Ok(())
+        }
     }
 }
 

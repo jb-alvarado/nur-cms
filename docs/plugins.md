@@ -169,6 +169,12 @@ execution slots are occupied receive `503 Service Unavailable` instead of enteri
 outer HTTP deadline also covers request preparation and response handling. Wasmtime runs on Tokio's blocking
 pool so plugin code does not block an asynchronous Axum worker.
 
+Compiled components are cached on disk by default. The cache key includes the component bytes, Wasmtime
+version, target, and relevant compiler configuration, so changed or incompatible components are compiled
+again automatically. The first load still compiles a component; later process starts reuse the cached native
+artifact. Production services and containers should set `NUR_PLUGIN_COMPILATION_CACHE_DIR` to a persistent,
+application-owned directory.
+
 See [configuration.md](configuration.md) for all runtime variables and defaults.
 
 ## Examples

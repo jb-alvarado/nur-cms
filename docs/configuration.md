@@ -35,6 +35,9 @@ for the package layout, manifest format, migration behavior, and HTTP interface.
 | `NUR_PLUGIN_FUEL` | `1000000` | Wasmtime fuel available to each request. |
 | `NUR_PLUGIN_MEMORY_LIMIT` | `67108864` | Maximum linear memory per plugin request in bytes. |
 | `NUR_PLUGIN_MODULE_SIZE_LIMIT` | `67108864` | Maximum size of a plugin WebAssembly component in bytes. |
+| `NUR_PLUGIN_COMPILATION_CACHE` | `1` | Set to `0` to disable the persistent Wasmtime compilation cache. |
+| `NUR_PLUGIN_COMPILATION_CACHE_DIR` | platform default | Absolute directory used for compiled Wasmtime component artifacts. |
+| `NUR_PLUGIN_COMPILATION_CACHE_SIZE` | `536870912` | Soft disk-size limit for compiled Wasmtime artifacts in bytes. |
 | `NUR_PLUGIN_TIMEOUT_MS` | `5000` | Wall-clock execution limit per plugin request. |
 | `NUR_PLUGIN_MAX_CONCURRENCY` | `8` | Maximum number of concurrent plugin executions. |
 | `NUR_PLUGIN_MAX_HOST_CALLS` | `16` | Maximum number of CMS host-interface calls during one plugin request. |
