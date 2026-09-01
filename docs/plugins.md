@@ -44,6 +44,7 @@ directory = "migrations"
 [mail]
 targets = ["contact", "orders"]
 dynamic_recipient_targets = ["orders"]
+trusted_template_targets = ["orders"]
 
 [assets]
 directory = "assets"
@@ -327,13 +328,15 @@ require a second, target-specific capability:
 [mail]
 targets = ["contact", "orders"]
 dynamic_recipient_targets = ["orders"]
+trusted_template_targets = ["orders"]
 ```
 
-Every entry in `dynamic_recipient_targets` must also occur in `targets`. These manifest permissions limit
-which mail targets the plugin may request; they do not expose target addresses or SMTP credentials.
+Every entry in `dynamic_recipient_targets` and `trusted_template_targets` must also occur in `targets`. These
+manifest permissions limit which mail targets and delivery modes the plugin may request; they do not expose
+target addresses or SMTP credentials.
 
 ```rust
-use bindings::nur::cms::mail::{self, Message};
+use bindings::nur::cms::mail::{self, ContentKind, Message};
 
 mail::send(&Message {
     target: "contact".into(),
@@ -342,15 +345,22 @@ mail::send(&Message {
     reply_to: "sender@example.org".into(),
     subject: Some("A subject".into()),
     text: "A normal, sufficiently detailed message from the plugin form.".into(),
+    content_kind: ContentKind::UserInput,
 })?;
 ```
 
 `target` selects an existing CMS mail target. The host uses the same address validation, message limits,
-spam detection, target lookup, HTML policy, reply-to handling, SMTP configuration, and error handling as
+target lookup, HTML policy, reply-to handling, SMTP configuration, and error handling as
 `POST /api/contact/target/{target}`. An unknown target, rejected address, spam message, or delivery failure
 does not reveal SMTP or database details to a plugin route's HTTP client. The supplied `text` is used as the
 message body without contact-form decoration; the selected target's `allow_html` setting still decides whether
 HTML is preserved or stripped.
+
+Use `ContentKind::UserInput` whenever the message body contains public free text. It applies the normal spam
+evaluation. `ContentKind::TrustedTemplateHtml` skips that heuristic for HTML generated from a template controlled
+by the plugin and is accepted only when the target is listed in `trusted_template_targets`. This permission does
+not make interpolated values safe: escape all user-controlled values before inserting them into HTML. The mail
+target must also have `allow_html` enabled, otherwise the host strips HTML before delivery.
 
 By default, the fixed `recipients` configured on the selected mail target receive the message. An administrator
 can explicitly enable `allow_dynamic_recipient` for a target. The plugin must additionally list that target in
@@ -366,7 +376,8 @@ mail::send(&Message {
     name: "Order service".into(),
     reply_to: "shop@example.org".into(),
     subject: Some("Confirm your order".into()),
-    text: "Please confirm your order using the link in this message.".into(),
+    text: "<p>Please confirm your order using the link in this message.</p>".into(),
+    content_kind: ContentKind::TrustedTemplateHtml,
 })?;
 ```
 
@@ -380,9 +391,10 @@ window expires. Routes and client IPs have independent keys, and protected route
 retain the same three-call request limit. The client IP is never exposed to Wasm. Multiple SMTP deliveries are
 not atomic: if a later send fails, a previously delivered message cannot be rolled back.
 
-Input failures are returned as stable `bad-request` errors for unknown targets, forbidden dynamic recipients,
-invalid addresses, header-like values, and spam. Request mail limits use `rate-limited`; SMTP, database, timeout,
-and other internal delivery failures use a generic `failed` error without connection or configuration details.
+Input failures are returned as stable `bad-request` errors for unknown targets, invalid addresses, header-like
+values, empty messages, and spam. Missing manifest permissions for the target, dynamic recipient, or trusted
+template mode return `forbidden`. Request mail limits use `rate-limited`; SMTP, database, timeout, and other
+internal delivery failures use a generic `failed` error without connection or configuration details.
 
 ## Public CMS URL
 

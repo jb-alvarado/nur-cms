@@ -10,7 +10,7 @@ use bindings::{
     nur::cms::{
         configuration,
         database::{self, Statement, Value},
-        mail::{self, Message},
+        mail::{self, ContentKind, Message},
         types::Header,
     },
 };
@@ -50,6 +50,7 @@ impl Guest for EchoPlugin {
                     reply_to: "echo@example.org".into(),
                     subject: Some("Message from the echo plugin".into()),
                     text: format!("A new example order is ready. The confirmation link is {confirmation_link}. This message demonstrates delivery to the fixed merchant recipients."),
+                    content_kind: ContentKind::UserInput,
                 })?;
                 mail::send(&Message {
                     target: "contact".into(),
@@ -58,6 +59,7 @@ impl Guest for EchoPlugin {
                     reply_to: "echo@example.org".into(),
                     subject: Some("Confirm your example order".into()),
                     text: format!("Please confirm your example order using {confirmation_link}. This second message is delivered only to the dynamic customer recipient."),
+                    content_kind: ContentKind::UserInput,
                 })?;
                 format!("merchant and customer mail accepted; link: {confirmation_link}").into_bytes()
             }

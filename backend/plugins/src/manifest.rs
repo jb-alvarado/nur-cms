@@ -48,6 +48,8 @@ pub struct MailManifest {
     pub targets: Vec<String>,
     #[serde(default)]
     pub dynamic_recipient_targets: Vec<String>,
+    #[serde(default)]
+    pub trusted_template_targets: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -528,7 +530,10 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
 }
 
 fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(), Error> {
-    if mail.targets.len() > 32 || mail.dynamic_recipient_targets.len() > 32 {
+    if mail.targets.len() > 32
+        || mail.dynamic_recipient_targets.len() > 32
+        || mail.trusted_template_targets.len() > 32
+    {
         return Err(Error::Manifest(format!(
             "plugin '{plugin_id}' declares more than 32 mail targets"
         )));
@@ -550,6 +555,17 @@ fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(),
     {
         return Err(Error::Manifest(format!(
             "plugin '{plugin_id}' dynamic recipient targets must be unique declared mail targets"
+        )));
+    }
+    let trusted_template_targets: HashSet<_> = mail.trusted_template_targets.iter().collect();
+    if trusted_template_targets.len() != mail.trusted_template_targets.len()
+        || mail
+            .trusted_template_targets
+            .iter()
+            .any(|target| !targets.contains(target))
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' trusted template targets must be unique declared mail targets"
         )));
     }
     Ok(())
@@ -866,20 +882,37 @@ mod tests {
         let permissions = MailManifest {
             targets: vec!["contact".into(), "orders".into()],
             dynamic_recipient_targets: vec!["orders".into()],
+            trusted_template_targets: vec!["orders".into()],
         };
         assert!(validate_mail_permissions(&permissions, "example").is_ok());
 
         let undeclared_dynamic_target = MailManifest {
             targets: vec!["contact".into()],
             dynamic_recipient_targets: vec!["orders".into()],
+            trusted_template_targets: Vec::new(),
         };
         assert!(validate_mail_permissions(&undeclared_dynamic_target, "example").is_err());
 
         let duplicate_target = MailManifest {
             targets: vec!["contact".into(), "contact".into()],
             dynamic_recipient_targets: Vec::new(),
+            trusted_template_targets: Vec::new(),
         };
         assert!(validate_mail_permissions(&duplicate_target, "example").is_err());
+
+        let undeclared_trusted_template_target = MailManifest {
+            targets: vec!["contact".into()],
+            dynamic_recipient_targets: Vec::new(),
+            trusted_template_targets: vec!["orders".into()],
+        };
+        assert!(validate_mail_permissions(&undeclared_trusted_template_target, "example").is_err());
+
+        let duplicate_trusted_template_target = MailManifest {
+            targets: vec!["contact".into()],
+            dynamic_recipient_targets: Vec::new(),
+            trusted_template_targets: vec!["contact".into(), "contact".into()],
+        };
+        assert!(validate_mail_permissions(&duplicate_trusted_template_target, "example").is_err());
     }
 
     #[test]

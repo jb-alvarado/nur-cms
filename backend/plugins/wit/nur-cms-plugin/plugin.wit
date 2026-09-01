@@ -104,6 +104,16 @@ interface database {
 interface mail {
   use types.{plugin-error};
 
+  /// Describes whether the message body originates from public free text or a
+  /// server-side template controlled by the plugin.
+  enum content-kind {
+    /// Applies the normal spam evaluation.
+    user-input,
+    /// Skips spam evaluation and requires a matching trusted_template_targets
+    /// permission in the plugin manifest.
+    trusted-template-html,
+  }
+
   record message {
     target: string,
     recipient: option<string>,
@@ -111,6 +121,7 @@ interface mail {
     reply-to: string,
     subject: option<string>,
     text: string,
+    content-kind: content-kind,
   }
 
   /// Sends through a configured CMS mail target without exposing SMTP credentials.

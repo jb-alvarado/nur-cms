@@ -5,7 +5,10 @@ use nur_core::{
         handles,
         queries::QueryObj,
     },
-    mail::service::{MailRequest, PluginMailError, deliver_plugin_mail, prepare_plugin_mail},
+    mail::service::{
+        MailRequest, PluginMailContentKind, PluginMailError, deliver_plugin_mail,
+        prepare_plugin_mail,
+    },
     utils::{content_output::render_entry_nodes, public_url::configured_public_url},
 };
 use std::{
@@ -68,12 +71,14 @@ pub struct PluginComponent {
 struct MailPermissions {
     targets: Arc<HashSet<String>>,
     dynamic_recipient_targets: Arc<HashSet<String>>,
+    trusted_template_targets: Arc<HashSet<String>>,
 }
 
 impl MailPermissions {
-    fn allows(&self, target: &str, dynamic_recipient: bool) -> bool {
+    fn allows(&self, target: &str, dynamic_recipient: bool, trusted_template: bool) -> bool {
         self.targets.contains(target)
             && (!dynamic_recipient || self.dynamic_recipient_targets.contains(target))
+            && (!trusted_template || self.trusted_template_targets.contains(target))
     }
 }
 
@@ -211,6 +216,15 @@ impl Runtime {
                         .manifest
                         .mail
                         .dynamic_recipient_targets
+                        .iter()
+                        .cloned()
+                        .collect(),
+                ),
+                trusted_template_targets: Arc::new(
+                    plugin
+                        .manifest
+                        .mail
+                        .trusted_template_targets
                         .iter()
                         .cloned()
                         .collect(),
@@ -613,10 +627,15 @@ impl bindings::nur::cms::mail::Host for HostState {
     ) -> Result<(), bindings::nur::cms::types::PluginError> {
         self.consume_host_call()?;
 
-        if !self
-            .mail_permissions
-            .allows(&message.target, message.recipient.is_some())
-        {
+        let trusted_template = matches!(
+            message.content_kind,
+            bindings::nur::cms::mail::ContentKind::TrustedTemplateHtml
+        );
+        if !self.mail_permissions.allows(
+            &message.target,
+            message.recipient.is_some(),
+            trusted_template,
+        ) {
             return Err(bindings::nur::cms::types::PluginError::Forbidden);
         }
 
@@ -626,13 +645,19 @@ impl bindings::nur::cms::mail::Host for HostState {
             name: message.name,
             text: message.text,
         };
+        let content_kind = match message.content_kind {
+            bindings::nur::cms::mail::ContentKind::UserInput => PluginMailContentKind::UserInput,
+            bindings::nur::cms::mail::ContentKind::TrustedTemplateHtml => {
+                PluginMailContentKind::TrustedTemplateHtml
+            }
+        };
         let target = message.target;
         let recipient = message.recipient;
         let started = Instant::now();
         let prepared = self.tokio_handle.block_on(async {
             tokio::time::timeout(
                 self.host_call_timeout,
-                prepare_plugin_mail(&self.pool, &target, recipient, request),
+                prepare_plugin_mail(&self.pool, &target, recipient, content_kind, request),
             )
             .await
         });
@@ -930,12 +955,14 @@ mod tests {
         let permissions = MailPermissions {
             targets: Arc::new(HashSet::from(["contact".into(), "orders".into()])),
             dynamic_recipient_targets: Arc::new(HashSet::from(["orders".into()])),
+            trusted_template_targets: Arc::new(HashSet::from(["contact".into()])),
         };
 
-        assert!(permissions.allows("contact", false));
-        assert!(!permissions.allows("contact", true));
-        assert!(permissions.allows("orders", true));
-        assert!(!permissions.allows("unknown", false));
+        assert!(permissions.allows("contact", false, true));
+        assert!(!permissions.allows("contact", true, true));
+        assert!(permissions.allows("orders", true, false));
+        assert!(!permissions.allows("orders", false, true));
+        assert!(!permissions.allows("unknown", false, false));
     }
 
     #[test]

@@ -39,6 +39,12 @@ pub enum PluginMailError {
     DeliveryFailed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PluginMailContentKind {
+    UserInput,
+    TrustedTemplateHtml,
+}
+
 pub struct PreparedPluginMail {
     target: crate::db::models::MailTarget,
     mail: PreparedMail,
@@ -59,6 +65,7 @@ pub async fn prepare_mail_with_evaluation(
         || request.subject.as_ref().is_some_and(|value| {
             value.chars().count() > MAX_MAIL_SUBJECT_CHARS || contains_header_control(value)
         })
+        || request.text.trim().is_empty()
         || request.text.chars().count() > MAX_MAIL_TEXT_CHARS
     {
         return Err(NurError::BadRequest("Invalid mail request.".into()));
@@ -121,6 +128,7 @@ pub async fn prepare_plugin_mail(
     pool: &PgPool,
     target_name: &str,
     recipient: Option<String>,
+    content_kind: PluginMailContentKind,
     request: MailRequest,
 ) -> Result<PreparedPluginMail, PluginMailError> {
     validate_mail_target(target_name).map_err(|_| PluginMailError::InvalidMessage)?;
@@ -130,11 +138,14 @@ pub async fn prepare_plugin_mail(
             NurError::NotFound => PluginMailError::UnknownTarget,
             _ => PluginMailError::DeliveryFailed,
         })?;
-    let prepared = prepare_mail(request).await.map_err(|error| match error {
-        NurError::BadRequest(_) => PluginMailError::InvalidMessage,
-        NurError::Conflict(_) => PluginMailError::Spam,
-        _ => PluginMailError::DeliveryFailed,
-    })?;
+    let evaluation = plugin_mail_evaluation(content_kind, &request.text);
+    let prepared = prepare_mail_with_evaluation(request, evaluation)
+        .await
+        .map_err(|error| match error {
+            NurError::BadRequest(_) => PluginMailError::InvalidMessage,
+            NurError::Conflict(_) => PluginMailError::Spam,
+            _ => PluginMailError::DeliveryFailed,
+        })?;
 
     apply_dynamic_recipient(&mut target, recipient).await?;
 
@@ -142,6 +153,16 @@ pub async fn prepare_plugin_mail(
         target,
         mail: prepared,
     })
+}
+
+fn plugin_mail_evaluation(content_kind: PluginMailContentKind, text: &str) -> TextScore {
+    match content_kind {
+        PluginMailContentKind::UserInput => evaluate_text(text, None),
+        PluginMailContentKind::TrustedTemplateHtml => TextScore {
+            score: 0,
+            passed: true,
+        },
+    }
 }
 
 pub async fn deliver_plugin_mail(prepared: PreparedPluginMail) -> Result<(), PluginMailError> {
@@ -179,7 +200,12 @@ mod tests {
 
     use sqlx::PgPool;
 
-    use super::{MailRequest, PluginMailError, apply_dynamic_recipient, prepare_mail, send_mail};
+    use super::{
+        MAX_MAIL_TEXT_CHARS, MailRequest, PluginMailContentKind, PluginMailError,
+        apply_dynamic_recipient, plugin_mail_evaluation, prepare_mail,
+        prepare_mail_with_evaluation, send_mail,
+    };
+    use crate::utils::spam_detection::TextScore;
     use crate::{db::models::MailTarget, utils::errors::NurError};
 
     #[tokio::test]
@@ -205,6 +231,76 @@ mod tests {
         })
         .await;
         assert!(matches!(result, Err(NurError::Conflict(_))));
+    }
+
+    #[test]
+    fn trusted_templates_bypass_only_the_spam_evaluation() {
+        assert!(plugin_mail_evaluation(PluginMailContentKind::TrustedTemplateHtml, "asdf").passed);
+        assert!(!plugin_mail_evaluation(PluginMailContentKind::UserInput, "asdf").passed);
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_text_even_with_a_trusted_evaluation() {
+        for text in ["", " \n\t "] {
+            let result = prepare_mail_with_evaluation(
+                MailRequest {
+                    reply_to: "sender@example.org".into(),
+                    name: "Example".into(),
+                    subject: None,
+                    text: text.into(),
+                },
+                TextScore {
+                    score: 0,
+                    passed: true,
+                },
+            )
+            .await;
+
+            assert!(matches!(result, Err(NurError::BadRequest(_))));
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_templates_keep_common_message_validation() {
+        let requests = [
+            MailRequest {
+                reply_to: "not an email".into(),
+                name: "Example".into(),
+                subject: None,
+                text: "A valid template body.".into(),
+            },
+            MailRequest {
+                reply_to: "sender@example.org".into(),
+                name: "Example\r\nBcc: victim@example.org".into(),
+                subject: None,
+                text: "A valid template body.".into(),
+            },
+            MailRequest {
+                reply_to: "sender@example.org".into(),
+                name: "Example".into(),
+                subject: Some("Subject\nBcc: victim@example.org".into()),
+                text: "A valid template body.".into(),
+            },
+            MailRequest {
+                reply_to: "sender@example.org".into(),
+                name: "Example".into(),
+                subject: None,
+                text: "x".repeat(MAX_MAIL_TEXT_CHARS + 1),
+            },
+        ];
+
+        for request in requests {
+            let result = prepare_mail_with_evaluation(
+                request,
+                TextScore {
+                    score: 0,
+                    passed: true,
+                },
+            )
+            .await;
+
+            assert!(matches!(result, Err(NurError::BadRequest(_))));
+        }
     }
 
     #[tokio::test]
