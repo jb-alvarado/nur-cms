@@ -4,7 +4,7 @@ import LoginView from '@/views/LoginView.vue'
 
 import { useAuth } from '@/stores/auth'
 import { useIndex } from './../stores/index'
-import { pluginAllowsRole } from '@/types/plugins'
+import { pluginAllowsPath } from '@/types/plugins'
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -170,7 +170,7 @@ router.beforeEach(async (to, from) => {
                     item.id === pluginId &&
                     item.admin?.entry &&
                     item.admin.element &&
-                    pluginAllowsRole(item, auth.role),
+                    pluginAllowsPath(item, auth.role, to.path),
             )
             if (!plugin) return { name: '404' }
         }

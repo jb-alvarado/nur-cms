@@ -793,7 +793,8 @@ Authorization: Bearer <access-token>
 ```
 
 This endpoint is available to authenticated users. Admin metadata is omitted when the current role is not
-listed in the plugin admin component's `access` declaration:
+listed in the plugin admin component's `access` declaration. Individual menu entries are also filtered by
+their optional `access` declarations:
 
 ```json
 [
@@ -807,9 +808,11 @@ listed in the plugin admin component's `access` declaration:
             "styles": ["admin.css"],
             "menu": [
                 {
-                    "label": "Example",
-                    "path": "/admin/plugins/example",
-                    "icon": "bi-puzzle"
+                    "label": "Items",
+                    "labels": { "de": "Einträge", "en": "Items" },
+                    "path": "/admin/plugins/example/items",
+                    "icon": "bi-puzzle",
+                    "access": "admin,author"
                 }
             ]
         }

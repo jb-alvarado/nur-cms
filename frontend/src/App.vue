@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { normalizeCode } from '@/utils/helper'
+import { pluginViewKey } from '@/utils/pluginAdmin'
 
 import AlertMsg from '@/components/AlertMsg.vue'
 import MenuSide from '@/components/MenuSide.vue'
@@ -36,6 +37,13 @@ const mainClass = computed(() =>
         ? 'min-h-0 flex-1 overflow-y-auto bg-base-100 px-4 py-3 sm:px-7'
         : 'h-full w-full overflow-y-auto bg-base-100',
 )
+const routerViewKey = computed(() => {
+    if (route.name === 'plugin admin') {
+        const pluginId = typeof route.params.pluginId === 'string' ? route.params.pluginId : ''
+        return pluginViewKey(pluginId)
+    }
+    return `${route.fullPath}:${store.randomKey}`
+})
 
 watch(
     () => route.fullPath,
@@ -90,7 +98,7 @@ useHead({
                     </RouterLink>
                 </header>
                 <main v-if="store.isLoaded || route.meta.public" :class="mainClass">
-                    <RouterView :key="route.fullPath + store.randomKey" />
+                    <RouterView :key="routerViewKey" />
                 </main>
             </div>
 
@@ -102,7 +110,7 @@ useHead({
 
         <div v-else class="h-full">
             <main v-if="store.isLoaded || route.meta.public" :class="mainClass">
-                <RouterView :key="route.fullPath + store.randomKey" />
+                <RouterView :key="routerViewKey" />
             </main>
         </div>
 

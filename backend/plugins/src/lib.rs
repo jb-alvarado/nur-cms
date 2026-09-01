@@ -256,18 +256,38 @@ async fn plugin_index(
         .iter()
         .cloned()
         .map(|mut plugin| {
-            let allowed = plugin.admin.as_ref().is_some_and(|admin| {
-                admin
-                    .roles(&plugin.id)
-                    .is_ok_and(|required| required.iter().any(|role| role_names.contains(role)))
-            });
-            if !allowed {
-                plugin.admin = None;
-            }
+            plugin.admin = visible_admin(plugin.admin, &plugin.id, &role_names);
             plugin
         })
         .collect();
     Json(visible).into_response()
+}
+
+fn visible_admin(
+    admin: Option<AdminManifest>,
+    plugin_id: &str,
+    user_roles: &[String],
+) -> Option<AdminManifest> {
+    let mut admin = admin?;
+    let allowed = admin
+        .roles(plugin_id)
+        .is_ok_and(|required| required.iter().any(|role| user_roles.contains(role)));
+    if !allowed {
+        return None;
+    }
+
+    let visible_menu = admin
+        .menu
+        .iter()
+        .filter(|item| {
+            admin
+                .menu_roles(item, plugin_id)
+                .is_ok_and(|required| required.iter().any(|role| user_roles.contains(role)))
+        })
+        .cloned()
+        .collect();
+    admin.menu = visible_menu;
+    Some(admin)
 }
 
 async fn dispatch(
@@ -662,7 +682,10 @@ fn plugin_timeout() -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        sync::Arc,
+    };
 
     use axum::extract::Path;
     use axum::http::{HeaderMap, HeaderValue, Method, Uri};
@@ -671,9 +694,9 @@ mod tests {
     use super::{
         CachedResponse, PluginCacheInvalidator, RouteManifest, cache_entry_weight, cache_weigher,
         plugin_cache, plugin_path_params, request_identity, response_cache_key, route_shape,
-        validate_route,
+        validate_route, visible_admin,
     };
-    use crate::manifest::CacheManifest;
+    use crate::manifest::{AdminManifest, AdminMenuItem, CacheManifest};
 
     fn route(path: &str) -> RouteManifest {
         RouteManifest {
@@ -761,6 +784,39 @@ mod tests {
         let identity = request_identity(false, AuthUserMeta::new(42), vec!["admin".into()])
             .expect("protected route receives identity");
         assert_eq!(identity.user_id, 42);
+    }
+
+    #[test]
+    fn admin_metadata_contains_only_menu_items_allowed_for_the_role() {
+        let admin = AdminManifest {
+            entry: Some("admin.js".into()),
+            element: Some("example-admin".into()),
+            access: "admin,stat".into(),
+            styles: Vec::new(),
+            menu: vec![
+                AdminMenuItem {
+                    label: "Statistics".into(),
+                    labels: BTreeMap::new(),
+                    path: "/admin/plugins/example/statistics".into(),
+                    icon: None,
+                    access: Some("admin,stat".into()),
+                },
+                AdminMenuItem {
+                    label: "Products".into(),
+                    labels: BTreeMap::new(),
+                    path: "/admin/plugins/example/products".into(),
+                    icon: None,
+                    access: Some("admin".into()),
+                },
+            ],
+        };
+
+        let visible = visible_admin(Some(admin.clone()), "example", &["stat".into()])
+            .expect("stat role can load the admin component");
+        assert_eq!(visible.menu.len(), 1);
+        assert_eq!(visible.menu[0].path, "/admin/plugins/example/statistics");
+
+        assert!(visible_admin(Some(admin), "example", &["author".into()]).is_none());
     }
 
     #[test]

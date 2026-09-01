@@ -21,4 +21,6 @@ therefore subject to the public plugin-mail rate limit and the normal contact va
 
 `assets/admin.js` also demonstrates an admin web component. It receives the CMS-provided
 authenticated `context.request()` function and calls the plugin's protected `editor` route without
-implementing a separate login or token-refresh flow.
+implementing a separate login or token-refresh flow. Its overview and admin-tools pages demonstrate
+role-specific and localized menu entries, namespace-safe navigation, relative locations, roles, and
+live locale and theme updates without remounting the custom element.

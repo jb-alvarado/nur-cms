@@ -6,7 +6,7 @@ import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { locales as appLocales } from '@/i18n'
 import { normalizeCode } from '@/utils/helper'
-import { pluginAllowsRole } from '@/types/plugins'
+import { menuAllowsRole, pluginAllowsRole, pluginMenuLabel } from '@/types/plugins'
 
 import SseHandler from './SseHandler.vue'
 
@@ -138,13 +138,15 @@ function setLanguage(code: string) {
                 class="mt-2"
             >
                 <RouterLink
-                    v-for="item in plugin.admin?.menu ?? []"
+                    v-for="item in (plugin.admin?.menu ?? []).filter(
+                        (item) => plugin.admin && menuAllowsRole(item, plugin.admin, auth.role),
+                    )"
                     :key="item.path"
                     :to="item.path"
                     class="btn join-item w-31 p-1 justify-normal items-center"
                 >
                     <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon ?? 'bi-puzzle'"></i>
-                    {{ item.label }}
+                    {{ pluginMenuLabel(item, store.locale) }}
                 </RouterLink>
             </div>
         </div>

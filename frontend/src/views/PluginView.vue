@@ -9,23 +9,52 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { authFetchRaw } from '@/composables/authFetch'
+import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import type { PluginAdminContext, PluginMetadata } from '@/types/plugins'
+import {
+    pluginAllowsPath,
+    roleName,
+    type PluginAdminContext,
+    type PluginAdminLocation,
+    type PluginAdminTheme,
+    type PluginMetadata,
+} from '@/types/plugins'
+import {
+    createSubscription,
+    pluginAdminLocation,
+    resolvePluginAdminNavigation,
+    type Subscription,
+} from '@/utils/pluginAdmin'
 
 type PluginElement = HTMLElement & { context?: PluginAdminContext }
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuth()
 const store = useIndex()
 const { t } = useI18n()
 const container = ref<HTMLElement>()
 const error = ref<string>()
 const loading = ref(true)
 let mountRevision = 0
+let mountedPluginId: string | undefined
+let subscriptions: PluginSubscriptions | undefined
+
+type PluginSubscriptions = {
+    location: Subscription<PluginAdminLocation>
+    locale: Subscription<string>
+    theme: Subscription<PluginAdminTheme>
+}
 
 function pluginFromRoute(): PluginMetadata | undefined {
     const id = typeof route.params.pluginId === 'string' ? route.params.pluginId : ''
-    return store.plugins.find((plugin) => plugin.id === id && plugin.admin?.entry && plugin.admin.element)
+    return store.plugins.find(
+        (plugin) =>
+            plugin.id === id &&
+            plugin.admin?.entry &&
+            plugin.admin.element &&
+            pluginAllowsPath(plugin, auth.role, route.path),
+    )
 }
 
 function assetUrl(plugin: PluginMetadata, asset: string): string {
@@ -66,13 +95,20 @@ function loadPluginModule(url: string): Promise<void> {
     return loadingModule
 }
 
-function contextFor(plugin: PluginMetadata): PluginAdminContext {
+function contextFor(plugin: PluginMetadata, listeners: PluginSubscriptions): PluginAdminContext {
     const prefix = `/api/plugins/${plugin.id}`
-    const adminPath = `/admin/plugins/${plugin.id}`
+    const roles = () => Object.freeze([roleName(auth.role)])
 
     return {
         pluginId: plugin.id,
+        roles,
+        hasRole: (role) => typeof role === 'string' && roles().includes(role),
         locale: () => store.locale,
+        theme: () => (store.darkMode ? 'dark' : 'light'),
+        location: () => pluginAdminLocation(plugin.id, route.fullPath),
+        onLocationChange: listeners.location.subscribe,
+        onLocaleChange: listeners.locale.subscribe,
+        onThemeChange: listeners.theme.subscribe,
         request: async (path, init) => {
             const url = new URL(path, window.location.origin)
             if (
@@ -86,17 +122,13 @@ function contextFor(plugin: PluginMetadata): PluginAdminContext {
             return authFetchRaw(`${url.pathname}${url.search}`, init)
         },
         navigate: async (path = '') => {
-            const base = new URL(`${adminPath}/`, window.location.origin)
-            const target = path ? new URL(path, path.startsWith('/') ? window.location.origin : base) : base
-            if (
-                target.origin !== window.location.origin ||
-                target.username ||
-                target.password ||
-                (target.pathname !== adminPath && !target.pathname.startsWith(`${adminPath}/`))
-            ) {
+            let target: string
+            try {
+                target = resolvePluginAdminNavigation(plugin.id, route.fullPath, path)
+            } catch {
                 throw new Error(t('plugin.navigationNamespace'))
             }
-            await router.push(`${target.pathname}${target.search}${target.hash}`)
+            await router.push(target)
         },
         notify: (variance, text) => {
             if (
@@ -110,9 +142,30 @@ function contextFor(plugin: PluginMetadata): PluginAdminContext {
     }
 }
 
+function listenerError(reason: unknown) {
+    console.error(`Plugin '${mountedPluginId ?? 'unknown'}' context listener failed`, reason)
+}
+
+function createPluginSubscriptions(): PluginSubscriptions {
+    return {
+        location: createSubscription(listenerError),
+        locale: createSubscription(listenerError),
+        theme: createSubscription(listenerError),
+    }
+}
+
+function clearMountedPlugin() {
+    subscriptions?.location.clear()
+    subscriptions?.locale.clear()
+    subscriptions?.theme.clear()
+    subscriptions = undefined
+    mountedPluginId = undefined
+    container.value?.replaceChildren()
+}
+
 async function mountPlugin() {
     const revision = ++mountRevision
-    container.value?.replaceChildren()
+    clearMountedPlugin()
     error.value = undefined
     loading.value = true
 
@@ -133,8 +186,11 @@ async function mountPlugin() {
             throw new Error(t('plugin.registrationMissing'))
         }
 
+        const listeners = createPluginSubscriptions()
         const element = document.createElement(plugin.admin.element) as PluginElement
-        element.context = contextFor(plugin)
+        element.context = contextFor(plugin, listeners)
+        subscriptions = listeners
+        mountedPluginId = plugin.id
         container.value.replaceChildren(element)
     } catch (reason) {
         if (revision !== mountRevision) return
@@ -146,13 +202,29 @@ async function mountPlugin() {
 }
 
 watch(
-    () => route.fullPath,
+    () => route.params.pluginId,
     () => void mountPlugin(),
     { immediate: true },
 )
+watch(
+    () => route.fullPath,
+    () => {
+        if (mountedPluginId === route.params.pluginId) {
+            subscriptions?.location.emit(pluginAdminLocation(mountedPluginId, route.fullPath))
+        }
+    },
+)
+watch(
+    () => store.locale,
+    (locale) => subscriptions?.locale.emit(locale),
+)
+watch(
+    () => store.darkMode,
+    (darkMode) => subscriptions?.theme.emit(darkMode ? 'dark' : 'light'),
+)
 onBeforeUnmount(() => {
     mountRevision += 1
-    container.value?.replaceChildren()
+    clearMountedPlugin()
 })
 </script>
 

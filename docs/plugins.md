@@ -73,9 +73,18 @@ access = "admin,author"
 styles = ["admin.css"]
 
 [[admin.menu]]
-label = "Example"
-path = "/admin/plugins/example"
+label = "Items"
+labels = { de = "Einträge", en = "Items" }
+path = "/admin/plugins/example/items"
 icon = "bi-puzzle"
+access = "admin,author"
+
+[[admin.menu]]
+label = "Statistics"
+labels = { de = "Statistiken", en = "Statistics" }
+path = "/admin/plugins/example/statistics"
+icon = "bi-bar-chart-line"
+access = "admin"
 ```
 
 `access` is either `public` or a comma-separated list of roles. Multiple roles use OR semantics:
@@ -108,7 +117,8 @@ The host performs authorization before invoking WebAssembly. Plugins never recei
 database credentials, or unrestricted request headers.
 
 `GET /api/plugins` returns enabled plugin metadata to authenticated users. Admin metadata is included
-only when the current user's role is listed in the component's `access` declaration.
+only when the current user's role is listed in the component's `access` declaration. Its `menu` contains
+only the entries available to that role.
 
 ## Admin web components
 
@@ -119,27 +129,91 @@ relative to the declared asset directory. `entry` and `element` are required whe
 declared. The element name must be lowercase and contain a hyphen. Set
 `NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1` to explicitly permit browser-side plugin code.
 
+Each `[[admin.menu]]` may have its own `access` declaration. Without one it inherits `[admin].access`;
+an explicit menu access list must be a subset of the component roles and uses the same OR semantics.
+`labels` optionally maps lowercase locale codes to translated labels. The current locale is selected
+reactively and missing translations fall back to `label`. The API filters menu entries by role, and the
+admin router also refuses direct navigation to a path outside the user's visible menu namespaces. Nested
+detail paths such as `/items/42` are allowed below an accessible `/items` menu path. Plugin API routes remain
+the authoritative security boundary.
+
 The CMS loads the module once when an admin route below `/admin/plugins/<plugin-id>` is visited, creates the
 declared element, and supplies this `context` property before connecting it:
 
 ```js
 class ExamplePlugin extends HTMLElement {
-    async connectedCallback() {
+    connectedCallback() {
+        this.unsubscribe = [
+            this.context.onLocationChange((location) => this.renderRoute(location)),
+            this.context.onLocaleChange(() => this.render()),
+            this.context.onThemeChange(() => this.render()),
+        ]
+        this.load()
+    }
+
+    disconnectedCallback() {
+        for (const unsubscribe of this.unsubscribe ?? []) unsubscribe()
+    }
+
+    async load() {
         const response = await this.context.request('/api/plugins/example/items')
         const data = await response.json()
         // Render with DOM APIs, a framework, or a custom-element library.
+    }
+
+    renderRoute(location) {
+        // Switch list, detail, edit, or statistics views using location.relativePath.
+        this.render(location)
+    }
+
+    render(location = this.context.location()) {
+        // Read this.context.locale() and this.context.theme() while rendering.
     }
 }
 
 customElements.define('nur-cms-example', ExamplePlugin)
 ```
 
+The complete context surface is:
+
+```ts
+type PluginAdminLocation = {
+    path: string
+    relativePath: string
+    search: string
+    hash: string
+}
+
+type PluginAdminContext = {
+    pluginId: string
+    roles: () => readonly string[]
+    hasRole: (role: string) => boolean
+    locale: () => string
+    theme: () => 'light' | 'dark'
+    location: () => PluginAdminLocation
+    onLocationChange: (listener: (location: PluginAdminLocation) => void) => () => void
+    onLocaleChange: (listener: (locale: string) => void) => () => void
+    onThemeChange: (listener: (theme: 'light' | 'dark') => void) => () => void
+    request: (path: string, init?: RequestInit) => Promise<Response>
+    navigate: (path?: string) => Promise<void>
+    notify: (variance: 'info' | 'success' | 'warning' | 'error', text: string) => void
+}
+```
+
 `context.request(path, init)` uses the CMS access-token and refresh flow, but only permits requests inside
-that plugin's `/api/plugins/<plugin-id>` namespace. `context.locale()`, `context.navigate(path)`, and
-`context.notify(variance, text)` provide the current admin locale, navigation within the plugin's admin
-route, and CMS notifications. The context does not pass tokens as function arguments, but same-origin
-plugin JavaScript executes with the administrator's browser privileges and must be considered capable of
-reading or using credentials available to the CMS frontend.
+that plugin's `/api/plugins/<plugin-id>` namespace. No token, cookie, or complete user record is exposed.
+`roles()` and `hasRole()` expose only role names for presentation decisions.
+
+`location()` describes the current admin URL without requiring `window.location`; `relativePath` is relative
+to `/admin/plugins/<plugin-id>`. `navigate()` accepts namespace-local relative paths, absolute paths inside
+that namespace, and query/hash-only changes. External and foreign CMS paths are rejected. The custom element
+stays connected while paths, queries, hashes, browser history, locale, or theme change. Subscribe to the
+corresponding callbacks and invoke their returned cleanup functions when the element disconnects. Switching
+to another plugin removes the old element and all host-side listeners.
+
+`notify(variance, text)` displays a CMS notification. The context does not pass tokens as function arguments,
+but same-origin plugin JavaScript executes with the administrator's browser privileges and must be considered
+capable of reading or using credentials available to the CMS frontend.
 
 Admin web components execute as JavaScript in the administrator's browser and therefore are trusted code.
 The Wasmtime sandbox protects backend WasM modules only; install frontend-capable plugins from trusted

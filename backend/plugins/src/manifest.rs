@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     env, fs,
     path::{Path, PathBuf},
 };
@@ -81,8 +81,11 @@ pub struct AdminManifest {
 #[serde(deny_unknown_fields)]
 pub struct AdminMenuItem {
     pub label: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
     pub path: String,
     pub icon: Option<String>,
+    pub access: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -128,6 +131,31 @@ impl AdminManifest {
             &format!("plugin '{plugin_id}' admin component"),
             false,
         )
+    }
+
+    pub fn menu_roles(&self, item: &AdminMenuItem, plugin_id: &str) -> Result<Vec<String>, Error> {
+        match &item.access {
+            Some(access) => parse_access(
+                access,
+                &format!("plugin '{plugin_id}' admin menu item '{}'", item.path),
+                false,
+            ),
+            None => self.roles(plugin_id),
+        }
+    }
+
+    fn validate_menu_access(&self, plugin_id: &str) -> Result<(), Error> {
+        let admin_roles = self.roles(plugin_id)?;
+        for item in &self.menu {
+            let menu_roles = self.menu_roles(item, plugin_id)?;
+            if menu_roles.iter().any(|role| !admin_roles.contains(role)) {
+                return Err(Error::Manifest(format!(
+                    "plugin '{plugin_id}' admin menu item '{}' uses roles outside admin.access",
+                    item.path
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -482,6 +510,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
                 plugin.id
             )));
         }
+        admin.validate_menu_access(&plugin.id)?;
     }
     Ok(())
 }
@@ -589,6 +618,16 @@ fn valid_admin_menu_item(item: &AdminMenuItem, plugin_id: &str) -> bool {
     !item.label.is_empty()
         && item.label.len() <= 80
         && !item.label.chars().any(char::is_control)
+        && item.labels.len() <= 16
+        && item.labels.iter().all(|(locale, label)| {
+            (2..=16).contains(&locale.len())
+                && locale
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                && !label.is_empty()
+                && label.len() <= 80
+                && !label.chars().any(char::is_control)
+        })
         && item.path.len() <= 512
         && (item.path == namespace
             || item
@@ -649,10 +688,13 @@ fn plugin_roots() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
-        AdminManifest, AdminMenuItem, CacheManifest, RouteManifest, contained_path, schema_name,
-        valid_admin_entry, valid_admin_menu_item, valid_admin_style, valid_custom_element_name,
-        valid_plugin_id, valid_route_id, validate_asset_tree,
+        AdminManifest, AdminMenuItem, CacheManifest, Manifest, RouteManifest, contained_path,
+        schema_name, valid_admin_entry, valid_admin_menu_item, valid_admin_style,
+        valid_custom_element_name, valid_plugin_id, valid_route_id, validate_asset_tree,
+        validate_manifest,
     };
 
     #[test]
@@ -721,8 +763,10 @@ mod tests {
     fn admin_menu_stays_inside_plugin_namespace() {
         let mut item = AdminMenuItem {
             label: "Example".into(),
+            labels: BTreeMap::new(),
             path: "/admin/plugins/example/settings".into(),
             icon: Some("bi-puzzle".into()),
+            access: None,
         };
         assert!(valid_admin_menu_item(&item, "example"));
 
@@ -730,6 +774,44 @@ mod tests {
         assert!(!valid_admin_menu_item(&item, "example"));
         item.path = "/admin/plugins/example/../other".into();
         assert!(!valid_admin_menu_item(&item, "example"));
+    }
+
+    #[test]
+    fn admin_menu_access_inherits_and_cannot_expand_admin_access() {
+        let mut admin = AdminManifest {
+            entry: Some("admin.js".into()),
+            element: Some("nur-cms-test".into()),
+            access: "admin,stat".into(),
+            styles: Vec::new(),
+            menu: vec![AdminMenuItem {
+                label: "Products".into(),
+                labels: BTreeMap::from([("de".into(), "Produkte".into())]),
+                path: "/admin/plugins/example/products".into(),
+                icon: None,
+                access: None,
+            }],
+        };
+
+        assert_eq!(
+            admin.menu_roles(&admin.menu[0], "example").unwrap(),
+            ["admin", "stat"]
+        );
+        assert!(admin.validate_menu_access("example").is_ok());
+
+        admin.menu[0].access = Some("author".into());
+        assert!(admin.validate_menu_access("example").is_err());
+
+        admin.menu[0].access = Some("invalid role".into());
+        assert!(admin.validate_menu_access("example").is_err());
+    }
+
+    #[test]
+    fn echo_example_uses_a_valid_current_manifest() {
+        let manifest: Manifest =
+            toml_edit::de::from_str(include_str!("../examples/echo/plugin.toml"))
+                .expect("echo manifest can be deserialized");
+
+        validate_manifest(&manifest).expect("echo manifest is valid");
     }
 
     #[test]

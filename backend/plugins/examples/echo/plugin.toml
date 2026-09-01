@@ -66,6 +66,15 @@ access = "admin,author"
 styles = ["admin.css"]
 
 [[admin.menu]]
-label = "Echo plugin"
-path = "/admin/plugins/echo"
+label = "Overview"
+labels = { de = "Übersicht", en = "Overview" }
+path = "/admin/plugins/echo/overview"
 icon = "bi-puzzle"
+access = "admin,author"
+
+[[admin.menu]]
+label = "Admin tools"
+labels = { de = "Admin-Werkzeuge", en = "Admin tools" }
+path = "/admin/plugins/echo/admin-tools"
+icon = "bi-tools"
+access = "admin"
