@@ -17,6 +17,8 @@ pub struct Manifest {
     #[serde(default)]
     pub migrations: MigrationManifest,
     #[serde(default)]
+    pub mail: MailManifest,
+    #[serde(default)]
     pub routes: Vec<RouteManifest>,
     pub assets: Option<AssetsManifest>,
     pub cache: Option<CacheManifest>,
@@ -37,6 +39,15 @@ pub struct PluginManifest {
 #[serde(deny_unknown_fields)]
 pub struct MigrationManifest {
     pub directory: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MailManifest {
+    #[serde(default)]
+    pub targets: Vec<String>,
+    #[serde(default)]
+    pub dynamic_recipient_targets: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -418,6 +429,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             plugin.id
         )));
     }
+    validate_mail_permissions(&manifest.mail, &plugin.id)?;
     let requirement = VersionReq::parse(&plugin.cms_version).map_err(|error| {
         Error::Manifest(format!(
             "plugin '{}' has invalid cms_version: {error}",
@@ -513,6 +525,41 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
         admin.validate_menu_access(&plugin.id)?;
     }
     Ok(())
+}
+
+fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(), Error> {
+    if mail.targets.len() > 32 || mail.dynamic_recipient_targets.len() > 32 {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' declares more than 32 mail targets"
+        )));
+    }
+    let targets: HashSet<_> = mail.targets.iter().collect();
+    if targets.len() != mail.targets.len()
+        || mail.targets.iter().any(|target| !valid_mail_target(target))
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' has an invalid or duplicate mail target"
+        )));
+    }
+    let dynamic_targets: HashSet<_> = mail.dynamic_recipient_targets.iter().collect();
+    if dynamic_targets.len() != mail.dynamic_recipient_targets.len()
+        || mail
+            .dynamic_recipient_targets
+            .iter()
+            .any(|target| !targets.contains(target))
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' dynamic recipient targets must be unique declared mail targets"
+        )));
+    }
+    Ok(())
+}
+
+fn valid_mail_target(target: &str) -> bool {
+    !target.is_empty()
+        && target.len() <= 160
+        && target.trim() == target
+        && !target.chars().any(char::is_control)
 }
 
 fn validate_admin_assets(manifest: &Manifest, assets: Option<&Path>) -> Result<(), Error> {
@@ -691,10 +738,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        AdminManifest, AdminMenuItem, CacheManifest, Manifest, RouteManifest, contained_path,
-        schema_name, valid_admin_entry, valid_admin_menu_item, valid_admin_style,
+        AdminManifest, AdminMenuItem, CacheManifest, MailManifest, Manifest, RouteManifest,
+        contained_path, schema_name, valid_admin_entry, valid_admin_menu_item, valid_admin_style,
         valid_custom_element_name, valid_plugin_id, valid_route_id, validate_asset_tree,
-        validate_manifest,
+        validate_mail_permissions, validate_manifest,
     };
 
     #[test]
@@ -812,6 +859,27 @@ mod tests {
                 .expect("echo manifest can be deserialized");
 
         validate_manifest(&manifest).expect("echo manifest is valid");
+    }
+
+    #[test]
+    fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
+        let permissions = MailManifest {
+            targets: vec!["contact".into(), "orders".into()],
+            dynamic_recipient_targets: vec!["orders".into()],
+        };
+        assert!(validate_mail_permissions(&permissions, "example").is_ok());
+
+        let undeclared_dynamic_target = MailManifest {
+            targets: vec!["contact".into()],
+            dynamic_recipient_targets: vec!["orders".into()],
+        };
+        assert!(validate_mail_permissions(&undeclared_dynamic_target, "example").is_err());
+
+        let duplicate_target = MailManifest {
+            targets: vec!["contact".into(), "contact".into()],
+            dynamic_recipient_targets: Vec::new(),
+        };
+        assert!(validate_mail_permissions(&duplicate_target, "example").is_err());
     }
 
     #[test]

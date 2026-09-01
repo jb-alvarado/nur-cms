@@ -41,6 +41,10 @@ module = "plugin.wasm"
 [migrations]
 directory = "migrations"
 
+[mail]
+targets = ["contact", "orders"]
+dynamic_recipient_targets = ["orders"]
+
 [assets]
 directory = "assets"
 
@@ -316,6 +320,18 @@ HTTP clients.
 The `nur:cms/mail` WIT import sends a message through a CMS-managed mail target without exposing SMTP
 credentials:
 
+Mail access is denied unless the target is explicitly declared in the plugin manifest. Dynamic recipients
+require a second, target-specific capability:
+
+```toml
+[mail]
+targets = ["contact", "orders"]
+dynamic_recipient_targets = ["orders"]
+```
+
+Every entry in `dynamic_recipient_targets` must also occur in `targets`. These manifest permissions limit
+which mail targets the plugin may request; they do not expose target addresses or SMTP credentials.
+
 ```rust
 use bindings::nur::cms::mail::{self, Message};
 
@@ -337,7 +353,8 @@ message body without contact-form decoration; the selected target's `allow_html`
 HTML is preserved or stripped.
 
 By default, the fixed `recipients` configured on the selected mail target receive the message. An administrator
-can explicitly enable `allow_dynamic_recipient` for a target. A plugin may then set `recipient` to one address;
+can explicitly enable `allow_dynamic_recipient` for a target. The plugin must additionally list that target in
+`dynamic_recipient_targets`. It may then set `recipient` to one address;
 that normalized and validated address replaces the fixed recipients for that message instead of being added to
 them. The host does not accept recipient lists, CC, or BCC fields. Keep this permission disabled for targets that
 do not need customer-specific delivery.
@@ -356,7 +373,8 @@ mail::send(&Message {
 On a public plugin route, mail is limited independently per plugin route and client IP. The default interval
 is three minutes and can be changed with `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS`; the bounded in-memory
 tracking capacity is configured with `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`. The first mail call in one public
-HTTP request atomically reserves this route/IP window. Up to three mail calls may then run in that same request;
+HTTP request atomically reserves this route/IP window after the first message has passed validation. Up to three
+mail calls may then run in that same request;
 the fourth returns `rate-limited`. A second request for the same plugin route and IP remains blocked until the
 window expires. Routes and client IPs have independent keys, and protected routes skip the public-IP window but
 retain the same three-call request limit. The client IP is never exposed to Wasm. Multiple SMTP deliveries are
@@ -379,8 +397,8 @@ let confirmation_url = format!("{public_url}/orders/42/confirm");
 ```
 
 The host reads `NUR_PUBLIC_URL`, trims whitespace and trailing slashes, and returns `none` when it is absent or
-invalid. HTTPS is required except for HTTP on `localhost` and `127.0.0.1`. The call consumes one normal host-call
-slot. The Wasm process receives no environment variables, so this interface does not expose SMTP credentials,
+invalid. HTTPS is required except for HTTP on `localhost` and `127.0.0.1`. Reading this immutable value does not
+consume a host-call slot. The Wasm process receives no environment variables, so this interface does not expose SMTP credentials,
 database credentials, or other process configuration.
 
 The database and mail imports were added while plugin API version 1 is still under development. Rebuild

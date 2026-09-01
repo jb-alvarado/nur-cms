@@ -39,6 +39,11 @@ pub enum PluginMailError {
     DeliveryFailed,
 }
 
+pub struct PreparedPluginMail {
+    target: crate::db::models::MailTarget,
+    mail: PreparedMail,
+}
+
 pub async fn prepare_mail(request: MailRequest) -> Result<PreparedMail, NurError> {
     let evaluation = evaluate_text(&request.text, None);
     prepare_mail_with_evaluation(request, evaluation).await
@@ -112,12 +117,12 @@ pub async fn send_mail(
 
 /// Sends a plugin message using CMS validation and delivery without exposing
 /// target details or transport errors across the Wasm boundary.
-pub async fn send_plugin_mail(
+pub async fn prepare_plugin_mail(
     pool: &PgPool,
     target_name: &str,
     recipient: Option<String>,
     request: MailRequest,
-) -> Result<(), PluginMailError> {
+) -> Result<PreparedPluginMail, PluginMailError> {
     validate_mail_target(target_name).map_err(|_| PluginMailError::InvalidMessage)?;
     let mut target = handles::select_mail_target(pool, target_name)
         .await
@@ -133,12 +138,19 @@ pub async fn send_plugin_mail(
 
     apply_dynamic_recipient(&mut target, recipient).await?;
 
-    message(Msg::new(
-        prepared.reply_to,
-        prepared.name,
-        prepared.subject,
-        prepared.text,
+    Ok(PreparedPluginMail {
         target,
+        mail: prepared,
+    })
+}
+
+pub async fn deliver_plugin_mail(prepared: PreparedPluginMail) -> Result<(), PluginMailError> {
+    message(Msg::new(
+        prepared.mail.reply_to,
+        prepared.mail.name,
+        prepared.mail.subject,
+        prepared.mail.text,
+        prepared.target,
     ))
     .await
     .map_err(|_| PluginMailError::DeliveryFailed)

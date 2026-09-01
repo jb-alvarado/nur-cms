@@ -2,7 +2,7 @@
 id = "community-site"
 version = "0.1.0"
 api_version = 1
-cms_version = ">=0.16, <0.17"
+cms_version = ">=0.17, <0.18"
 module = "target/wasm32-wasip2/release/nur_cms_community_site_plugin.wasm"
 
 [assets]

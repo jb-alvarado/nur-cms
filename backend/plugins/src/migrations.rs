@@ -294,6 +294,7 @@ mod tests {
                 migrations: MigrationManifest {
                     directory: Some("migrations".into()),
                 },
+                mail: Default::default(),
                 routes: Vec::new(),
                 assets: None,
                 cache: None,

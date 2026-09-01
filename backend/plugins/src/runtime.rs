@@ -5,11 +5,11 @@ use nur_core::{
         handles,
         queries::QueryObj,
     },
-    mail::service::{MailRequest, PluginMailError, send_plugin_mail},
+    mail::service::{MailRequest, PluginMailError, deliver_plugin_mail, prepare_plugin_mail},
     utils::{content_output::render_entry_nodes, public_url::configured_public_url},
 };
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     net::IpAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -61,6 +61,20 @@ pub struct PluginComponent {
     pub id: String,
     component: Component,
     runtime: Runtime,
+    mail_permissions: MailPermissions,
+}
+
+#[derive(Clone, Default)]
+struct MailPermissions {
+    targets: Arc<HashSet<String>>,
+    dynamic_recipient_targets: Arc<HashSet<String>>,
+}
+
+impl MailPermissions {
+    fn allows(&self, target: &str, dynamic_recipient: bool) -> bool {
+        self.targets.contains(target)
+            && (!dynamic_recipient || self.dynamic_recipient_targets.contains(target))
+    }
 }
 
 struct HostState {
@@ -81,6 +95,7 @@ struct HostState {
     public_mail_rate_limiter: Arc<Mutex<PublicMailRateLimiter>>,
     public_mail_authorized: Option<bool>,
     mail_calls_remaining: u8,
+    mail_permissions: MailPermissions,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -189,6 +204,18 @@ impl Runtime {
             id: plugin.manifest.plugin.id.clone(),
             component,
             runtime: self.clone(),
+            mail_permissions: MailPermissions {
+                targets: Arc::new(plugin.manifest.mail.targets.iter().cloned().collect()),
+                dynamic_recipient_targets: Arc::new(
+                    plugin
+                        .manifest
+                        .mail
+                        .dynamic_recipient_targets
+                        .iter()
+                        .cloned()
+                        .collect(),
+                ),
+            },
         })
     }
 }
@@ -284,6 +311,7 @@ impl PluginComponent {
                 public_mail_rate_limiter: Arc::clone(&self.runtime.public_mail_rate_limiter),
                 public_mail_authorized: None,
                 mail_calls_remaining: MAX_MAIL_CALLS_PER_REQUEST,
+                mail_permissions: self.mail_permissions.clone(),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -574,7 +602,6 @@ impl bindings::nur::cms::database::Host for HostState {
 
 impl bindings::nur::cms::configuration::Host for HostState {
     fn public_url(&mut self) -> Option<String> {
-        self.consume_host_call().ok()?;
         configured_public_url()
     }
 }
@@ -585,7 +612,13 @@ impl bindings::nur::cms::mail::Host for HostState {
         message: bindings::nur::cms::mail::Message,
     ) -> Result<(), bindings::nur::cms::types::PluginError> {
         self.consume_host_call()?;
-        self.authorize_mail_send()?;
+
+        if !self
+            .mail_permissions
+            .allows(&message.target, message.recipient.is_some())
+        {
+            return Err(bindings::nur::cms::types::PluginError::Forbidden);
+        }
 
         let request = MailRequest {
             reply_to: message.reply_to,
@@ -596,36 +629,42 @@ impl bindings::nur::cms::mail::Host for HostState {
         let target = message.target;
         let recipient = message.recipient;
         let started = Instant::now();
-        let result = self.tokio_handle.block_on(async {
+        let prepared = self.tokio_handle.block_on(async {
             tokio::time::timeout(
                 self.host_call_timeout,
-                send_plugin_mail(&self.pool, &target, recipient, request),
+                prepare_plugin_mail(&self.pool, &target, recipient, request),
             )
             .await
+        });
+        let prepared = match prepared {
+            Ok(Ok(prepared)) => prepared,
+            Ok(Err(error)) => {
+                self.log_mail_metrics(
+                    &Ok::<Result<(), _>, tokio::time::error::Elapsed>(Err(error)),
+                    started.elapsed(),
+                );
+                return Err(self.plugin_mail_error(error));
+            }
+            Err(error) => {
+                self.log_mail_metrics(
+                    &Err::<Result<(), PluginMailError>, _>(error),
+                    started.elapsed(),
+                );
+                return Err(bindings::nur::cms::types::PluginError::Failed(
+                    "mail delivery timed out".into(),
+                ));
+            }
+        };
+
+        self.authorize_mail_send()?;
+        let remaining = self.host_call_timeout.saturating_sub(started.elapsed());
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(remaining, deliver_plugin_mail(prepared)).await
         });
         self.log_mail_metrics(&result, started.elapsed());
         match result {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(PluginMailError::UnknownTarget)) => Err(
-                bindings::nur::cms::types::PluginError::BadRequest("unknown mail target".into()),
-            ),
-            Ok(Err(PluginMailError::DynamicRecipientNotAllowed)) => {
-                Err(bindings::nur::cms::types::PluginError::BadRequest(
-                    "dynamic recipient is not allowed".into(),
-                ))
-            }
-            Ok(Err(PluginMailError::InvalidMessage)) => Err(
-                bindings::nur::cms::types::PluginError::BadRequest("invalid mail message".into()),
-            ),
-            Ok(Err(PluginMailError::Spam)) => Err(
-                bindings::nur::cms::types::PluginError::BadRequest("mail message rejected".into()),
-            ),
-            Ok(Err(error)) => {
-                error!(plugin = %self.plugin_id, ?error, "plugin mail delivery failed");
-                Err(bindings::nur::cms::types::PluginError::Failed(
-                    "mail delivery failed".into(),
-                ))
-            }
+            Ok(Err(error)) => Err(self.plugin_mail_error(error)),
             Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
                 "mail delivery timed out".into(),
             )),
@@ -634,6 +673,29 @@ impl bindings::nur::cms::mail::Host for HostState {
 }
 
 impl HostState {
+    fn plugin_mail_error(&self, error: PluginMailError) -> bindings::nur::cms::types::PluginError {
+        match error {
+            PluginMailError::UnknownTarget => {
+                bindings::nur::cms::types::PluginError::BadRequest("unknown mail target".into())
+            }
+            PluginMailError::DynamicRecipientNotAllowed => {
+                bindings::nur::cms::types::PluginError::BadRequest(
+                    "dynamic recipient is not allowed".into(),
+                )
+            }
+            PluginMailError::InvalidMessage => {
+                bindings::nur::cms::types::PluginError::BadRequest("invalid mail message".into())
+            }
+            PluginMailError::Spam => {
+                bindings::nur::cms::types::PluginError::BadRequest("mail message rejected".into())
+            }
+            PluginMailError::DeliveryFailed => {
+                error!(plugin = %self.plugin_id, ?error, "plugin mail delivery failed");
+                bindings::nur::cms::types::PluginError::Failed("mail delivery failed".into())
+            }
+        }
+    }
+
     fn consume_host_call(&mut self) -> Result<(), bindings::nur::cms::types::PluginError> {
         if self.host_calls_remaining == 0 {
             return Err(bindings::nur::cms::types::PluginError::Failed(
@@ -696,16 +758,16 @@ impl HostState {
         );
     }
 
-    fn log_mail_metrics(
+    fn log_mail_metrics<T>(
         &self,
-        result: &Result<Result<(), PluginMailError>, tokio::time::error::Elapsed>,
+        result: &Result<Result<T, PluginMailError>, tokio::time::error::Elapsed>,
         elapsed: Duration,
     ) {
         if !self.metrics_enabled {
             return;
         }
         let outcome = match result {
-            Ok(Ok(())) => "ok",
+            Ok(Ok(_)) => "ok",
             Ok(Err(_)) => "error",
             Err(_) => "timeout",
         };
@@ -833,7 +895,7 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{HashMap, VecDeque},
+        collections::{HashMap, HashSet, VecDeque},
         fs,
         net::{IpAddr, Ipv4Addr},
         path::PathBuf,
@@ -847,7 +909,7 @@ mod tests {
     use crate::Error;
 
     use super::{
-        PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit,
+        MailPermissions, PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit,
         allow_mail_for_request, allow_public_mail, bindings,
     };
 
@@ -861,6 +923,19 @@ mod tests {
             acquire_runtime_permit(semaphore),
             Err(Error::Busy)
         ));
+    }
+
+    #[test]
+    fn mail_permissions_are_scoped_by_target_and_recipient_mode() {
+        let permissions = MailPermissions {
+            targets: Arc::new(HashSet::from(["contact".into(), "orders".into()])),
+            dynamic_recipient_targets: Arc::new(HashSet::from(["orders".into()])),
+        };
+
+        assert!(permissions.allows("contact", false));
+        assert!(!permissions.allows("contact", true));
+        assert!(permissions.allows("orders", true));
+        assert!(!permissions.allows("unknown", false));
     }
 
     #[test]
@@ -1053,6 +1128,7 @@ mod tests {
             id: "echo".into(),
             component,
             runtime,
+            mail_permissions: Default::default(),
         };
         let response = plugin
             .call(
@@ -1089,6 +1165,7 @@ mod tests {
             id: "community-site".into(),
             component,
             runtime,
+            mail_permissions: Default::default(),
         };
         let result = plugin
             .call(
