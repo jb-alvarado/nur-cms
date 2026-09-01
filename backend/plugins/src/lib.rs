@@ -18,6 +18,7 @@ use axum::{
 use moka::sync::Cache;
 use nur_core::db::models::{AuthUserMeta, Role};
 use protect_axum::authorities::AuthDetails;
+use real::RealIp;
 use serde::Serialize;
 use sqlx::PgPool;
 use tower_http::{services::ServeDir, timeout::TimeoutLayer};
@@ -52,6 +53,8 @@ pub enum Error {
     Timeout,
     #[error("plugin runtime is busy")]
     Busy,
+    #[error("plugin mail rate limit exceeded")]
+    RateLimited,
     #[error("invalid plugin value")]
     InvalidValue,
     #[error(transparent)]
@@ -271,6 +274,7 @@ async fn dispatch(
     State(state): State<Arc<RouteState>>,
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
+    Extension(real_ip): Extension<RealIp>,
     path_params: Option<Path<HashMap<String, String>>>,
     request: Request,
 ) -> Response {
@@ -289,13 +293,14 @@ async fn dispatch(
 
     let path_params = plugin_path_params(path_params);
 
-    match dispatch_inner(&state, user, role_names, path_params, request).await {
+    match dispatch_inner(&state, user, role_names, path_params, real_ip.ip(), request).await {
         Ok(response) => response,
         Err(error) => {
             error!(plugin = %state.plugin.id, route = %state.route_id, %error, "plugin request failed");
             match error {
                 Error::Timeout => StatusCode::GATEWAY_TIMEOUT.into_response(),
                 Error::Busy => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+                Error::RateLimited => StatusCode::TOO_MANY_REQUESTS.into_response(),
                 Error::PluginBadRequest(_) => StatusCode::BAD_REQUEST.into_response(),
                 Error::PluginForbidden => StatusCode::FORBIDDEN.into_response(),
                 Error::PluginNotFound => StatusCode::NOT_FOUND.into_response(),
@@ -310,6 +315,7 @@ async fn dispatch_inner(
     user: AuthUserMeta,
     roles: Vec<String>,
     path_params: Vec<bindings::nur::cms::types::PathParam>,
+    client_ip: std::net::IpAddr,
     request: Request,
 ) -> Result<Response, Error> {
     let method = request.method().to_string();
@@ -345,7 +351,10 @@ async fn dispatch_inner(
         body: body.to_vec(),
         identity,
     };
-    let response = state.plugin.call(plugin_request).await?;
+    let response = state
+        .plugin
+        .call(plugin_request, state.roles.is_empty(), client_ip)
+        .await?;
     if response.status == StatusCode::OK.as_u16()
         && response.body.len() <= state.response_body_limit
         && let (Some(cache), Some(key)) = (&state.cache, cache_key)

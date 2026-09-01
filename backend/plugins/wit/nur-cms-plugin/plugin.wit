@@ -35,6 +35,7 @@ interface types {
 
   variant plugin-error {
     bad-request(string),
+    rate-limited,
     forbidden,
     not-found,
     failed(string),
@@ -60,7 +61,64 @@ interface content {
   published-entries: func(query: string, output: output-type) -> result<list<u8>, plugin-error>;
 }
 
+interface database {
+  use types.{plugin-error};
+
+  enum null-type {
+    boolean,
+    integer,
+    float,
+    text,
+    bytes,
+    json,
+  }
+
+  variant value {
+    null(null-type),
+    boolean(bool),
+    integer(s64),
+    float(f64),
+    text(string),
+    bytes(list<u8>),
+    json(string),
+  }
+
+  record statement {
+    sql: string,
+    params: list<value>,
+  }
+
+  record query-result {
+    rows-affected: u64,
+    columns: list<string>,
+    rows: list<list<value>>,
+  }
+
+  /// Executes one parameterized DML statement in the calling plugin's schema.
+  execute: func(statement: statement) -> result<query-result, plugin-error>;
+
+  /// Executes all statements atomically. A failing statement rolls back every prior statement.
+  transaction: func(statements: list<statement>) -> result<list<query-result>, plugin-error>;
+}
+
+interface mail {
+  use types.{plugin-error};
+
+  record message {
+    target: string,
+    name: string,
+    reply-to: string,
+    subject: option<string>,
+    text: string,
+  }
+
+  /// Sends through a configured CMS mail target without exposing SMTP credentials.
+  send: func(message: message) -> result<_, plugin-error>;
+}
+
 world cms-plugin {
   import content;
+  import database;
+  import mail;
   export http-handler;
 }

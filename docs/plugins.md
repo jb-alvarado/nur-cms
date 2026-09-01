@@ -165,6 +165,112 @@ the trust and allow-list policy in the application that ultimately embeds the re
 Host calls share the plugin request timeout, have a per-request call limit, and cannot return more bytes than
 `NUR_PLUGIN_RESPONSE_BODY_LIMIT`. The return value is otherwise the normal JSON entry-list response.
 
+## Plugin database access
+
+The `nur:cms/database` WIT import lets a plugin use relational tables without receiving a connection string,
+database credentials, filesystem access, or network access. `execute(statement)` runs one parameterized
+statement; `transaction(statements)` runs one to 32 statements atomically. A failed statement rolls back the
+whole transaction. Both return a `query-result` with `rows-affected`, column names, and rows, including
+`RETURNING` values.
+
+Values are typed as `boolean`, `integer` (`s64`), `float` (`f64`), `text`, `bytes`, or JSON encoded as
+a string. A `null` value carries one of those target types, for example `Value::Null(NullType::Integer)`,
+so PostgreSQL can type the bound parameter correctly. Bind every external value through `params`; do not
+concatenate it into SQL:
+
+```sql
+-- migrations/0001_create_messages.sql
+CREATE TABLE messages (
+    id BIGSERIAL PRIMARY KEY,
+    body TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+```rust
+use bindings::nur::cms::database::{self, Statement, Value};
+
+let inserted = database::execute(&Statement {
+    sql: "INSERT INTO messages (body) VALUES ($1) RETURNING id, body".into(),
+    params: vec![Value::Text(user_input)],
+})?;
+
+let rows = database::execute(&Statement {
+    sql: "SELECT id, body FROM messages WHERE id = $1".into(),
+    params: vec![Value::Integer(42)],
+})?;
+
+database::transaction(&[
+    Statement {
+        sql: "UPDATE messages SET body = $1 WHERE id = $2".into(),
+        params: vec![Value::Text("Updated".into()), Value::Integer(42)],
+    },
+    Statement {
+        sql: "DELETE FROM messages WHERE id = $1".into(),
+        params: vec![Value::Integer(43)],
+    },
+])?;
+```
+
+At runtime, each host call opens a database transaction and sets a transaction-local search path to the
+plugin schema, for example `nur_plugin_example_plugin`. Runtime SQL is parsed with the PostgreSQL dialect
+and accepts only one unqualified `SELECT`, `INSERT`, `UPDATE`, or `DELETE` statement. DDL, `SELECT INTO`,
+data-modifying subqueries, multiple statements, comments, quoted or qualified identifiers, system relations,
+table functions, and non-allow-listed functions are rejected. This deliberately small subset prevents a
+request value from turning a plugin query into arbitrary SQL and keeps normal relation lookup inside the
+plugin schema. Cast uncommon result types to `text` or JSON in the query; the host natively returns booleans,
+integer and floating PostgreSQL types, `bytea`, JSON/JSONB, and text-like values.
+
+The allow-listed scalar and aggregate functions are `abs`, `avg`, `ceil`, `ceiling`, `char_length`,
+`coalesce`, `concat`, `count`, `floor`, `greatest`, `json_array_length`, `jsonb_array_length`,
+`jsonb_typeof`, `least`, `length`, `lower`, `max`, `min`, `octet_length`, `round`, `substring`, `sum`,
+`trim`, and `upper`. Additions belong in the host allow-list and its tests rather than in individual plugins.
+
+The SQL subset and search path are runtime hardening, not a replacement for PostgreSQL permissions. Plugins
+and their migrations are trusted server code: a migration can intentionally create views, functions, or
+triggers with the application database user's privileges. Only install reviewed plugins, and do not grant the
+CMS database role unnecessary operating-system or PostgreSQL administration privileges.
+
+Database results are streamed and stopped at `NUR_PLUGIN_RESPONSE_BODY_LIMIT` or 10,000 rows, before a full
+oversized result is retained in host memory. The normal plugin host-call limit and timeout apply to each
+`execute` or `transaction` call. Database failures are logged by
+nur-cms but returned to a plugin as generic errors, so connection details and SQL diagnostics do not reach
+HTTP clients.
+
+## Plugin mail access
+
+The `nur:cms/mail` WIT import sends a message through a CMS-managed mail target without exposing SMTP
+credentials:
+
+```rust
+use bindings::nur::cms::mail::{self, Message};
+
+mail::send(&Message {
+    target: "contact".into(),
+    name: "Example form".into(),
+    reply_to: "sender@example.org".into(),
+    subject: Some("A subject".into()),
+    text: "A normal, sufficiently detailed message from the plugin form.".into(),
+})?;
+```
+
+`target` selects an existing CMS mail target. The host uses the same address validation, message limits,
+spam detection, target lookup, HTML policy, reply-to handling, SMTP configuration, and error handling as
+`POST /api/contact/target/{target}`. An unknown target, rejected address, spam message, or delivery failure
+does not reveal SMTP or database details to a plugin route's HTTP client. The supplied `text` is used as the
+message body without contact-form decoration; the selected target's `allow_html` setting still decides whether
+HTML is preserved or stripped.
+
+On a public plugin route, mail is limited independently per plugin route and client IP. The default interval
+is three minutes and can be changed with `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS`; the bounded in-memory
+tracking capacity is configured with `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`. A limited request produces HTTP
+`429` when the plugin propagates the host's `rate-limited` error; mail is never sent while the limit is active.
+Protected plugin routes retain their manifest authorization and are not subject to this public-IP rule. The
+client IP is never exposed to Wasm.
+
+The database and mail imports were added while plugin API version 1 is still under development. Rebuild
+version-1 WebAssembly components against the current WIT package before installing them with this CMS build.
+
 ## Static assets
 
 Files below the manifest's asset directory are served at `/plugins/<plugin-id>/assets/`. This namespace is
@@ -203,7 +309,8 @@ migration prevents startup. Down migrations are never run automatically.
 
 Migration SQL is installation-time trusted code. The schema and tracking separation prevent normal
 name and version collisions, but the application database user may still have permission to modify
-explicitly qualified core objects. Only install plugins from trusted sources.
+explicitly qualified core objects. Runtime database access is intentionally more restricted, but both
+server-side Wasm and migrations must be installed only from trusted sources.
 
 ## Runtime limits
 

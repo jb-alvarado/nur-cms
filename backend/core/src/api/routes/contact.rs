@@ -20,11 +20,8 @@ use crate::{
         models::{MailTarget, Role},
         queries::{QueryObj, RespondObj},
     },
-    mail::client::{Msg, message},
-    utils::{
-        errors::NurError,
-        spam_detection::{evaluate_text, validate_email_address},
-    },
+    mail::service::{MailRequest, deliver_mail, prepare_mail_with_evaluation},
+    utils::{errors::NurError, spam_detection::evaluate_text},
 };
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
@@ -126,41 +123,36 @@ pub async fn mailer(
     Path(target): Path<String>,
     ApiJson(contact): ApiJson<Contact>,
 ) -> Result<(), NurError> {
-    if contact.name.trim().is_empty()
-        || contact.name.chars().count() > 160
-        || contact
-            .subject
-            .as_ref()
-            .is_some_and(|value| value.chars().count() > 255)
-        || contact.text.chars().count() > 20_000
+    let evaluation = evaluate_text(&contact.text, None);
+    let spam_score = evaluation.score;
+    let prepared = match prepare_mail_with_evaluation(
+        MailRequest {
+            reply_to: contact.email,
+            subject: contact.subject,
+            name: contact.name,
+            text: contact.text,
+        },
+        evaluation,
+    )
+    .await
     {
-        return Err(NurError::BadRequest("Invalid contact request.".into()));
-    }
-    let norm_email = validate_email_address(contact.email).await?;
-    let result = evaluate_text(&contact.text, None);
-
-    if !result.passed {
-        error!(
-            "Spam detected from: {:?}, score: {:?}",
-            real_ip.ip(),
-            result.score
-        );
-        return Err(NurError::Conflict(
-            "This message is not allowed!".to_string(),
-        ));
-    }
-
-    if let Ok(target) = handles::select_mail_target(&pool, &target).await {
-        let text = format!(
-            "Name: {}\nMail: {}\n------------------------------------\n\n{}",
-            contact.name, norm_email, contact.text
-        );
-        let msg = Msg::new(norm_email, contact.name, contact.subject, text, target);
-
-        message(msg).await?;
-
-        return Ok(());
-    }
-
-    Err(NurError::InternalServerError)
+        Ok(prepared) => prepared,
+        Err(error) => {
+            if matches!(error, NurError::Conflict(_)) {
+                // Keep the client identity in the HTTP endpoint's log without exposing it to plugins.
+                error!(
+                    "Spam detected from: {:?}, score: {:?}",
+                    real_ip.ip(),
+                    spam_score
+                );
+            }
+            return Err(error);
+        }
+    };
+    let mut contact_mail = prepared;
+    contact_mail.text = format!(
+        "Name: {}\nMail: {}\n------------------------------------\n\n{}",
+        contact_mail.name, contact_mail.reply_to, contact_mail.text
+    );
+    deliver_mail(&pool, &target, contact_mail).await
 }

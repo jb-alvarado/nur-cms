@@ -5,11 +5,14 @@ use nur_core::{
         handles,
         queries::QueryObj,
     },
+    mail::service::{MailRequest, send_mail, validate_mail_target},
     utils::content_output::render_entry_nodes,
 };
 use std::{
+    collections::{HashMap, VecDeque},
+    net::IpAddr,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
@@ -21,6 +24,12 @@ use wasmtime::{
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::{Error, manifest::InstalledPlugin, plugin_timeout};
+
+mod database;
+
+use database::{
+    DatabaseHostError, execute_statements, validate_statement, validate_transaction_size,
+};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -43,6 +52,7 @@ pub struct Runtime {
     max_host_calls: usize,
     content_response_body_limit: usize,
     metrics_enabled: bool,
+    public_mail_rate_limiter: Arc<Mutex<PublicMailRateLimiter>>,
 }
 
 #[derive(Clone)]
@@ -54,6 +64,7 @@ pub struct PluginComponent {
 
 struct HostState {
     plugin_id: String,
+    plugin_schema: String,
     limits: StoreLimits,
     table: ResourceTable,
     wasi: WasiCtx,
@@ -63,6 +74,24 @@ struct HostState {
     host_call_timeout: Duration,
     content_response_body_limit: usize,
     metrics_enabled: bool,
+    public_route: bool,
+    route_id: String,
+    client_ip: IpAddr,
+    public_mail_rate_limiter: Arc<Mutex<PublicMailRateLimiter>>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct PublicMailKey {
+    plugin_id: String,
+    route_id: String,
+    client_ip: IpAddr,
+}
+
+struct PublicMailRateLimiter {
+    sent: HashMap<PublicMailKey, Instant>,
+    expirations: VecDeque<(Instant, PublicMailKey)>,
+    window: Duration,
+    max_clients: usize,
 }
 
 impl WasiView for HostState {
@@ -119,6 +148,22 @@ impl Runtime {
                 64 * 1024 * 1024,
             ),
             metrics_enabled: env_bool("NUR_PLUGIN_METRICS", false),
+            public_mail_rate_limiter: Arc::new(Mutex::new(PublicMailRateLimiter {
+                sent: HashMap::new(),
+                expirations: VecDeque::new(),
+                window: Duration::from_secs(env_u64(
+                    "NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS",
+                    180,
+                    1,
+                    86_400,
+                )),
+                max_clients: env_usize(
+                    "NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS",
+                    10_000,
+                    128,
+                    1_000_000,
+                ),
+            })),
         })
     }
 
@@ -186,12 +231,14 @@ impl PluginComponent {
     pub async fn call(
         &self,
         request: bindings::nur::cms::types::Request,
+        public_route: bool,
+        client_ip: IpAddr,
     ) -> Result<bindings::nur::cms::types::Response, Error> {
         let permit = acquire_runtime_permit(Arc::clone(&self.runtime.semaphore))?;
         let component = self.clone();
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            component.call_sync(request)
+            component.call_sync(request, public_route, client_ip)
         });
         tokio::time::timeout(self.runtime.timeout + Duration::from_millis(100), task)
             .await
@@ -202,6 +249,8 @@ impl PluginComponent {
     fn call_sync(
         &self,
         request: bindings::nur::cms::types::Request,
+        public_route: bool,
+        client_ip: IpAddr,
     ) -> Result<bindings::nur::cms::types::Response, Error> {
         let call_started = Instant::now();
         let mut linker = Linker::new(&self.runtime.engine);
@@ -210,6 +259,7 @@ impl PluginComponent {
             &self.runtime.engine,
             HostState {
                 plugin_id: self.id.clone(),
+                plugin_schema: crate::manifest::schema_name(&self.id),
                 limits: StoreLimitsBuilder::new()
                     .memory_size(self.runtime.memory_limit)
                     .instances(128)
@@ -225,6 +275,10 @@ impl PluginComponent {
                 host_call_timeout: self.runtime.timeout,
                 content_response_body_limit: self.runtime.content_response_body_limit,
                 metrics_enabled: self.runtime.metrics_enabled,
+                public_route,
+                route_id: request.route_id.clone(),
+                client_ip,
+                public_mail_rate_limiter: Arc::clone(&self.runtime.public_mail_rate_limiter),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -275,6 +329,7 @@ impl PluginComponent {
                     bindings::nur::cms::types::PluginError::BadRequest(message) => {
                         Error::PluginBadRequest(message)
                     }
+                    bindings::nur::cms::types::PluginError::RateLimited => Error::RateLimited,
                     bindings::nur::cms::types::PluginError::Forbidden => Error::PluginForbidden,
                     bindings::nur::cms::types::PluginError::NotFound => Error::PluginNotFound,
                     bindings::nur::cms::types::PluginError::Failed(message) => {
@@ -427,7 +482,211 @@ impl bindings::nur::cms::content::Host for HostState {
     }
 }
 
+impl bindings::nur::cms::database::Host for HostState {
+    fn execute(
+        &mut self,
+        statement: bindings::nur::cms::database::Statement,
+    ) -> Result<bindings::nur::cms::database::QueryResult, bindings::nur::cms::types::PluginError>
+    {
+        self.consume_host_call()?;
+        let validated = validate_statement(&statement).map_err(database_error)?;
+
+        let schema = self.plugin_schema.clone();
+        let limit = self.content_response_body_limit;
+        let started = Instant::now();
+        let statements = [statement];
+        let validated = [validated];
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(
+                self.host_call_timeout,
+                execute_statements(
+                    &self.pool,
+                    &schema,
+                    &statements,
+                    &validated,
+                    limit,
+                    self.host_call_timeout,
+                ),
+            )
+            .await
+        });
+        self.log_database_metrics("execute", &result, started.elapsed());
+        match result {
+            Ok(Ok(mut results)) => results
+                .pop()
+                .ok_or_else(|| database_error("database query returned no result")),
+            Ok(Err(error)) => {
+                error!(plugin = %self.plugin_id, %error, "plugin database query failed");
+                Err(database_error("database query failed"))
+            }
+            Err(_) => Err(database_error("database query timed out")),
+        }
+    }
+
+    fn transaction(
+        &mut self,
+        statements: Vec<bindings::nur::cms::database::Statement>,
+    ) -> Result<
+        Vec<bindings::nur::cms::database::QueryResult>,
+        bindings::nur::cms::types::PluginError,
+    > {
+        self.consume_host_call()?;
+        validate_transaction_size(&statements).map_err(database_error)?;
+        let validated = statements
+            .iter()
+            .map(validate_statement)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(database_error)?;
+
+        let schema = self.plugin_schema.clone();
+        let limit = self.content_response_body_limit;
+        let started = Instant::now();
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(
+                self.host_call_timeout,
+                execute_statements(
+                    &self.pool,
+                    &schema,
+                    &statements,
+                    &validated,
+                    limit,
+                    self.host_call_timeout,
+                ),
+            )
+            .await
+        });
+        self.log_database_metrics("transaction", &result, started.elapsed());
+        match result {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(error)) => {
+                error!(plugin = %self.plugin_id, %error, "plugin database transaction failed");
+                Err(database_error("database transaction failed"))
+            }
+            Err(_) => Err(database_error("database transaction timed out")),
+        }
+    }
+}
+
+impl bindings::nur::cms::mail::Host for HostState {
+    fn send(
+        &mut self,
+        message: bindings::nur::cms::mail::Message,
+    ) -> Result<(), bindings::nur::cms::types::PluginError> {
+        self.consume_host_call()?;
+        validate_mail_target(&message.target).map_err(|_| {
+            bindings::nur::cms::types::PluginError::BadRequest("invalid mail target".into())
+        })?;
+        if self.public_route && !self.public_mail_allowed() {
+            return Err(bindings::nur::cms::types::PluginError::RateLimited);
+        }
+
+        let request = MailRequest {
+            reply_to: message.reply_to,
+            subject: message.subject,
+            name: message.name,
+            text: message.text,
+        };
+        let target = message.target;
+        let started = Instant::now();
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(
+                self.host_call_timeout,
+                send_mail(&self.pool, &target, request),
+            )
+            .await
+        });
+        self.log_mail_metrics(&result, started.elapsed());
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(
+                nur_core::utils::errors::NurError::BadRequest(_)
+                | nur_core::utils::errors::NurError::Conflict(_),
+            )) => Err(bindings::nur::cms::types::PluginError::BadRequest(
+                "mail message rejected".into(),
+            )),
+            Ok(Err(error)) => {
+                error!(plugin = %self.plugin_id, %error, "plugin mail delivery failed");
+                Err(bindings::nur::cms::types::PluginError::Failed(
+                    "mail delivery failed".into(),
+                ))
+            }
+            Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
+                "mail delivery timed out".into(),
+            )),
+        }
+    }
+}
+
 impl HostState {
+    fn consume_host_call(&mut self) -> Result<(), bindings::nur::cms::types::PluginError> {
+        if self.host_calls_remaining == 0 {
+            return Err(bindings::nur::cms::types::PluginError::Failed(
+                "plugin host-call limit exceeded".into(),
+            ));
+        }
+        self.host_calls_remaining -= 1;
+        Ok(())
+    }
+
+    fn public_mail_allowed(&self) -> bool {
+        let Ok(mut limiter) = self.public_mail_rate_limiter.lock() else {
+            return false;
+        };
+        allow_public_mail(
+            &mut limiter,
+            &self.plugin_id,
+            &self.route_id,
+            self.client_ip,
+            Instant::now(),
+        )
+    }
+
+    fn log_database_metrics<T>(
+        &self,
+        operation: &'static str,
+        result: &Result<Result<T, DatabaseHostError>, tokio::time::error::Elapsed>,
+        elapsed: Duration,
+    ) {
+        if !self.metrics_enabled {
+            return;
+        }
+        let outcome = match result {
+            Ok(Ok(_)) => "ok",
+            Ok(Err(_)) => "error",
+            Err(_) => "timeout",
+        };
+        info!(
+            plugin = %self.plugin_id,
+            host_call = "database",
+            operation,
+            outcome,
+            duration_ms = %format!("{:.2}", elapsed.as_secs_f64() * 1_000.0).yellow(),
+            "plugin host-call metrics"
+        );
+    }
+
+    fn log_mail_metrics(
+        &self,
+        result: &Result<Result<(), nur_core::utils::errors::NurError>, tokio::time::error::Elapsed>,
+        elapsed: Duration,
+    ) {
+        if !self.metrics_enabled {
+            return;
+        }
+        let outcome = match result {
+            Ok(Ok(())) => "ok",
+            Ok(Err(_)) => "error",
+            Err(_) => "timeout",
+        };
+        info!(
+            plugin = %self.plugin_id,
+            host_call = "mail",
+            outcome,
+            duration_ms = %format!("{:.2}", elapsed.as_secs_f64() * 1_000.0).yellow(),
+            "plugin host-call metrics"
+        );
+    }
+
     fn log_content_query_metrics(
         &self,
         result: &Result<
@@ -459,6 +718,43 @@ impl HostState {
     }
 }
 
+fn allow_public_mail(
+    limiter: &mut PublicMailRateLimiter,
+    plugin_id: &str,
+    route_id: &str,
+    client_ip: IpAddr,
+    now: Instant,
+) -> bool {
+    while limiter
+        .expirations
+        .front()
+        .is_some_and(|(expires_at, _)| *expires_at <= now)
+    {
+        let Some((expires_at, key)) = limiter.expirations.pop_front() else {
+            break;
+        };
+        if limiter.sent.get(&key) == Some(&expires_at) {
+            limiter.sent.remove(&key);
+        }
+    }
+    let key = PublicMailKey {
+        plugin_id: plugin_id.into(),
+        route_id: route_id.into(),
+        client_ip,
+    };
+    if limiter.sent.contains_key(&key) || limiter.sent.len() >= limiter.max_clients {
+        return false;
+    }
+    let expires_at = now.checked_add(limiter.window).unwrap_or(now);
+    limiter.sent.insert(key.clone(), expires_at);
+    limiter.expirations.push_back((expires_at, key));
+    true
+}
+
+fn database_error(message: impl Into<String>) -> bindings::nur::cms::types::PluginError {
+    bindings::nur::cms::types::PluginError::Failed(message.into())
+}
+
 fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
     std::env::var(key)
         .ok()
@@ -488,13 +784,23 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf, sync::Arc};
+    use std::{
+        collections::{HashMap, VecDeque},
+        fs,
+        net::{IpAddr, Ipv4Addr},
+        path::PathBuf,
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use tokio::sync::Semaphore;
 
     use crate::Error;
 
-    use super::{PluginComponent, Runtime, acquire_runtime_permit, bindings};
+    use super::{
+        PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit, allow_public_mail,
+        bindings,
+    };
 
     #[test]
     fn rejects_work_when_runtime_capacity_is_exhausted() {
@@ -505,6 +811,67 @@ mod tests {
         assert!(matches!(
             acquire_runtime_permit(semaphore),
             Err(Error::Busy)
+        ));
+    }
+
+    #[test]
+    fn public_mail_is_limited_once_per_ip() {
+        let mut limiter = PublicMailRateLimiter {
+            sent: HashMap::new(),
+            expirations: VecDeque::new(),
+            window: Duration::from_secs(180),
+            max_clients: 10_000,
+        };
+        let now = Instant::now();
+        let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        assert!(allow_public_mail(&mut limiter, "echo", "mail", ip, now));
+        assert!(!allow_public_mail(&mut limiter, "echo", "mail", ip, now));
+        assert!(allow_public_mail(
+            &mut limiter,
+            "other-plugin",
+            "mail",
+            ip,
+            now,
+        ));
+        assert!(allow_public_mail(
+            &mut limiter,
+            "echo",
+            "mail",
+            ip,
+            now + Duration::from_secs(180),
+        ));
+    }
+
+    #[test]
+    fn public_mail_limiter_fails_closed_at_capacity() {
+        let mut limiter = PublicMailRateLimiter {
+            sent: HashMap::new(),
+            expirations: VecDeque::new(),
+            window: Duration::from_secs(180),
+            max_clients: 1,
+        };
+        let now = Instant::now();
+
+        assert!(allow_public_mail(
+            &mut limiter,
+            "echo",
+            "mail",
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            now,
+        ));
+        assert!(!allow_public_mail(
+            &mut limiter,
+            "echo",
+            "mail",
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+            now,
+        ));
+        assert!(allow_public_mail(
+            &mut limiter,
+            "echo",
+            "mail",
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+            now + Duration::from_secs(180),
         ));
     }
 
@@ -523,16 +890,20 @@ mod tests {
             runtime,
         };
         let response = plugin
-            .call(bindings::nur::cms::types::Request {
-                route_id: "root".into(),
-                method: "GET".into(),
-                path: "/plugin-echo".into(),
-                path_params: Vec::new(),
-                query: None,
-                headers: Vec::new(),
-                body: Vec::new(),
-                identity: None,
-            })
+            .call(
+                bindings::nur::cms::types::Request {
+                    route_id: "root".into(),
+                    method: "GET".into(),
+                    path: "/plugin-echo".into(),
+                    path_params: Vec::new(),
+                    query: None,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                    identity: None,
+                },
+                true,
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+            )
             .await
             .expect("example request succeeds");
 
@@ -555,16 +926,20 @@ mod tests {
             runtime,
         };
         let result = plugin
-            .call(bindings::nur::cms::types::Request {
-                route_id: "missing".into(),
-                method: "GET".into(),
-                path: "/missing".into(),
-                path_params: Vec::new(),
-                query: None,
-                headers: Vec::new(),
-                body: Vec::new(),
-                identity: None,
-            })
+            .call(
+                bindings::nur::cms::types::Request {
+                    route_id: "missing".into(),
+                    method: "GET".into(),
+                    path: "/missing".into(),
+                    path_params: Vec::new(),
+                    query: None,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                    identity: None,
+                },
+                true,
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+            )
             .await;
 
         assert!(matches!(result, Err(Error::PluginNotFound)));

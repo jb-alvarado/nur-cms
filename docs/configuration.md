@@ -45,4 +45,6 @@ for the package layout, manifest format, migration behavior, and HTTP interface.
 | `NUR_PLUGIN_MAX_HOST_CALLS`         | `16`              | Maximum number of CMS host-interface calls during one plugin request.                  |
 | `NUR_PLUGIN_REQUEST_BODY_LIMIT`     | `1048576`         | Maximum request body passed to a plugin in bytes.                                      |
 | `NUR_PLUGIN_RESPONSE_BODY_LIMIT`    | `4194304`         | Maximum HTTP response or individual CMS host response accepted from a plugin in bytes. |
+| `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS` | `180`       | Minimum interval between public mail sends for one plugin route and client IP.          |
+| `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS` | `10000`          | Maximum number of active public plugin-mail rate-limit keys retained in memory.         |
 | `NUR_PLUGIN_CACHE_MEMORY_LIMIT`     | `67108864`        | Shared approximate memory budget for all enabled plugin route caches in bytes.         |

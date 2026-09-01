@@ -41,6 +41,24 @@ method = "GET"
 path = "/plugin-echo"
 access = "public"
 
+[[routes]]
+id = "database"
+method = "POST"
+path = "/api/plugins/echo/database"
+access = "admin,author"
+
+[[routes]]
+id = "rollback"
+method = "POST"
+path = "/api/plugins/echo/rollback"
+access = "admin,author"
+
+[[routes]]
+id = "mail"
+method = "POST"
+path = "/api/plugins/echo/mail"
+access = "public"
+
 [admin]
 entry = "admin.js"
 element = "nur-cms-echo"
