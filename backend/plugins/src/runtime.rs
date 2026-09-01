@@ -5,8 +5,8 @@ use nur_core::{
         handles,
         queries::QueryObj,
     },
-    mail::service::{MailRequest, send_mail, validate_mail_target},
-    utils::content_output::render_entry_nodes,
+    mail::service::{MailRequest, PluginMailError, send_plugin_mail},
+    utils::{content_output::render_entry_nodes, public_url::configured_public_url},
 };
 use std::{
     collections::{HashMap, VecDeque},
@@ -39,6 +39,7 @@ pub mod bindings {
 }
 
 const EPOCH_INTERVAL_MS: u64 = 10;
+const MAX_MAIL_CALLS_PER_REQUEST: u8 = 3;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -78,6 +79,8 @@ struct HostState {
     route_id: String,
     client_ip: IpAddr,
     public_mail_rate_limiter: Arc<Mutex<PublicMailRateLimiter>>,
+    public_mail_authorized: Option<bool>,
+    mail_calls_remaining: u8,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -279,6 +282,8 @@ impl PluginComponent {
                 route_id: request.route_id.clone(),
                 client_ip,
                 public_mail_rate_limiter: Arc::clone(&self.runtime.public_mail_rate_limiter),
+                public_mail_authorized: None,
+                mail_calls_remaining: MAX_MAIL_CALLS_PER_REQUEST,
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -567,18 +572,20 @@ impl bindings::nur::cms::database::Host for HostState {
     }
 }
 
+impl bindings::nur::cms::configuration::Host for HostState {
+    fn public_url(&mut self) -> Option<String> {
+        self.consume_host_call().ok()?;
+        configured_public_url()
+    }
+}
+
 impl bindings::nur::cms::mail::Host for HostState {
     fn send(
         &mut self,
         message: bindings::nur::cms::mail::Message,
     ) -> Result<(), bindings::nur::cms::types::PluginError> {
         self.consume_host_call()?;
-        validate_mail_target(&message.target).map_err(|_| {
-            bindings::nur::cms::types::PluginError::BadRequest("invalid mail target".into())
-        })?;
-        if self.public_route && !self.public_mail_allowed() {
-            return Err(bindings::nur::cms::types::PluginError::RateLimited);
-        }
+        self.authorize_mail_send()?;
 
         let request = MailRequest {
             reply_to: message.reply_to,
@@ -587,25 +594,34 @@ impl bindings::nur::cms::mail::Host for HostState {
             text: message.text,
         };
         let target = message.target;
+        let recipient = message.recipient;
         let started = Instant::now();
         let result = self.tokio_handle.block_on(async {
             tokio::time::timeout(
                 self.host_call_timeout,
-                send_mail(&self.pool, &target, request),
+                send_plugin_mail(&self.pool, &target, recipient, request),
             )
             .await
         });
         self.log_mail_metrics(&result, started.elapsed());
         match result {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(
-                nur_core::utils::errors::NurError::BadRequest(_)
-                | nur_core::utils::errors::NurError::Conflict(_),
-            )) => Err(bindings::nur::cms::types::PluginError::BadRequest(
-                "mail message rejected".into(),
-            )),
+            Ok(Err(PluginMailError::UnknownTarget)) => Err(
+                bindings::nur::cms::types::PluginError::BadRequest("unknown mail target".into()),
+            ),
+            Ok(Err(PluginMailError::DynamicRecipientNotAllowed)) => {
+                Err(bindings::nur::cms::types::PluginError::BadRequest(
+                    "dynamic recipient is not allowed".into(),
+                ))
+            }
+            Ok(Err(PluginMailError::InvalidMessage)) => Err(
+                bindings::nur::cms::types::PluginError::BadRequest("invalid mail message".into()),
+            ),
+            Ok(Err(PluginMailError::Spam)) => Err(
+                bindings::nur::cms::types::PluginError::BadRequest("mail message rejected".into()),
+            ),
             Ok(Err(error)) => {
-                error!(plugin = %self.plugin_id, %error, "plugin mail delivery failed");
+                error!(plugin = %self.plugin_id, ?error, "plugin mail delivery failed");
                 Err(bindings::nur::cms::types::PluginError::Failed(
                     "mail delivery failed".into(),
                 ))
@@ -628,17 +644,32 @@ impl HostState {
         Ok(())
     }
 
-    fn public_mail_allowed(&self) -> bool {
-        let Ok(mut limiter) = self.public_mail_rate_limiter.lock() else {
-            return false;
-        };
-        allow_public_mail(
-            &mut limiter,
-            &self.plugin_id,
-            &self.route_id,
-            self.client_ip,
-            Instant::now(),
-        )
+    fn authorize_mail_send(&mut self) -> Result<(), bindings::nur::cms::types::PluginError> {
+        let limiter = Arc::clone(&self.public_mail_rate_limiter);
+        let plugin_id = self.plugin_id.clone();
+        let route_id = self.route_id.clone();
+        let client_ip = self.client_ip;
+        if allow_mail_for_request(
+            &mut self.mail_calls_remaining,
+            self.public_route,
+            &mut self.public_mail_authorized,
+            || {
+                let Ok(mut limiter) = limiter.lock() else {
+                    return false;
+                };
+                allow_public_mail(
+                    &mut limiter,
+                    &plugin_id,
+                    &route_id,
+                    client_ip,
+                    Instant::now(),
+                )
+            },
+        ) {
+            Ok(())
+        } else {
+            Err(bindings::nur::cms::types::PluginError::RateLimited)
+        }
     }
 
     fn log_database_metrics<T>(
@@ -667,7 +698,7 @@ impl HostState {
 
     fn log_mail_metrics(
         &self,
-        result: &Result<Result<(), nur_core::utils::errors::NurError>, tokio::time::error::Elapsed>,
+        result: &Result<Result<(), PluginMailError>, tokio::time::error::Elapsed>,
         elapsed: Duration,
     ) {
         if !self.metrics_enabled {
@@ -716,6 +747,23 @@ impl HostState {
             "plugin host-call metrics"
         );
     }
+}
+
+fn allow_mail_for_request(
+    calls_remaining: &mut u8,
+    public_route: bool,
+    public_authorized: &mut Option<bool>,
+    reserve_public_limit: impl FnOnce() -> bool,
+) -> bool {
+    let Some(remaining) = calls_remaining.checked_sub(1) else {
+        return false;
+    };
+    *calls_remaining = remaining;
+    if !public_route {
+        return true;
+    }
+
+    *public_authorized.get_or_insert_with(reserve_public_limit)
 }
 
 fn allow_public_mail(
@@ -789,7 +837,8 @@ mod tests {
         fs,
         net::{IpAddr, Ipv4Addr},
         path::PathBuf,
-        sync::Arc,
+        sync::{Arc, Barrier, Mutex},
+        thread,
         time::{Duration, Instant},
     };
 
@@ -798,8 +847,8 @@ mod tests {
     use crate::Error;
 
     use super::{
-        PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit, allow_public_mail,
-        bindings,
+        PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit,
+        allow_mail_for_request, allow_public_mail, bindings,
     };
 
     #[test]
@@ -836,10 +885,126 @@ mod tests {
         assert!(allow_public_mail(
             &mut limiter,
             "echo",
+            "other-mail-route",
+            ip,
+            now,
+        ));
+        assert!(allow_public_mail(
+            &mut limiter,
+            "echo",
+            "mail",
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10)),
+            now,
+        ));
+        assert!(allow_public_mail(
+            &mut limiter,
+            "echo",
             "mail",
             ip,
             now + Duration::from_secs(180),
         ));
+    }
+
+    #[test]
+    fn one_request_can_send_three_messages_after_one_public_reservation() {
+        let mut remaining = 3;
+        let mut authorized = None;
+        let mut reservations = 0;
+
+        for _ in 0..3 {
+            assert!(allow_mail_for_request(
+                &mut remaining,
+                true,
+                &mut authorized,
+                || {
+                    reservations += 1;
+                    true
+                },
+            ));
+        }
+        assert!(!allow_mail_for_request(
+            &mut remaining,
+            true,
+            &mut authorized,
+            || true,
+        ));
+        assert_eq!(reservations, 1);
+    }
+
+    #[test]
+    fn protected_routes_have_the_same_per_request_mail_limit() {
+        let mut remaining = 3;
+        let mut authorized = None;
+        for _ in 0..3 {
+            assert!(allow_mail_for_request(
+                &mut remaining,
+                false,
+                &mut authorized,
+                || false,
+            ));
+        }
+        assert!(!allow_mail_for_request(
+            &mut remaining,
+            false,
+            &mut authorized,
+            || false,
+        ));
+    }
+
+    #[test]
+    fn rejected_public_reservation_is_reused_without_retrying_the_limiter() {
+        let mut remaining = 3;
+        let mut authorized = None;
+        let mut reservations = 0;
+
+        for _ in 0..2 {
+            assert!(!allow_mail_for_request(
+                &mut remaining,
+                true,
+                &mut authorized,
+                || {
+                    reservations += 1;
+                    false
+                },
+            ));
+        }
+
+        assert_eq!(reservations, 1);
+    }
+
+    #[test]
+    fn parallel_requests_cannot_bypass_the_public_limit() {
+        let limiter = Arc::new(Mutex::new(PublicMailRateLimiter {
+            sent: HashMap::new(),
+            expirations: VecDeque::new(),
+            window: Duration::from_secs(180),
+            max_clients: 10_000,
+        }));
+        let barrier = Arc::new(Barrier::new(8));
+        let now = Instant::now();
+        let handles = (0..8)
+            .map(|_| {
+                let limiter = Arc::clone(&limiter);
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    allow_public_mail(
+                        &mut limiter.lock().expect("limiter lock is available"),
+                        "echo",
+                        "mail",
+                        IpAddr::V4(Ipv4Addr::LOCALHOST),
+                        now,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let allowed = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("limiter worker completes"))
+            .filter(|allowed| *allowed)
+            .count();
+
+        assert_eq!(allowed, 1);
     }
 
     #[test]

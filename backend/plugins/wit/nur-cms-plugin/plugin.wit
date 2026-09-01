@@ -106,6 +106,7 @@ interface mail {
 
   record message {
     target: string,
+    recipient: option<string>,
     name: string,
     reply-to: string,
     subject: option<string>,
@@ -116,8 +117,14 @@ interface mail {
   send: func(message: message) -> result<_, plugin-error>;
 }
 
+interface configuration {
+  /// Returns the validated canonical public CMS URL without a trailing slash.
+  public-url: func() -> option<string>;
+}
+
 world cms-plugin {
   import content;
+  import configuration;
   import database;
   import mail;
   export http-handler;

@@ -935,6 +935,8 @@ pub struct MailTarget {
     pub recipients: Vec<String>,
     #[serde(default)]
     pub allow_html: bool,
+    #[serde(default)]
+    pub allow_dynamic_recipient: bool,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -945,6 +947,7 @@ impl MailTarget {
         Self {
             recipients: vec![recipient],
             allow_html,
+            allow_dynamic_recipient: false,
             ..Default::default()
         }
     }
@@ -958,6 +961,7 @@ impl FromRow<'_, PgRow> for MailTarget {
             subject: row.try_get("subject").ok(),
             recipients: row.try_get("recipients").unwrap_or_default(),
             allow_html: row.try_get("allow_html").unwrap_or_default(),
+            allow_dynamic_recipient: row.try_get("allow_dynamic_recipient").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })
     }

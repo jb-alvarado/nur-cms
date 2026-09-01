@@ -289,6 +289,9 @@ export default {
         recipients: 'Empfänger',
         recipientPlaceholder: 'E-Mail-Adresse eingeben',
         allowHtml: 'HTML erlauben',
+        allowDynamicRecipient: 'Dynamischen Empfänger erlauben',
+        allowDynamicRecipientHint:
+            'Erlaubt vertrauenswürdigen Plugins, die festen Empfänger durch eine geprüfte Adresse zu ersetzen.',
     },
     nodeTemplates: {
         title: 'Node-Vorlagen',

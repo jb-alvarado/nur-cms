@@ -30,6 +30,15 @@ pub struct PreparedMail {
     pub text: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PluginMailError {
+    UnknownTarget,
+    DynamicRecipientNotAllowed,
+    InvalidMessage,
+    Spam,
+    DeliveryFailed,
+}
+
 pub async fn prepare_mail(request: MailRequest) -> Result<PreparedMail, NurError> {
     let evaluation = evaluate_text(&request.text, None);
     prepare_mail_with_evaluation(request, evaluation).await
@@ -101,14 +110,65 @@ pub async fn send_mail(
     deliver_mail(pool, target_name, prepared).await
 }
 
+/// Sends a plugin message using CMS validation and delivery without exposing
+/// target details or transport errors across the Wasm boundary.
+pub async fn send_plugin_mail(
+    pool: &PgPool,
+    target_name: &str,
+    recipient: Option<String>,
+    request: MailRequest,
+) -> Result<(), PluginMailError> {
+    validate_mail_target(target_name).map_err(|_| PluginMailError::InvalidMessage)?;
+    let mut target = handles::select_mail_target(pool, target_name)
+        .await
+        .map_err(|error| match error {
+            NurError::NotFound => PluginMailError::UnknownTarget,
+            _ => PluginMailError::DeliveryFailed,
+        })?;
+    let prepared = prepare_mail(request).await.map_err(|error| match error {
+        NurError::BadRequest(_) => PluginMailError::InvalidMessage,
+        NurError::Conflict(_) => PluginMailError::Spam,
+        _ => PluginMailError::DeliveryFailed,
+    })?;
+
+    apply_dynamic_recipient(&mut target, recipient).await?;
+
+    message(Msg::new(
+        prepared.reply_to,
+        prepared.name,
+        prepared.subject,
+        prepared.text,
+        target,
+    ))
+    .await
+    .map_err(|_| PluginMailError::DeliveryFailed)
+}
+
+async fn apply_dynamic_recipient(
+    target: &mut crate::db::models::MailTarget,
+    recipient: Option<String>,
+) -> Result<(), PluginMailError> {
+    let Some(recipient) = recipient else {
+        return Ok(());
+    };
+    if !target.allow_dynamic_recipient {
+        return Err(PluginMailError::DynamicRecipientNotAllowed);
+    }
+    let recipient = validate_email_address(recipient)
+        .await
+        .map_err(|_| PluginMailError::InvalidMessage)?;
+    target.recipients = vec![recipient];
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::env;
 
     use sqlx::PgPool;
 
-    use super::{MailRequest, prepare_mail, send_mail};
-    use crate::utils::errors::NurError;
+    use super::{MailRequest, PluginMailError, apply_dynamic_recipient, prepare_mail, send_mail};
+    use crate::{db::models::MailTarget, utils::errors::NurError};
 
     #[tokio::test]
     async fn rejects_invalid_reply_to() {
@@ -167,6 +227,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fixed_target_recipients_remain_unchanged() {
+        let mut target = MailTarget {
+            recipients: vec!["merchant@example.org".into()],
+            ..Default::default()
+        };
+
+        apply_dynamic_recipient(&mut target, None)
+            .await
+            .expect("fixed recipients are valid");
+
+        assert_eq!(target.recipients, ["merchant@example.org"]);
+    }
+
+    #[tokio::test]
+    async fn dynamic_recipient_requires_explicit_target_permission() {
+        let mut target = MailTarget {
+            recipients: vec!["merchant@example.org".into()],
+            ..Default::default()
+        };
+
+        let result =
+            apply_dynamic_recipient(&mut target, Some("customer@example.org".into())).await;
+
+        assert_eq!(result, Err(PluginMailError::DynamicRecipientNotAllowed));
+        assert_eq!(target.recipients, ["merchant@example.org"]);
+    }
+
+    #[tokio::test]
+    async fn dynamic_recipient_exclusively_replaces_fixed_recipients() {
+        let mut target = MailTarget {
+            recipients: vec!["merchant@example.org".into(), "sales@example.org".into()],
+            allow_dynamic_recipient: true,
+            ..Default::default()
+        };
+
+        apply_dynamic_recipient(&mut target, Some(" Customer@Example.ORG ".into()))
+            .await
+            .expect("dynamic recipient is valid");
+
+        assert_eq!(target.recipients, ["Customer@example.org"]);
+    }
+
+    #[tokio::test]
+    async fn dynamic_recipient_rejects_lists_and_header_injection() {
+        for recipient in [
+            "first@example.org,second@example.org",
+            "customer@example.org\r\nBcc: victim@example.org",
+        ] {
+            let mut target = MailTarget {
+                recipients: vec!["merchant@example.org".into()],
+                allow_dynamic_recipient: true,
+                ..Default::default()
+            };
+
+            assert_eq!(
+                apply_dynamic_recipient(&mut target, Some(recipient.into())).await,
+                Err(PluginMailError::InvalidMessage)
+            );
+            assert_eq!(target.recipients, ["merchant@example.org"]);
+        }
+    }
+
+    #[tokio::test]
     #[ignore = "requires PostgreSQL via DATABASE_URL"]
     async fn rejects_unknown_mail_target_without_sending() {
         let pool = PgPool::connect(&env::var("DATABASE_URL").expect("DATABASE_URL is configured"))
@@ -184,6 +307,6 @@ mod tests {
             },
         )
         .await;
-        assert!(matches!(result, Err(NurError::InternalServerError)));
+        assert!(matches!(result, Err(NurError::NotFound)));
     }
 }

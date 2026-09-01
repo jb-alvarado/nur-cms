@@ -321,6 +321,7 @@ use bindings::nur::cms::mail::{self, Message};
 
 mail::send(&Message {
     target: "contact".into(),
+    recipient: None,
     name: "Example form".into(),
     reply_to: "sender@example.org".into(),
     subject: Some("A subject".into()),
@@ -335,12 +336,52 @@ does not reveal SMTP or database details to a plugin route's HTTP client. The su
 message body without contact-form decoration; the selected target's `allow_html` setting still decides whether
 HTML is preserved or stripped.
 
+By default, the fixed `recipients` configured on the selected mail target receive the message. An administrator
+can explicitly enable `allow_dynamic_recipient` for a target. A plugin may then set `recipient` to one address;
+that normalized and validated address replaces the fixed recipients for that message instead of being added to
+them. The host does not accept recipient lists, CC, or BCC fields. Keep this permission disabled for targets that
+do not need customer-specific delivery.
+
+```rust
+mail::send(&Message {
+    target: "orders".into(),
+    recipient: Some("customer@example.org".into()),
+    name: "Order service".into(),
+    reply_to: "shop@example.org".into(),
+    subject: Some("Confirm your order".into()),
+    text: "Please confirm your order using the link in this message.".into(),
+})?;
+```
+
 On a public plugin route, mail is limited independently per plugin route and client IP. The default interval
 is three minutes and can be changed with `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS`; the bounded in-memory
-tracking capacity is configured with `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`. A limited request produces HTTP
-`429` when the plugin propagates the host's `rate-limited` error; mail is never sent while the limit is active.
-Protected plugin routes retain their manifest authorization and are not subject to this public-IP rule. The
-client IP is never exposed to Wasm.
+tracking capacity is configured with `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`. The first mail call in one public
+HTTP request atomically reserves this route/IP window. Up to three mail calls may then run in that same request;
+the fourth returns `rate-limited`. A second request for the same plugin route and IP remains blocked until the
+window expires. Routes and client IPs have independent keys, and protected routes skip the public-IP window but
+retain the same three-call request limit. The client IP is never exposed to Wasm. Multiple SMTP deliveries are
+not atomic: if a later send fails, a previously delivered message cannot be rolled back.
+
+Input failures are returned as stable `bad-request` errors for unknown targets, forbidden dynamic recipients,
+invalid addresses, header-like values, and spam. Request mail limits use `rate-limited`; SMTP, database, timeout,
+and other internal delivery failures use a generic `failed` error without connection or configuration details.
+
+## Public CMS URL
+
+The read-only `nur:cms/configuration` import exposes only the canonical public URL:
+
+```rust
+use bindings::nur::cms::configuration;
+
+let public_url = configuration::public_url()
+    .ok_or_else(|| PluginError::Failed("public CMS URL is not configured".into()))?;
+let confirmation_url = format!("{public_url}/orders/42/confirm");
+```
+
+The host reads `NUR_PUBLIC_URL`, trims whitespace and trailing slashes, and returns `none` when it is absent or
+invalid. HTTPS is required except for HTTP on `localhost` and `127.0.0.1`. The call consumes one normal host-call
+slot. The Wasm process receives no environment variables, so this interface does not expose SMTP credentials,
+database credentials, or other process configuration.
 
 The database and mail imports were added while plugin API version 1 is still under development. Rebuild
 version-1 WebAssembly components against the current WIT package before installing them with this CMS build.

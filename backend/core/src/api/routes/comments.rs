@@ -2,7 +2,7 @@ use axum::{
     Extension, Json,
     extract::{OriginalUri, Path, Query, Request, State},
     http::{
-        StatusCode, Uri,
+        StatusCode,
         header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, REFERRER_POLICY, X_FRAME_OPTIONS},
     },
     middleware::Next,
@@ -30,6 +30,7 @@ use crate::{
     sse::{SSELevel, SSEMessage},
     utils::{
         errors::NurError,
+        public_url::configured_public_url,
         spam_detection::{evaluate_text, validate_email_address},
     },
 };
@@ -73,7 +74,7 @@ async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(),
     let entry_slug: String = sqlx::Row::try_get(&entry, "slug")?;
     let entry_type: String = sqlx::Row::try_get(&entry, "type_slug")?;
 
-    let public_url = public_url();
+    let public_url = configured_public_url();
     let moderation_links = match public_url.as_deref() {
         Some(public_url) => Some(create_moderation_links(pool, comment_id, public_url).await?),
         None => None,
@@ -108,6 +109,7 @@ async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(),
             .clone()
             .unwrap_or_default(),
         allow_html: true,
+        allow_dynamic_recipient: false,
         total_count: None,
     };
 
@@ -176,27 +178,8 @@ fn notification_links(
     links
 }
 
-fn public_url() -> Option<String> {
-    std::env::var("NUR_PUBLIC_URL")
-        .ok()
-        .and_then(|value| normalize_public_url(&value))
-}
-
 fn entry_public_url(public_url: &str, entry_type: &str, entry_slug: &str) -> String {
     format!("{public_url}/{entry_type}/{entry_slug}")
-}
-
-fn normalize_public_url(value: &str) -> Option<String> {
-    let value = value.trim().trim_end_matches('/');
-    let uri: Uri = value.parse().ok()?;
-    let host = uri.host()?;
-    let https = uri.scheme_str() == Some("https");
-    let local_http = uri.scheme_str() == Some("http") && matches!(host, "localhost" | "127.0.0.1");
-
-    (https || local_http)
-        .then_some(())
-        .filter(|_| uri.query().is_none())
-        .map(|_| value.to_string())
 }
 
 fn comment_moderation_token_ttl_days() -> i64 {
@@ -484,7 +467,7 @@ mod tests {
 
     use super::{
         configured_comment_moderation_token_ttl_days, entry_public_url, escape_html,
-        feature_disabled, hash_moderation_token, normalize_public_url, valid_moderation_token_hash,
+        feature_disabled, hash_moderation_token, valid_moderation_token_hash,
     };
 
     #[test]
@@ -511,20 +494,6 @@ mod tests {
             escape_html("<commenter@example.org> & \"name\""),
             "&lt;commenter@example.org&gt; &amp; &quot;name&quot;"
         );
-    }
-
-    #[test]
-    fn accepts_only_safe_public_urls() {
-        assert_eq!(
-            normalize_public_url("https://cms.example.org/"),
-            Some("https://cms.example.org".into())
-        );
-        assert_eq!(
-            normalize_public_url("http://localhost:8777"),
-            Some("http://localhost:8777".into())
-        );
-        assert_eq!(normalize_public_url("http://cms.example.org"), None);
-        assert_eq!(normalize_public_url("https://cms.example.org/?x=1"), None);
     }
 
     #[test]

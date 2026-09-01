@@ -286,6 +286,8 @@ export default {
         recipients: 'Recipients',
         recipientPlaceholder: 'Enter email address',
         allowHtml: 'Allow HTML',
+        allowDynamicRecipient: 'Allow dynamic recipient',
+        allowDynamicRecipientHint: 'Allows trusted plugins to replace the fixed recipients with one validated address.',
     },
     nodeTemplates: {
         title: 'Node Templates',

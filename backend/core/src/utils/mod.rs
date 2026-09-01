@@ -5,4 +5,5 @@ pub mod editor_settings;
 pub mod errors;
 pub mod importer;
 pub mod markdown;
+pub mod public_url;
 pub mod spam_detection;

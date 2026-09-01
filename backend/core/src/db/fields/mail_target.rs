@@ -15,6 +15,7 @@ pub enum MailTargetFields {
     Subject,
     Recipients,
     AllowHtml,
+    AllowDynamicRecipient,
 }
 
 impl StrCompare for MailTargetFields {
@@ -25,6 +26,7 @@ impl StrCompare for MailTargetFields {
             Self::Subject => other == "subject",
             Self::Recipients => other == "recipients",
             Self::AllowHtml => other == "allow_html",
+            Self::AllowDynamicRecipient => other == "allow_dynamic_recipient",
         }
     }
 }
@@ -39,6 +41,7 @@ impl FromStr for MailTargetFields {
             "subject" => Ok(Self::Subject),
             "recipients" => Ok(Self::Recipients),
             "allow_html" => Ok(Self::AllowHtml),
+            "allow_dynamic_recipient" => Ok(Self::AllowDynamicRecipient),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -52,6 +55,7 @@ impl fmt::Display for MailTargetFields {
             Self::Subject => write!(f, "subject"),
             Self::Recipients => write!(f, "recipients"),
             Self::AllowHtml => write!(f, "allow_html"),
+            Self::AllowDynamicRecipient => write!(f, "allow_dynamic_recipient"),
         }
     }
 }

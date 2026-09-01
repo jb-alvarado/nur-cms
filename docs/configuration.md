@@ -27,31 +27,31 @@ not extended by access.
 Plugins are installed separately and must be explicitly enabled. See the [plugin documentation](plugins.md)
 for the package layout, manifest format, migration behavior, and HTTP interface.
 
-| Variable                            | Default           | Description                                                                            |
-| ----------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
-| `NUR_PLUGINS`                       | empty             | Comma-separated IDs of plugins to enable.                                              |
-| `NUR_PLUGIN_DIR`                    | platform defaults | Additional plugin roots separated by the platform path separator.                      |
-| `NUR_PLUGIN_ALLOW_ROOT_ROUTES`      | `0`               | Set to `1` to permit non-reserved routes outside the plugin API namespace.             |
-| `NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS` | `0`               | Set to `1` to trust and execute enabled plugins' browser-side admin components.        |
-| `NUR_PLUGIN_FUEL`                   | `1000000`         | Wasmtime fuel available to each request.                                               |
-| `NUR_PLUGIN_METRICS`                | `false`           | Log per-request plugin initialization and handler timings plus fuel consumption.       |
-| `NUR_PLUGIN_MEMORY_LIMIT`           | `67108864`        | Maximum linear memory per plugin request in bytes.                                     |
-| `NUR_PLUGIN_MODULE_SIZE_LIMIT`      | `67108864`        | Maximum size of a plugin WebAssembly component in bytes.                               |
-| `NUR_PLUGIN_COMPILATION_CACHE`      | `1`               | Set to `0` to disable the persistent Wasmtime compilation cache.                       |
-| `NUR_PLUGIN_COMPILATION_CACHE_DIR`  | platform default  | Absolute directory used for compiled Wasmtime component artifacts.                     |
-| `NUR_PLUGIN_COMPILATION_CACHE_SIZE` | `536870912`       | Soft disk-size limit for compiled Wasmtime artifacts in bytes.                         |
-| `NUR_PLUGIN_TIMEOUT_MS`             | `5000`            | Wall-clock execution limit per plugin request.                                         |
-| `NUR_PLUGIN_MAX_CONCURRENCY`        | `8`               | Maximum number of concurrent plugin executions.                                        |
-| `NUR_PLUGIN_MAX_HOST_CALLS`         | `16`              | Maximum number of CMS host-interface calls during one plugin request.                  |
-| `NUR_PLUGIN_REQUEST_BODY_LIMIT`     | `1048576`         | Maximum request body passed to a plugin in bytes.                                      |
-| `NUR_PLUGIN_RESPONSE_BODY_LIMIT`    | `4194304`         | Maximum HTTP response or individual CMS host response accepted from a plugin in bytes. |
-| `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS` | `180`       | Minimum interval between public mail sends for one plugin route and client IP.          |
-| `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS` | `10000`          | Maximum number of active public plugin-mail rate-limit keys retained in memory.         |
-| `NUR_PLUGIN_CACHE_MEMORY_LIMIT`     | `67108864`        | Shared approximate memory budget for all enabled plugin route caches in bytes.         |
+| Variable                                  | Default           | Description                                                                            |
+| ----------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
+| `NUR_PLUGINS`                             | empty             | Comma-separated IDs of plugins to enable.                                              |
+| `NUR_PLUGIN_DIR`                          | platform defaults | Additional plugin roots separated by the platform path separator.                      |
+| `NUR_PLUGIN_ALLOW_ROOT_ROUTES`            | `0`               | Set to `1` to permit non-reserved routes outside the plugin API namespace.             |
+| `NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS`       | `0`               | Set to `1` to trust and execute enabled plugins' browser-side admin components.        |
+| `NUR_PLUGIN_FUEL`                         | `1000000`         | Wasmtime fuel available to each request.                                               |
+| `NUR_PLUGIN_METRICS`                      | `false`           | Log per-request plugin initialization and handler timings plus fuel consumption.       |
+| `NUR_PLUGIN_MEMORY_LIMIT`                 | `67108864`        | Maximum linear memory per plugin request in bytes.                                     |
+| `NUR_PLUGIN_MODULE_SIZE_LIMIT`            | `67108864`        | Maximum size of a plugin WebAssembly component in bytes.                               |
+| `NUR_PLUGIN_COMPILATION_CACHE`            | `1`               | Set to `0` to disable the persistent Wasmtime compilation cache.                       |
+| `NUR_PLUGIN_COMPILATION_CACHE_DIR`        | platform default  | Absolute directory used for compiled Wasmtime component artifacts.                     |
+| `NUR_PLUGIN_COMPILATION_CACHE_SIZE`       | `536870912`       | Soft disk-size limit for compiled Wasmtime artifacts in bytes.                         |
+| `NUR_PLUGIN_TIMEOUT_MS`                   | `5000`            | Wall-clock execution limit per plugin request.                                         |
+| `NUR_PLUGIN_MAX_CONCURRENCY`              | `8`               | Maximum number of concurrent plugin executions.                                        |
+| `NUR_PLUGIN_MAX_HOST_CALLS`               | `16`              | Maximum number of CMS host-interface calls during one plugin request.                  |
+| `NUR_PLUGIN_REQUEST_BODY_LIMIT`           | `1048576`         | Maximum request body passed to a plugin in bytes.                                      |
+| `NUR_PLUGIN_RESPONSE_BODY_LIMIT`          | `4194304`         | Maximum HTTP response or individual CMS host response accepted from a plugin in bytes. |
+| `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS` | `180`             | Minimum interval between public mail requests for one plugin route and client IP.      |
+| `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`      | `10000`           | Maximum number of active public plugin-mail rate-limit keys retained in memory.        |
+| `NUR_PLUGIN_CACHE_MEMORY_LIMIT`           | `67108864`        | Shared approximate memory budget for all enabled plugin route caches in bytes.         |
 
-## Comment moderation
+## Public URL and comment moderation
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `NUR_PUBLIC_URL` | unset | Canonical public URL of this CMS instance, used for comment-notification links. Use HTTPS in production. |
-| `NUR_COMMENT_MODERATION_TOKEN_TTL_DAYS` | `14` | Lifetime of one-time comment approval and rejection links, from 1 to 30 days. |
+| Variable                                | Default | Description                                                                                                                                                                          |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NUR_PUBLIC_URL`                        | unset   | Canonical public URL exposed to plugins and used for comment-notification links. A trailing slash is removed. HTTPS is required except for local HTTP on `localhost` or `127.0.0.1`. |
+| `NUR_COMMENT_MODERATION_TOKEN_TTL_DAYS` | `14`    | Lifetime of one-time comment approval and rejection links, from 1 to 30 days.                                                                                                        |

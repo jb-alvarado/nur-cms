@@ -410,6 +410,10 @@ mod tests {
     fn content_entry_insert_allows_server_managed_audit_fields() {
         assert!(table_field_allowed(&Table::Configuration, "mail_password"));
         assert!(table_field_allowed(&Table::Configuration, "mail_smtp"));
+        assert!(table_field_allowed(
+            &Table::MailTargets,
+            "allow_dynamic_recipient"
+        ));
         assert!(table_field_allowed(&Table::ContentEntries, "type_id"));
         assert!(table_field_allowed(&Table::ContentEntries, "created_by"));
         assert!(table_field_allowed(&Table::ContentEntries, "updated_by"));

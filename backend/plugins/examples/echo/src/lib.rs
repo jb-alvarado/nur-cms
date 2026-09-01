@@ -8,6 +8,7 @@ mod bindings {
 use bindings::{
     exports::nur::cms::http_handler::{Guest, PluginError, Request, Response},
     nur::cms::{
+        configuration,
         database::{self, Statement, Value},
         mail::{self, Message},
         types::Header,
@@ -30,14 +31,35 @@ impl Guest for EchoPlugin {
             "database" => database_example(request.body)?,
             "rollback" => rollback_example()?,
             "mail" => {
+                let customer = String::from_utf8(request.body)
+                    .map_err(|_| PluginError::BadRequest("expected a customer email address".into()))?;
+                let customer = customer.trim();
+                if customer.is_empty() {
+                    return Err(PluginError::BadRequest(
+                        "expected a customer email address".into(),
+                    ));
+                }
+                let public_url = configuration::public_url().ok_or_else(|| {
+                    PluginError::Failed("public CMS URL is not configured".into())
+                })?;
+                let confirmation_link = format!("{public_url}/orders/example/confirm");
                 mail::send(&Message {
                     target: "contact".into(),
+                    recipient: None,
                     name: "Echo plugin".into(),
                     reply_to: "echo@example.org".into(),
                     subject: Some("Message from the echo plugin".into()),
-                    text: "This is a sufficiently long example message from the plugin mail host. It contains normal words and a complete sentence.".into(),
+                    text: format!("A new example order is ready. The confirmation link is {confirmation_link}. This message demonstrates delivery to the fixed merchant recipients."),
                 })?;
-                b"mail accepted".to_vec()
+                mail::send(&Message {
+                    target: "contact".into(),
+                    recipient: Some(customer.into()),
+                    name: "Echo plugin".into(),
+                    reply_to: "echo@example.org".into(),
+                    subject: Some("Confirm your example order".into()),
+                    text: format!("Please confirm your example order using {confirmation_link}. This second message is delivered only to the dynamic customer recipient."),
+                })?;
+                format!("merchant and customer mail accepted; link: {confirmation_link}").into_bytes()
             }
             "root" => b"Hello from a nur-cms root plugin route".to_vec(),
             _ => return Err(PluginError::NotFound),

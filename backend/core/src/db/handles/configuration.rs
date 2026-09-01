@@ -197,19 +197,21 @@ pub async fn update_cms_configuration(
 }
 
 pub async fn select_mail_target(pool: &PgPool, name: &str) -> Result<MailTarget, NurError> {
-    const QUERY: &str =
-        "select id, name, subject, recipients, allow_html FROM mail_targets WHERE name = $1;";
+    const QUERY: &str = "select id, name, subject, recipients, allow_html, allow_dynamic_recipient \
+        FROM mail_targets WHERE name = $1;";
 
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(QUERY));
 
-    let data: MailTarget = sqlx::query_as(QUERY).bind(name).fetch_one(pool).await?;
-
-    Ok(data)
+    sqlx::query_as(QUERY)
+        .bind(name)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(NurError::NotFound)
 }
 
 pub async fn select_mail_targets(pool: &PgPool) -> Result<RespondObj<MailTarget>, NurError> {
-    const QUERY: &str = "select id, name, subject, recipients, allow_html FROM mail_targets;";
+    const QUERY: &str = "select id, name, subject, recipients, allow_html, allow_dynamic_recipient FROM mail_targets;";
 
     #[cfg(debug_assertions)]
     debug!("{}", format_sql(QUERY));

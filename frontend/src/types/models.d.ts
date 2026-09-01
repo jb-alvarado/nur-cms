@@ -39,7 +39,7 @@ export type Entry = { id: number, title: string, type: string, slug: string, };
 
 export type Locale = { id?: number, code?: string, name?: string, tsv_dict?: string, };
 
-export type MailTarget = { id: number, name: string, subject: string | null, recipients: Array<string>, allow_html: boolean, };
+export type MailTarget = { id: number, name: string, subject: string | null, recipients: Array<string>, allow_html: boolean, allow_dynamic_recipient: boolean, };
 
 export type Media = { id?: number, alt?: string | null, filename?: string, path?: string, type?: string | null, width?: number | null, height?: number | null, size?: number | null, uploaded_by?: number | null, created_at?: string | null, };
 

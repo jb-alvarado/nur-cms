@@ -134,7 +134,7 @@ Available fields:
 | Comments       | `id,entry_id,parent_id,user_id,author_name,author_email,text,status,created_at,updated_at,entry` |
 | Media          | `id,alt,filename,path,type,width,height,size,uploaded_by,created_at,media_variants`              |
 | Node templates | `id,name,data,schema`                                                                            |
-| Mail targets   | `id,name,subject,recipients,allow_html`                                                          |
+| Mail targets   | `id,name,subject,recipients,allow_html,allow_dynamic_recipient`                                  |
 
 ## Authentication and token rotation
 
@@ -779,9 +779,14 @@ validates the email address and checks the text for spam. `name` is limited to
     "name": "contact",
     "subject": "Contact request",
     "recipients": ["team@example.org"],
-    "allow_html": false
+    "allow_html": false,
+    "allow_dynamic_recipient": false
 }
 ```
+
+`allow_dynamic_recipient` is disabled by default. When enabled, a trusted Wasm plugin may replace the
+fixed recipients with exactly one validated address for an individual message. The public contact endpoint
+continues to deliver only to the fixed recipients.
 
 ## Plugins
 
