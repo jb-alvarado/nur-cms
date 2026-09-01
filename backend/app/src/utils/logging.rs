@@ -85,6 +85,7 @@ pub async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-")
         .to_string();
+    let r = redact_moderation_token_value(&r);
 
     let a = req
         .headers()
@@ -93,6 +94,7 @@ pub async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
         .unwrap_or("-")
         .to_string();
 
+    let uri = redact_moderation_token(&uri);
     let res = next.run(req).await;
 
     let status = res.status().as_u16();
@@ -117,4 +119,48 @@ pub async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     }
 
     res
+}
+
+fn redact_moderation_token(uri: &axum::http::Uri) -> String {
+    const PREFIX: &str = "/api/comments/moderate/";
+
+    if let Some(token) = uri.path().strip_prefix(PREFIX)
+        && !token.is_empty()
+        && !token.contains('/')
+    {
+        return format!("{PREFIX}[redacted]");
+    }
+    uri.to_string()
+}
+
+fn redact_moderation_token_value(value: &str) -> String {
+    if value.contains("/api/comments/moderate/") {
+        "[redacted moderation link]".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::Uri;
+
+    use super::{redact_moderation_token, redact_moderation_token_value};
+
+    #[test]
+    fn redacts_moderation_tokens_from_request_data() {
+        let uri: Uri = "/api/comments/moderate/secret-token?ignored=true"
+            .parse()
+            .expect("valid URI");
+        assert_eq!(
+            redact_moderation_token(&uri),
+            "/api/comments/moderate/[redacted]"
+        );
+        assert_eq!(
+            redact_moderation_token_value(
+                "https://cms.example.org/api/comments/moderate/secret-token"
+            ),
+            "[redacted moderation link]"
+        );
+    }
 }

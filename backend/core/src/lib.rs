@@ -216,6 +216,10 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
 
     let comment_routes = Router::new()
         .route("/", get(comments_select).post(comment_insert))
+        .route(
+            "/moderate/{token}",
+            get(comment_moderation_confirm).post(comment_moderation_apply),
+        )
         .route("/{id}", delete(comment_delete).put(comment_update))
         .layer(axum_middleware::from_fn(comments_feature_guard));
 

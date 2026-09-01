@@ -48,3 +48,10 @@ for the package layout, manifest format, migration behavior, and HTTP interface.
 | `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS` | `180`       | Minimum interval between public mail sends for one plugin route and client IP.          |
 | `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS` | `10000`          | Maximum number of active public plugin-mail rate-limit keys retained in memory.         |
 | `NUR_PLUGIN_CACHE_MEMORY_LIMIT`     | `67108864`        | Shared approximate memory budget for all enabled plugin route caches in bytes.         |
+
+## Comment moderation
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NUR_PUBLIC_URL` | unset | Canonical public URL of this CMS instance, used for comment-notification links. Use HTTPS in production. |
+| `NUR_COMMENT_MODERATION_TOKEN_TTL_DAYS` | `14` | Lifetime of one-time comment approval and rejection links, from 1 to 30 days. |

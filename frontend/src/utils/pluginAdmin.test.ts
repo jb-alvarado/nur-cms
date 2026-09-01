@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import {
-    createSubscription,
-    pluginAdminLocation,
-    pluginViewKey,
-    resolvePluginAdminNavigation,
-} from './pluginAdmin'
+import { createSubscription, pluginAdminLocation, pluginViewKey, resolvePluginAdminNavigation } from './pluginAdmin'
 
 describe('plugin admin navigation', () => {
     it('resolves relative routes, query-only navigation, and hashes', () => {
@@ -22,7 +17,9 @@ describe('plugin admin navigation', () => {
 
     it('rejects external and foreign admin paths', () => {
         expect(() => resolvePluginAdminNavigation('example', '/admin/plugins/example', 'https://example.org')).toThrow()
-        expect(() => resolvePluginAdminNavigation('example', '/admin/plugins/example', '/admin/plugins/other')).toThrow()
+        expect(() =>
+            resolvePluginAdminNavigation('example', '/admin/plugins/example', '/admin/plugins/other'),
+        ).toThrow()
         expect(() => resolvePluginAdminNavigation('example', '/admin/plugins/example', '../../configuration')).toThrow()
     })
 

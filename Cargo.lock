@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "nur-cms"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "axum",
  "build-print",
@@ -2629,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "nur_core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "argon2",
  "async-stream",
@@ -2657,6 +2657,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2 0.11.0",
  "sqlformat",
  "sqlx",
  "strum",
@@ -2670,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "nur_plugins"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "axum",
  "colored",
