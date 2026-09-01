@@ -135,7 +135,7 @@ function setLanguage(code: string) {
             <div
                 v-for="plugin in store.plugins.filter((item) => pluginAllowsRole(item, auth.role))"
                 :key="plugin.id"
-                class="mt-2"
+                class="join join-vertical mt-2"
             >
                 <RouterLink
                     v-for="item in (plugin.admin?.menu ?? []).filter(
