@@ -286,6 +286,7 @@ mod tests {
             manifest: Manifest {
                 plugin: PluginManifest {
                     id: plugin_id.into(),
+                    name: None,
                     version: "0.1.0".into(),
                     api_version: 1,
                     cms_version: ">=0.16, <0.17".into(),

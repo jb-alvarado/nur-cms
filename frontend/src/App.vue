@@ -102,7 +102,7 @@ useHead({
                 </main>
             </div>
 
-            <div class="drawer-side z-40">
+            <div class="drawer-side z-40 md:overflow-visible!">
                 <label for="main-navigation" :aria-label="t('common.closeNavigation')" class="drawer-overlay"></label>
                 <MenuSide />
             </div>

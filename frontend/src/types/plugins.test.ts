@@ -30,6 +30,7 @@ const menu: PluginAdminMenuItem[] = [
 
 const plugin: PluginMetadata = {
     id: 'example',
+    name: 'Example',
     version: '1.0.0',
     admin: {
         entry: 'admin.js',

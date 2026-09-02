@@ -74,6 +74,7 @@ impl Error {
 #[derive(Clone, Debug, Serialize)]
 pub struct PluginMetadata {
     pub id: String,
+    pub name: String,
     pub version: String,
     pub admin: Option<AdminManifest>,
 }
@@ -151,6 +152,12 @@ impl PluginManager {
             info!(plugin = %plugin.manifest.plugin.id, "loaded plugin");
             metadata.push(PluginMetadata {
                 id: plugin.manifest.plugin.id.clone(),
+                name: plugin
+                    .manifest
+                    .plugin
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| plugin.manifest.plugin.id.clone()),
                 version: plugin.manifest.plugin.version.clone(),
                 admin: plugin.manifest.admin.clone(),
             });

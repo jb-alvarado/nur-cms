@@ -16,6 +16,7 @@ export type PluginAdmin = {
 
 export type PluginMetadata = {
     id: string
+    name: string
     version: string
     admin?: PluginAdmin | null
 }

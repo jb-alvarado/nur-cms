@@ -29,6 +29,7 @@ pub struct Manifest {
 #[serde(deny_unknown_fields)]
 pub struct PluginManifest {
     pub id: String,
+    pub name: Option<String>,
     pub version: String,
     pub api_version: u32,
     pub cms_version: String,
@@ -410,6 +411,16 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             plugin.id
         )));
     }
+    if plugin
+        .name
+        .as_ref()
+        .is_some_and(|name| !valid_plugin_name(name))
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{}' has an invalid display name",
+            plugin.id
+        )));
+    }
     Version::parse(&plugin.version).map_err(|error| {
         Error::Manifest(format!(
             "plugin '{}' has invalid version: {error}",
@@ -617,6 +628,12 @@ fn valid_plugin_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
+fn valid_plugin_name(name: &str) -> bool {
+    (1..=80).contains(&name.chars().count())
+        && name.trim() == name
+        && !name.chars().any(char::is_control)
+}
+
 fn valid_role(role: &str) -> bool {
     (1..=40).contains(&role.len())
         && role
@@ -756,8 +773,8 @@ mod tests {
     use super::{
         AdminManifest, AdminMenuItem, CacheManifest, MailManifest, Manifest, RouteManifest,
         contained_path, schema_name, valid_admin_entry, valid_admin_menu_item, valid_admin_style,
-        valid_custom_element_name, valid_plugin_id, valid_route_id, validate_asset_tree,
-        validate_mail_permissions, validate_manifest,
+        valid_custom_element_name, valid_plugin_id, valid_plugin_name, valid_route_id,
+        validate_asset_tree, validate_mail_permissions, validate_manifest,
     };
 
     #[test]
@@ -920,6 +937,14 @@ mod tests {
         assert!(valid_plugin_id("my-plugin"));
         assert!(!valid_plugin_id("my_plugin"));
         assert_eq!(schema_name("my-plugin"), "nur_plugin_my_plugin");
+    }
+
+    #[test]
+    fn plugin_display_names_are_bounded_and_safe_for_the_menu() {
+        assert!(valid_plugin_name("Community Site"));
+        assert!(!valid_plugin_name(" Community Site"));
+        assert!(!valid_plugin_name("line\nbreak"));
+        assert!(!valid_plugin_name(&"x".repeat(81)));
     }
 
     #[test]

@@ -33,6 +33,7 @@ search `/usr/share/nur-cms/plugins` and `/var/lib/nur-cms/plugins`. Extra roots 
 ```toml
 [plugin]
 id = "example"
+name = "Example"
 version = "0.1.0"
 api_version = 1
 cms_version = ">=0.16, <0.17"
@@ -91,6 +92,8 @@ path = "/admin/plugins/example/statistics"
 icon = "bi-bar-chart-line"
 access = "admin"
 ```
+
+`name` is an optional, human-readable display name for the admin menu. If it is omitted, the plugin ID is used.
 
 `access` is either `public` or a comma-separated list of roles. Multiple roles use OR semantics:
 `admin,author` permits admins and authors. `public` cannot be combined with another role. Public routes
