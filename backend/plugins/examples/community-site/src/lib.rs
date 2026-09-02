@@ -9,6 +9,7 @@ use bindings::{
     exports::nur::cms::http_handler::{Guest, PluginError, Request, Response},
     nur::cms::{content, types::Header},
 };
+use maud::{DOCTYPE, Markup, PreEscaped, html};
 use serde_json::Value;
 
 struct CommunitySite;
@@ -37,7 +38,7 @@ fn render_entry(
     content_type: &str,
     slug: &str,
     output: content::OutputType,
-) -> Result<String, PluginError> {
+) -> Result<Markup, PluginError> {
     let query = format!("type={content_type}&slug={slug}&fields=title,node.text&limit=1");
     let entry = entries(&query, output)?.into_iter().next();
 
@@ -49,61 +50,76 @@ fn render_entry(
     let content = entry
         .as_ref()
         .map(entry_html)
-        .filter(|html| !html.is_empty())
-        .unwrap_or_else(|| "<p>The requested published CMS entry does not exist.</p>".into());
+        .filter(|html| !html.is_empty());
 
-    Ok(format!(
-        "<article><h1>{}</h1>{}</article>",
-        escape(title),
-        without_leading_h1(&content)
-    ))
+    Ok(html! {
+        article {
+            h1 { (title) }
+            @if let Some(content) = content {
+                (PreEscaped(without_leading_h1(&content)))
+            } @else {
+                p { "The requested published CMS entry does not exist." }
+            }
+        }
+    })
 }
 
-fn render_events() -> Result<String, PluginError> {
+fn render_events() -> Result<Markup, PluginError> {
     let events = entries(
         "type=event&fields=title,slug,meta,node.text&ordering=start_time+ASC&limit=24",
         content::OutputType::Html,
     )?;
     if events.is_empty() {
-        return Ok(
-            "<article><h1>Events</h1><p>No events are currently scheduled.</p></article>".into(),
-        );
+        return Ok(html! {
+            article {
+                h1 { "Events" }
+                p { "No events are currently scheduled." }
+            }
+        });
     }
 
-    let items = events
-        .iter()
-        .map(|event| {
-            let title = event
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or("Untitled event");
-            let start_time = event
-                .get("meta")
-                .and_then(|meta| meta.get("start_time"))
-                .and_then(Value::as_str)
-                .map(|time| format!("<time>{}</time>", escape(time)))
-                .unwrap_or_default();
-            let slug = event
-                .get("slug")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let link = if slug.is_empty() {
-                escape(title)
-            } else {
-                format!(
-                    "<a href=\"/events/{}\">{}</a>",
-                    escape_attribute(slug),
-                    escape(title)
-                )
-            };
-            let summary = without_leading_h1(&entry_html(event));
-            format!("<li><h2>{link}</h2>{start_time}{summary}</li>")
-        })
-        .collect::<String>();
+    Ok(html! {
+        article {
+            h1 { "Events" }
+            ul class="events" {
+                @for event in &events {
+                    (render_event_list_item(event))
+                }
+            }
+        }
+    })
+}
 
-    Ok(format!(
-        "<article><h1>Events</h1><ul class=\"events\">{items}</ul></article>"
-    ))
+fn render_event_list_item(event: &Value) -> Markup {
+    let title = event
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled event");
+    let start_time = event
+        .get("meta")
+        .and_then(|meta| meta.get("start_time"))
+        .and_then(Value::as_str);
+    let slug = event
+        .get("slug")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let summary = without_leading_h1(&entry_html(event));
+
+    html! {
+        li {
+            h2 {
+                @if slug.is_empty() {
+                    (title)
+                } @else {
+                    a href=(format!("/events/{slug}")) { (title) }
+                }
+            }
+            @if let Some(start_time) = start_time {
+                time { (start_time) }
+            }
+            (PreEscaped(summary))
+        }
+    }
 }
 
 fn path_param<'a>(request: &'a Request, name: &str) -> Result<&'a str, PluginError> {
@@ -115,7 +131,7 @@ fn path_param<'a>(request: &'a Request, name: &str) -> Result<&'a str, PluginErr
         .ok_or(PluginError::NotFound)
 }
 
-fn render_event(slug: &str) -> Result<String, PluginError> {
+fn render_event(slug: &str) -> Result<Markup, PluginError> {
     if !valid_slug(slug) {
         return Err(PluginError::NotFound);
     }
@@ -324,24 +340,29 @@ fn valid_slug(slug: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
-
-fn escape_attribute(value: &str) -> String {
-    escape(value)
-}
-
-fn page(title: &str, content: String) -> String {
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><link rel=\"stylesheet\" href=\"/plugins/community-site/assets/site.css\"></head><body><header><a href=\"/\">Community</a><nav><a href=\"/events\">Events</a><a href=\"/privacy\">Privacy</a></nav></header><main>{content}</main></body></html>",
-        escape(title),
-    )
+fn page(title: &str, content: Markup) -> String {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { (title) }
+                link rel="stylesheet" href="/plugins/community-site/assets/site.css";
+            }
+            body {
+                header {
+                    a href="/" { "Community" }
+                    nav {
+                        a href="/events" { "Events" }
+                        a href="/privacy" { "Privacy" }
+                    }
+                }
+                main { (content) }
+            }
+        }
+    }
+    .into_string()
 }
 
 fn html_response(body: String) -> Response {
@@ -359,7 +380,10 @@ bindings::export!(CommunitySite with_types_in bindings);
 
 #[cfg(test)]
 mod tests {
-    use super::restore_allowed_raw_html;
+    use maud::html;
+
+    use super::{page, render_event_list_item, restore_allowed_raw_html};
+    use serde_json::json;
 
     #[test]
     fn restores_the_allowed_demo_html_only() {
@@ -387,5 +411,30 @@ mod tests {
         );
         assert!(restored.contains("Here is <i>inline</i> HTML."));
         assert!(restored.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    }
+
+    #[test]
+    fn page_escapes_text_and_keeps_structured_markup() {
+        let rendered = page("Unsafe <title>", html! { p { "Safe content" } });
+
+        assert!(rendered.starts_with("<!DOCTYPE html>"));
+        assert!(rendered.contains("<title>Unsafe &lt;title&gt;</title>"));
+        assert!(rendered.contains("<main><p>Safe content</p></main>"));
+    }
+
+    #[test]
+    fn event_markup_escapes_database_values_but_keeps_rendered_node_html() {
+        let rendered = render_event_list_item(&json!({
+            "title": "Meeting <script>",
+            "slug": "meeting\" onclick=\"alert(1)",
+            "meta": { "start_time": "2026-09-02 <unsafe>" },
+            "nodes": [{ "html": "<p>Rendered summary</p>" }]
+        }))
+        .into_string();
+
+        assert!(rendered.contains("Meeting &lt;script&gt;"));
+        assert!(rendered.contains("&quot; onclick=&quot;"));
+        assert!(rendered.contains("2026-09-02 &lt;unsafe&gt;"));
+        assert!(rendered.contains("<p>Rendered summary</p>"));
     }
 }
