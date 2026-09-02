@@ -34,6 +34,11 @@ use runtime::{PluginComponent, Runtime, bindings};
 pub const API_VERSION: u32 = 1;
 const FORWARDED_REQUEST_HEADERS: &[&str] =
     &["accept", "accept-language", "content-type", "user-agent"];
+const MAX_RESPONSE_HEADERS: usize = 64;
+const MAX_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
+const MAX_RESPONSE_HEADER_VALUE_BYTES: usize = 8 * 1024;
+const MAX_ROUTE_PATH_BYTES: usize = 2 * 1024;
+const MAX_ROUTE_PARAMS: usize = 16;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -67,7 +72,11 @@ pub enum Error {
 
 impl Error {
     fn wasmtime(error: wasmtime::Error) -> Self {
-        Self::Plugin(error.to_string())
+        if error.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::Interrupt) {
+            Self::Timeout
+        } else {
+            Self::Plugin(error.to_string())
+        }
     }
 }
 
@@ -111,6 +120,7 @@ struct RouteState {
     request_body_limit: usize,
     response_body_limit: usize,
     cache: Option<RouteCache>,
+    plugin_cache: Option<RouteCache>,
 }
 
 #[derive(Clone)]
@@ -220,6 +230,7 @@ impl PluginManager {
                         .cache_enabled(plugin.cache.is_some())?
                         .then(|| plugin.cache.clone())
                         .flatten(),
+                    plugin_cache: plugin.cache.clone(),
                 });
                 let route_router = Router::new()
                     .route(&route.path, on(method, dispatch))
@@ -345,13 +356,18 @@ async fn dispatch_inner(
     client_ip: std::net::IpAddr,
     request: Request,
 ) -> Result<Response, Error> {
-    let method = request.method().to_string();
+    let request_method = request.method().clone();
+    let method = request_method.to_string();
     let uri = request.uri().clone();
     let headers = request_headers(request.headers());
+    let body = to_bytes(request.into_body(), state.request_body_limit)
+        .await
+        .map_err(|error| Error::Plugin(error.to_string()))?;
+    validate_cached_request_body(state.cache.is_some(), &body)?;
     let cache_key = state.cache.as_ref().map(|cache| {
         cache.key(response_cache_key(
             &state.route_id,
-            request.method(),
+            &request_method,
             &uri,
             &headers,
         ))
@@ -364,13 +380,10 @@ async fn dispatch_inner(
         }
         cache.responses.invalidate(key);
     }
-    let body = to_bytes(request.into_body(), state.request_body_limit)
-        .await
-        .map_err(|error| Error::Plugin(error.to_string()))?;
     let identity = request_identity(state.roles.is_empty(), user, roles);
     let plugin_request = bindings::nur::cms::types::Request {
         route_id: state.route_id.clone(),
-        method,
+        method: method.clone(),
         path: uri.path().into(),
         path_params,
         query: uri.query().map(ToOwned::to_owned),
@@ -381,17 +394,47 @@ async fn dispatch_inner(
     let response = state
         .plugin
         .call(plugin_request, state.roles.is_empty(), client_ip)
-        .await?;
-    if response.status == StatusCode::OK.as_u16()
-        && response.body.len() <= state.response_body_limit
-        && let (Some(cache), Some(key)) = (&state.cache, cache_key)
+        .await;
+    if is_plugin_write_method(&method)
+        && let Some(cache) = &state.plugin_cache
     {
-        cache.responses.insert(
-            key,
-            CachedResponse::from_plugin_response(&response, cache.ttl),
-        );
+        // Database host calls commit independently. Invalidate even when the handler later
+        // returns an error or traps, because it may already have changed plugin-local state.
+        cache.invalidate();
     }
-    build_response(response, state.response_body_limit)
+    let response = response?;
+    let cached_response = if response.status == StatusCode::OK.as_u16()
+        && response.body.len() <= state.response_body_limit
+    {
+        state.cache.as_ref().zip(cache_key).map(|(cache, key)| {
+            (
+                cache,
+                key,
+                CachedResponse::from_plugin_response(&response, cache.ttl),
+            )
+        })
+    } else {
+        None
+    };
+    let response = build_response(response, state.response_body_limit)?;
+    if let Some((cache, key, cached)) = cached_response {
+        cache.responses.insert(key, cached);
+    }
+    Ok(response)
+}
+
+fn is_plugin_write_method(method: &str) -> bool {
+    matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
+}
+
+fn validate_cached_request_body(cache_enabled: bool, body: &[u8]) -> Result<(), Error> {
+    if cache_enabled && !body.is_empty() {
+        Err(Error::PluginBadRequest(
+            "cached GET and HEAD routes do not accept request bodies".into(),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn plugin_path_params(
@@ -547,8 +590,24 @@ fn build_response(
     }
     let status = StatusCode::from_u16(response.status)
         .map_err(|_| Error::Plugin("plugin returned an invalid status".into()))?;
+    if response.headers.len() > MAX_RESPONSE_HEADERS {
+        return Err(Error::Plugin("plugin returned too many headers".into()));
+    }
     let mut builder = Response::builder().status(status);
-    for header in response.headers.into_iter().take(64) {
+    let mut header_bytes = 0usize;
+    for header in response.headers {
+        if header.value.len() > MAX_RESPONSE_HEADER_VALUE_BYTES {
+            return Err(Error::Plugin(
+                "plugin returned an oversized header value".into(),
+            ));
+        }
+        header_bytes = header_bytes
+            .checked_add(header.name.len())
+            .and_then(|size| size.checked_add(header.value.len()))
+            .ok_or_else(|| Error::Plugin("plugin response headers exceed limit".into()))?;
+        if header_bytes > MAX_RESPONSE_HEADER_BYTES {
+            return Err(Error::Plugin("plugin response headers exceed limit".into()));
+        }
         let name = HeaderName::try_from(header.name)
             .map_err(|_| Error::Plugin("plugin returned an invalid header name".into()))?;
         if forbidden_response_header(&name) {
@@ -625,29 +684,53 @@ fn validate_route(plugin_id: &str, route: &RouteManifest, allow_root: bool) -> R
 }
 
 fn route_shape(path: &str) -> Result<String, Error> {
-    path.split('/')
-        .map(|segment| {
-            if segment.starts_with('{') || segment.ends_with('}') {
-                if segment.len() < 3
-                    || !segment.starts_with('{')
-                    || !segment.ends_with('}')
-                    || segment[1..segment.len() - 1].contains(['{', '}'])
-                {
-                    return Err(Error::Manifest(format!(
-                        "invalid plugin route parameter in '{path}'"
-                    )));
-                }
-                Ok("{}")
-            } else if segment.contains(['{', '}']) {
-                Err(Error::Manifest(format!(
+    if path.len() > MAX_ROUTE_PATH_BYTES
+        || path.chars().any(char::is_control)
+        || path.contains(['?', '#'])
+    {
+        return Err(Error::Manifest(
+            "plugin route path is invalid or too long".into(),
+        ));
+    }
+    let mut params = HashSet::new();
+    let mut shape = Vec::new();
+    for segment in path.split('/') {
+        if segment.starts_with('{') || segment.ends_with('}') {
+            if segment.len() < 3
+                || !segment.starts_with('{')
+                || !segment.ends_with('}')
+                || segment[1..segment.len() - 1].contains(['{', '}'])
+            {
+                return Err(Error::Manifest(format!(
                     "invalid plugin route parameter in '{path}'"
-                )))
-            } else {
-                Ok(segment)
+                )));
             }
+            let name = &segment[1..segment.len() - 1];
+            if !valid_route_param(name) || !params.insert(name) || params.len() > MAX_ROUTE_PARAMS {
+                return Err(Error::Manifest(format!(
+                    "invalid or duplicate plugin route parameter in '{path}'"
+                )));
+            }
+            shape.push("{}");
+        } else {
+            if segment.contains(['{', '}']) || segment.starts_with(':') || segment.starts_with('*')
+            {
+                return Err(Error::Manifest(format!(
+                    "invalid plugin route path '{path}'"
+                )));
+            }
+            shape.push(segment);
+        }
+    }
+    Ok(shape.join("/"))
+}
+
+fn valid_route_param(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+        && name.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(|segments| segments.join("/"))
 }
 
 fn method_filter(method: &str) -> Result<MethodFilter, Error> {
@@ -699,9 +782,10 @@ mod tests {
     use nur_core::db::models::AuthUserMeta;
 
     use super::{
-        CachedResponse, PluginCacheInvalidator, RouteManifest, cache_entry_weight, cache_weigher,
-        plugin_cache, plugin_path_params, request_identity, response_cache_key, route_shape,
-        validate_route, visible_admin,
+        CachedResponse, Error, PluginCacheInvalidator, RouteManifest, bindings, build_response,
+        cache_entry_weight, cache_weigher, is_plugin_write_method, plugin_cache,
+        plugin_path_params, request_identity, response_cache_key, route_shape,
+        validate_cached_request_body, validate_route, visible_admin,
     };
     use crate::manifest::{AdminManifest, AdminMenuItem, CacheManifest};
 
@@ -733,6 +817,11 @@ mod tests {
         assert_eq!(route_shape("/items/{id}").unwrap(), "/items/{}");
         assert_eq!(route_shape("/items/{slug}").unwrap(), "/items/{}");
         assert!(route_shape("/items/{broken").is_err());
+        assert!(route_shape("/items/:legacy").is_err());
+        assert!(route_shape("/items/*legacy").is_err());
+        assert!(route_shape("/items/{invalid*}").is_err());
+        assert!(route_shape("/items/{id}/{id}").is_err());
+        assert!(route_shape("/items?format=json").is_err());
     }
 
     #[test]
@@ -846,5 +935,42 @@ mod tests {
 
         assert_ne!(desktop, mobile);
         assert_ne!(mobile, head);
+    }
+
+    #[test]
+    fn cached_routes_reject_request_bodies() {
+        assert!(validate_cached_request_body(true, b"content").is_err());
+        assert!(validate_cached_request_body(true, &[]).is_ok());
+        assert!(validate_cached_request_body(false, b"content").is_ok());
+    }
+
+    #[test]
+    fn identifies_plugin_write_methods_for_cache_invalidation() {
+        assert!(is_plugin_write_method("POST"));
+        assert!(is_plugin_write_method("DELETE"));
+        assert!(!is_plugin_write_method("GET"));
+        assert!(!is_plugin_write_method("HEAD"));
+    }
+
+    #[test]
+    fn rejects_oversized_plugin_response_headers() {
+        let response = bindings::nur::cms::types::Response {
+            status: 200,
+            headers: vec![bindings::nur::cms::types::Header {
+                name: "x-plugin-value".into(),
+                value: "x".repeat(super::MAX_RESPONSE_HEADER_VALUE_BYTES + 1),
+            }],
+            body: Vec::new(),
+        };
+
+        assert!(build_response(response, 1024).is_err());
+    }
+
+    #[test]
+    fn epoch_interrupts_are_reported_as_timeouts() {
+        assert!(matches!(
+            Error::wasmtime(wasmtime::Trap::Interrupt.into()),
+            Error::Timeout
+        ));
     }
 }

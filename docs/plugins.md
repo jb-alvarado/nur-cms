@@ -431,12 +431,14 @@ Caching is disabled unless a plugin declares `[cache]`. It creates a separate in
 plugin. `NUR_PLUGIN_CACHE_MEMORY_LIMIT` is a shared approximate byte budget divided equally among all
 configured plugin caches. Each cache is constrained by both its share of that budget and the manifest's
 `max_entries`. Only public `GET` and `HEAD` routes may be cached. All eligible routes are cached by default;
-set `cache = false` on an individual route to opt out.
+set `cache = false` on an individual route to opt out. Cached routes reject request bodies because bodies
+are not part of their HTTP cache identity.
 
 The cache key includes the route, method, path, query string, and all request headers forwarded to the plugin.
 Cached routes skip Wasm instantiation on a hit. The cache is local to one nur-cms process and is cleared on
 restart. Every successful writing request to `/api` (`POST`, `PUT`, `PATCH`, or `DELETE`) invalidates all
-plugin route caches in that process.
+plugin route caches in that process. A successful writing plugin route invalidates that plugin's cache as
+well, including responses backed by its plugin-local database.
 
 ## Migrations
 
@@ -467,7 +469,9 @@ filesystem access. Execution is bounded by fuel, epoch interruption, host-call l
 linear-memory limits, body limits, and a global concurrency semaphore. Requests that arrive while all plugin
 execution slots are occupied receive `503 Service Unavailable` instead of entering an unbounded queue. An
 outer HTTP deadline also covers request preparation and response handling. Wasmtime runs on Tokio's blocking
-pool so plugin code does not block an asynchronous Axum worker.
+pool so plugin code does not block an asynchronous Axum worker. Epoch interruptions are reported as
+`504 Gateway Timeout`. Plugin responses may contain at most 64 headers, 8 KiB per header value, and 64 KiB
+of headers in total.
 
 Compiled components are cached on disk by default. The cache key includes the component bytes, Wasmtime
 version, target, and relevant compiler configuration, so changed or incompatible components are compiled

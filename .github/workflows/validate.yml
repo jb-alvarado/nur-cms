@@ -58,5 +58,7 @@ jobs:
           cargo test --workspace
           cargo test -p nur_plugins runtime::tests::invokes_built_echo_component_when_available -- --ignored --exact
           cargo test -p nur_plugins runtime::tests::loads_a_component_with_the_content_import_when_available -- --ignored --exact
-      - name: Test plugin migrations
-        run: cargo test -p nur_plugins migrations::tests::applies_plugin_migrations_once_and_records_them -- --ignored --exact
+      - name: Test plugin database integration
+        run: |
+          cargo test -p nur_plugins migrations::tests::applies_plugin_migrations_once_and_records_them -- --ignored --exact
+          cargo test -p nur_plugins runtime::database::tests::database_host_binds_limits_and_rolls_back -- --ignored --exact
