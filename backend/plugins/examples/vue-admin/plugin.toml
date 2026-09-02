@@ -1,0 +1,27 @@
+[plugin]
+id = "vue-admin"
+name = "Vue Admin Example"
+version = "0.1.0"
+api_version = 1
+cms_version = ">=0.17"
+module = "target/wasm32-wasip2/release/nur_cms_vue_admin_plugin.wasm"
+
+[assets]
+directory = "admin/dist"
+
+[[routes]]
+id = "ping"
+method = "GET"
+path = "/api/plugins/vue-admin/ping"
+access = "admin,author"
+
+[admin]
+entry = "index.js"
+element = "nur-cms-vue-admin"
+access = "admin,author"
+
+[[admin.menu]]
+label = "Vue example"
+labels = { de = "Vue-Beispiel", en = "Vue example" }
+path = "/admin/plugins/vue-admin/overview"
+icon = "bi-box"

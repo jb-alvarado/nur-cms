@@ -895,6 +895,15 @@ mod tests {
     }
 
     #[test]
+    fn vue_admin_example_uses_a_valid_current_manifest() {
+        let manifest: Manifest =
+            toml_edit::de::from_str(include_str!("../examples/vue-admin/plugin.toml"))
+                .expect("Vue admin manifest can be deserialized");
+
+        validate_manifest(&manifest).expect("Vue admin manifest is valid");
+    }
+
+    #[test]
     fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
         let permissions = MailManifest {
             targets: vec!["contact".into(), "orders".into()],

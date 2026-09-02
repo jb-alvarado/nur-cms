@@ -1214,6 +1214,46 @@ mod tests {
         assert!(matches!(result, Err(Error::PluginNotFound)));
     }
 
+    #[tokio::test]
+    #[ignore = "requires a prebuilt wasm32-wasip2 Vue admin example"]
+    async fn invokes_built_vue_admin_component_when_available() {
+        let module = example_component("vue-admin", "nur_cms_vue_admin_plugin");
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
+            .expect("test pool initializes");
+        let runtime = Runtime::new(pool).expect("runtime initializes");
+        let component = wasmtime::component::Component::from_file(&runtime.engine, module)
+            .expect("Vue admin example component loads");
+        let plugin = PluginComponent {
+            id: "vue-admin".into(),
+            component,
+            runtime,
+            mail_permissions: Default::default(),
+        };
+        let response = plugin
+            .call(
+                bindings::nur::cms::types::Request {
+                    route_id: "ping".into(),
+                    method: "GET".into(),
+                    path: "/api/plugins/vue-admin/ping".into(),
+                    path_params: Vec::new(),
+                    query: None,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                    identity: Some(bindings::nur::cms::types::Identity {
+                        user_id: 1,
+                        roles: vec!["admin".into()],
+                    }),
+                },
+                false,
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+            )
+            .await
+            .expect("Vue admin example request succeeds");
+
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, b"Authenticated plugin request succeeded.");
+    }
+
     fn example_component(example: &str, artifact: &str) -> PathBuf {
         let target = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("examples")

@@ -485,7 +485,9 @@ See [configuration.md](configuration.md) for all runtime variables and defaults.
 
 The minimal example is in [`backend/plugins/examples/echo`](../backend/plugins/examples/echo). The
 [`community-site`](../backend/plugins/examples/community-site) example demonstrates public content queries,
-root routes, static assets, and route caching. Build an example with:
+root routes, static assets, and route caching. The
+[`vue-admin`](../backend/plugins/examples/vue-admin) example demonstrates an independently built Vue Custom
+Element that is loaded into the admin interface at runtime. Build a Rust example with:
 
 ```sh
 rustup target add wasm32-wasip2
