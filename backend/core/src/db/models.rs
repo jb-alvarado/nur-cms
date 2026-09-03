@@ -579,6 +579,8 @@ pub struct Media {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uploaded_by: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processing_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
@@ -597,6 +599,7 @@ impl FromRow<'_, PgRow> for Media {
             height: row.try_get("height").ok(),
             size: row.try_get("size").ok(),
             uploaded_by: row.try_get("uploaded_by").ok(),
+            processing_status: row.try_get("processing_status").ok(),
             created_at: row.try_get("created_at").ok(),
             total_count: row.try_get("total_count").ok(),
         })
@@ -839,6 +842,63 @@ impl ContentNodeTemplate {
 }
 
 impl ColumnCounter for ContentNodeTemplate {
+    fn total_count(&self) -> i64 {
+        self.total_count.unwrap_or_default()
+    }
+}
+
+/// One `-flag value` pair appended verbatim to the ffmpeg invocation for a
+/// video profile. Stored as an ordered JSON array so that argument order and
+/// repeated flags are preserved (a JSON object would not guarantee either).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq, TS)]
+#[ts(export, export_to = "models.d.ts")]
+pub struct VideoProfileArg {
+    pub flag: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+pub struct VideoProfile {
+    #[serde(default)]
+    pub id: i32,
+    pub name: String,
+    pub container: String,
+    pub height: i32,
+    #[serde(default)]
+    pub cmd: Vec<VideoProfileArg>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub sort_order: i32,
+    #[ts(skip)]
+    #[serde(default, skip_serializing)]
+    pub total_count: Option<i64>,
+}
+
+impl FromRow<'_, PgRow> for VideoProfile {
+    fn from_row(row: &PgRow) -> sqlx::Result<Self> {
+        Ok(Self {
+            id: row.try_get("id").unwrap_or_default(),
+            name: row.try_get("name").unwrap_or_default(),
+            container: row.try_get("container").unwrap_or_default(),
+            height: row.try_get("height").unwrap_or_default(),
+            cmd: row
+                .try_get::<sqlx::types::Json<Vec<VideoProfileArg>>, _>("cmd")
+                .map(|value| value.0)
+                .unwrap_or_default(),
+            enabled: row.try_get("enabled").unwrap_or_default(),
+            sort_order: row.try_get("sort_order").unwrap_or_default(),
+            total_count: row.try_get("total_count").ok(),
+        })
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl ColumnCounter for VideoProfile {
     fn total_count(&self) -> i64 {
         self.total_count.unwrap_or_default()
     }

@@ -5,6 +5,7 @@ import ContentLocale from '@/components/config/ContentLocale.vue'
 import ContentType from '@/components/config/ContentType.vue'
 import MailTargets from '@/components/config/MailTargets.vue'
 import NodeTemplates from '@/components/config/NodeTemplates.vue'
+import VideoProfiles from '@/components/config/VideoProfiles.vue'
 import CmsSettings from '@/components/config/CmsSettings.vue'
 
 const appVersion = __APP_VERSION__
@@ -47,6 +48,7 @@ const activeTab = ref<'system' | 'cms'>('system')
         <ContentType />
         <MailTargets />
         <NodeTemplates />
+        <VideoProfiles />
     </div>
 
     <div v-show="activeTab === 'cms'" class="flex flex-wrap gap-4 py-4">

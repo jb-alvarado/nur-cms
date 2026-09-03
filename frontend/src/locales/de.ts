@@ -170,6 +170,8 @@ export default {
         editMailTargetTitle: 'Mail Ziel bearbeiten',
         createTemplate: 'Vorlage erstellen',
         editTemplate: 'Vorlage bearbeiten',
+        createVideoProfile: 'Video-Profil erstellen',
+        editVideoProfile: 'Video-Profil bearbeiten',
         linkTitle: 'Link erstellen',
         linkName: 'Link Name',
         linkURL: 'URL',
@@ -216,6 +218,15 @@ export default {
         updateSuccess: 'Medien ({id}) erfolgreich aktualisiert!',
         altText: 'Alt-Text',
         filename: 'Dateiname',
+        retryVideo: 'Verarbeitung erneut starten',
+        processingStatus: 'Verarbeitung',
+        videoRetryQueued: 'Die Videoverarbeitung wurde eingereiht.',
+        processing: {
+            queued: 'Die Videoverarbeitung wartet.',
+            processing: 'Das Video wird verarbeitet.',
+            completed: 'Die Video-Varianten sind fertig.',
+            failed: 'Die Videoverarbeitung ist fehlgeschlagen.',
+        },
     },
     error: {
         notFound: 'Seite nicht gefunden',
@@ -296,6 +307,16 @@ export default {
     nodeTemplates: {
         title: 'Node-Vorlagen',
         select: 'Bitte eine Node-Vorlage auswählen.',
+    },
+    videoProfiles: {
+        title: 'Video-Profile',
+        container: 'Container',
+        height: 'Höhe',
+        enabled: 'Aktiv',
+        cmd: 'ffmpeg-Argumente',
+        flag: 'Flag',
+        pasteHint: 'ffmpeg-Argumente hier einfügen (z. B. -c:v libx264 -crf 23)',
+        pasteFailed: 'Keine gültigen ffmpeg-Argumente in den eingefügten Daten gefunden.',
     },
     block: {
         create: 'Block erstellen',

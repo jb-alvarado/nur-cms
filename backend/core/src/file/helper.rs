@@ -207,7 +207,10 @@ fn storage_relative_path(public_path: &str) -> Result<PathBuf, NurError> {
     Ok(relative.to_path_buf())
 }
 
-async fn contained_storage_target(public_path: &str, file_name: &str) -> Result<PathBuf, NurError> {
+pub(crate) async fn contained_storage_target(
+    public_path: &str,
+    file_name: &str,
+) -> Result<PathBuf, NurError> {
     let file_name = safe_file_name(file_name)?;
     let storage_root = fs::canonicalize(STORAGE.as_str()).await?;
     let relative = storage_relative_path(public_path)?;
@@ -574,6 +577,7 @@ pub async fn add_media_record(
     pool: &PgPool,
     user_id: i32,
     upload_id: &str,
+    alt: &str,
     temp_file: &Path,
     output_file: &Path,
 ) -> Result<(i32, String, bool), NurError> {
@@ -633,11 +637,6 @@ pub async fn add_media_record(
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let alt = output_file
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
-
     let media_id = sqlx::query_scalar::<_, i32>(
         r#"INSERT INTO media
                (alt, filename, path, type, width, height, size, uploaded_by, upload_id)
@@ -729,6 +728,7 @@ pub async fn rename_media_file(
     let new_path = contained_storage_target(&media_path, new_filename).await?;
     let mut rename_pairs = vec![(old_path, new_path)];
     let mut renamed_variants = Vec::new();
+    let mut renamed_video_variants = Vec::new();
 
     let old_stem = Path::new(&filename)
         .file_stem()
@@ -746,6 +746,16 @@ pub async fn rename_media_file(
             let new_variant_path = contained_storage_target(&media_path, &new_variant_name).await?;
             rename_pairs.push((old_variant_path, new_variant_path));
             renamed_variants.push((index, new_variant_name));
+        }
+    }
+
+    for (index, variant) in media.video_variants.iter().enumerate() {
+        if filename.starts_with(&*old_stem) && variant.filename != filename {
+            let new_variant_name = variant.filename.replacen(&*old_stem, &new_stem, 1);
+            let old_variant_path = contained_storage_target(&media_path, &variant.filename).await?;
+            let new_variant_path = contained_storage_target(&media_path, &new_variant_name).await?;
+            rename_pairs.push((old_variant_path, new_variant_path));
+            renamed_video_variants.push((index, new_variant_name));
         }
     }
 
@@ -785,6 +795,9 @@ pub async fn rename_media_file(
     for (index, new_name) in renamed_variants {
         media.variants[index].filename = new_name;
     }
+    for (index, new_name) in renamed_video_variants {
+        media.video_variants[index].filename = new_name;
+    }
     media.filename = Some(new_filename.to_string());
 
     Ok(())
@@ -811,6 +824,15 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> 
         if variant.filename == fname {
             continue;
         }
+        let variant_path = contained_storage_target(&rel, &variant.filename).await?;
+        if let Err(error) = fs::remove_file(&variant_path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(error.into());
+        }
+    }
+
+    for variant in &media.video_variants {
         let variant_path = contained_storage_target(&rel, &variant.filename).await?;
         if let Err(error) = fs::remove_file(&variant_path).await
             && error.kind() != std::io::ErrorKind::NotFound

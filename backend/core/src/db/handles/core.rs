@@ -37,6 +37,7 @@ fn table_field_allowed(table: &Table, field: &str) -> bool {
         Table::MailTargets => field_allowed::<MailTargetFields>(field),
         Table::Media => field_allowed::<MediaFields>(field),
         Table::ContentNodeTemplates => field_allowed::<ContentNodeTemplateFields>(field),
+        Table::VideoProfiles => field_allowed::<VideoProfileFields>(field),
         Table::ContentEntries => {
             field_allowed::<ContentEntryFields>(field)
                 || matches!(field, "type_id" | "created_by" | "updated_by")

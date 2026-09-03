@@ -31,9 +31,10 @@ pub async fn select_media(
                     return None;
                 }
 
-                if MediaFields::iter()
-                    .any(|f| f.to_string() == field && !matches!(f, MediaFields::MediaVariants))
-                {
+                if MediaFields::iter().any(|f| {
+                    f.to_string() == field
+                        && !matches!(f, MediaFields::MediaVariants | MediaFields::VideoVariants)
+                }) {
                     Some(format!("{alias}.{field} {direction}"))
                 } else {
                     None
@@ -89,6 +90,9 @@ pub async fn select_media(
     for f in &query_obj.fields {
         match *f {
             MediaFields::MediaVariants => sep.push("COALESCE(variants.data, NULL) AS \"variants\""),
+            MediaFields::VideoVariants => {
+                sep.push("COALESCE(video_variants.data, NULL) AS \"video_variants\"")
+            }
             _ => sep.push(format!("p.{f}")),
         };
     }
@@ -112,6 +116,30 @@ pub async fn select_media(
                 FROM media_variants mv
                 WHERE mv.media_id = p.id
             ) AS variants ON TRUE "#,
+        );
+    }
+
+    if query_obj.fields.contains(&MediaFields::VideoVariants) {
+        query_builder.push(
+            r#"LEFT JOIN LATERAL (
+                SELECT json_agg(
+                    json_build_object(
+                        'id', vv.id,
+                        'kind', vv.kind,
+                        'profile', vv.profile,
+                        'width', vv.width,
+                        'height', vv.height,
+                        'container', vv.container,
+                        'video_codec', vv.video_codec,
+                        'audio_codec', vv.audio_codec,
+                        'filename', vv.filename,
+                        'size', vv.size,
+                        'duration_ms', vv.duration_ms
+                    ) ORDER BY vv.height, vv.id
+                ) AS data
+                FROM media_video_variants vv
+                WHERE vv.media_id = p.id
+            ) AS video_variants ON TRUE "#,
         );
     }
 

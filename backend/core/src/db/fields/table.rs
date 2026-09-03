@@ -27,6 +27,7 @@ pub enum Table {
     Media,
     MediaVariants,
     TsConfig,
+    VideoProfiles,
 }
 
 impl FromStr for Table {
@@ -54,6 +55,7 @@ impl FromStr for Table {
             "media" => Ok(Self::Media),
             "media_variants" => Ok(Self::MediaVariants),
             "ts_config" => Ok(Self::TsConfig),
+            "video_profiles" => Ok(Self::VideoProfiles),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -82,6 +84,7 @@ impl fmt::Display for Table {
             Self::Media => write!(f, "media"),
             Self::MediaVariants => write!(f, "media_variants"),
             Self::TsConfig => write!(f, "pg_catalog.pg_ts_config"),
+            Self::VideoProfiles => write!(f, "video_profiles"),
         }
     }
 }

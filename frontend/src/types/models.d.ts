@@ -41,6 +41,15 @@ export type Locale = { id?: number, code?: string, name?: string, tsv_dict?: str
 
 export type MailTarget = { id: number, name: string, subject: string | null, recipients: Array<string>, allow_html: boolean, allow_dynamic_recipient: boolean, };
 
-export type Media = { id?: number, alt?: string | null, filename?: string, path?: string, type?: string | null, width?: number | null, height?: number | null, size?: number | null, uploaded_by?: number | null, created_at?: string | null, };
+export type Media = { id?: number, alt?: string | null, filename?: string, path?: string, type?: string | null, width?: number | null, height?: number | null, size?: number | null, uploaded_by?: number | null, processing_status?: string | null, created_at?: string | null, };
 
 export type MediaVariant = { id?: number, media_id?: number, width?: number, height?: number, filename?: string, };
+
+export type VideoProfile = { id: number, name: string, container: string, height: number, cmd: Array<VideoProfileArg>, enabled: boolean, sort_order: number, };
+
+/**
+ * One `-flag value` pair appended verbatim to the ffmpeg invocation for a
+ * video profile. Stored as an ordered JSON array so that argument order and
+ * repeated flags are preserved (a JSON object would not guarantee either).
+ */
+export type VideoProfileArg = { flag: string, value: string, };

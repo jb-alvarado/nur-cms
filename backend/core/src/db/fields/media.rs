@@ -20,7 +20,9 @@ pub enum MediaFields {
     Size,
     UploadedBy,
     CreatedAt,
+    ProcessingStatus,
     MediaVariants,
+    VideoVariants,
 }
 
 impl StrCompare for MediaFields {
@@ -36,7 +38,9 @@ impl StrCompare for MediaFields {
             Self::Size => other == "size",
             Self::UploadedBy => other == "uploaded_by",
             Self::CreatedAt => other == "created_at",
+            Self::ProcessingStatus => other == "processing_status",
             Self::MediaVariants => other == "media_variants",
+            Self::VideoVariants => other == "video_variants",
         }
     }
 }
@@ -56,7 +60,9 @@ impl FromStr for MediaFields {
             "size" => Ok(Self::Size),
             "uploaded_by" => Ok(Self::UploadedBy),
             "created_at" => Ok(Self::CreatedAt),
+            "processing_status" => Ok(Self::ProcessingStatus),
             "media_variants" => Ok(Self::MediaVariants),
+            "video_variants" => Ok(Self::VideoVariants),
             _ => Err(format!("Field '{input}' not found!")),
         }
     }
@@ -75,7 +81,9 @@ impl fmt::Display for MediaFields {
             Self::Size => write!(f, "size"),
             Self::UploadedBy => write!(f, "uploaded_by"),
             Self::CreatedAt => write!(f, "created_at"),
+            Self::ProcessingStatus => write!(f, "processing_status"),
             Self::MediaVariants => write!(f, "media_variants"),
+            Self::VideoVariants => write!(f, "video_variants"),
         }
     }
 }

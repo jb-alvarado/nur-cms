@@ -8,6 +8,7 @@ pub mod entries;
 pub mod media;
 pub mod node_templates;
 pub mod refresh_tokens;
+pub mod video_profiles;
 
 pub use auth_users::*;
 pub use authors::*;
@@ -19,3 +20,4 @@ pub use entries::*;
 pub use media::*;
 pub use node_templates::*;
 pub use refresh_tokens::*;
+pub use video_profiles::*;

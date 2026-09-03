@@ -447,7 +447,8 @@ impl_default_fields_provider!(
     LocaleFields,
     MailTargetFields,
     MediaFields,
-    TSLanguage
+    TSLanguage,
+    VideoProfileFields
 );
 
 /// When no fields are set, collect all fields from given object

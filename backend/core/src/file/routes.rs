@@ -17,7 +17,10 @@ use tracing::{error, info};
 use crate::{
     AuthUserMeta, CONFIG, MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE, PUBLIC_UPLOADS, STORAGE,
     db::models::Role,
-    file::helper::*,
+    file::{
+        helper::*,
+        video::{enqueue_video_processing, mark_video_processing_failed},
+    },
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
@@ -92,9 +95,68 @@ fn validate_mime_type(filename: &str) -> Result<String, NurError> {
     }
 }
 
+fn upload_names(original_filename: &str) -> Result<(String, String), NurError> {
+    let mut components = Path::new(original_filename).components();
+    let is_single_normal_component =
+        matches!(components.next(), Some(std::path::Component::Normal(_)))
+            && components.next().is_none();
+    if original_filename.is_empty()
+        || !is_single_normal_component
+        || original_filename.chars().any(char::is_control)
+    {
+        return Err(NurError::BadRequest("Invalid filename.".into()));
+    }
+
+    let mime_type = validate_mime_type(original_filename)?;
+    let filename = if mime_type.starts_with("video/") {
+        web_video_filename(original_filename)?
+    } else {
+        sanitize(original_filename)
+    };
+    if filename.is_empty() {
+        return Err(NurError::BadRequest("Invalid filename.".into()));
+    }
+    Ok((filename, mime_type))
+}
+
+fn web_video_filename(original_filename: &str) -> Result<String, NurError> {
+    let path = Path::new(original_filename);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| NurError::BadRequest("Invalid video filename.".into()))?;
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| NurError::BadRequest("Invalid video filename.".into()))?;
+    if !extension
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric())
+    {
+        return Err(NurError::BadRequest("Invalid video filename.".into()));
+    }
+
+    let mut normalized = String::with_capacity(stem.len());
+    for character in stem.chars() {
+        if character.is_ascii_alphanumeric() {
+            normalized.push(character.to_ascii_lowercase());
+        } else if matches!(character, '-' | '_' | '.') {
+            normalized.push(character);
+        } else if !normalized.ends_with('-') {
+            normalized.push('-');
+        }
+    }
+    let stem = normalized.trim_matches(|character| matches!(character, '-' | '_' | '.'));
+    if stem.is_empty() {
+        return Err(NurError::BadRequest("Invalid video filename.".into()));
+    }
+    Ok(format!("{stem}.{}", extension.to_ascii_lowercase()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_mime_type;
+    use super::{upload_names, validate_mime_type};
 
     #[test]
     fn accepts_svg_uploads() {
@@ -102,6 +164,13 @@ mod tests {
             validate_mime_type("illustration.svg").unwrap(),
             "image/svg+xml"
         );
+    }
+
+    #[test]
+    fn video_uploads_receive_a_web_safe_filename() {
+        let (filename, mime_type) = upload_names("My Sermon 2026!.MP4").unwrap();
+        assert_eq!(filename, "my-sermon-2026.mp4");
+        assert_eq!(mime_type, "video/mp4");
     }
 }
 
@@ -191,10 +260,8 @@ pub async fn upload_status(
         ));
     }
 
-    let file_name = sanitize(&query.file_name);
-    validate_mime_type(&file_name)?;
-    if file_name.is_empty()
-        || file_name.len() > MAX_FILENAME_LENGTH
+    let (file_name, _) = upload_names(&query.file_name)?;
+    if file_name.len() > MAX_FILENAME_LENGTH
         || query.batch_id.is_empty()
         || query.batch_id.len() > MAX_BATCH_ID_LENGTH
         || query.size == 0
@@ -261,7 +328,7 @@ pub async fn upload_chunk(
     // Extract multipart fields
     while let Some(field) = multipart.next_field().await? {
         match field.name().unwrap_or_default() {
-            "fileName" => file_name = Some(sanitize(&field.text().await?)),
+            "fileName" => file_name = Some(field.text().await?),
             "start" => start = Some(field.text().await?.parse::<u64>().unwrap_or(0)),
             "end" => end = Some(field.text().await?.parse::<u64>().unwrap_or(0)),
             "size" => size = field.text().await?.parse::<u64>().unwrap_or(0),
@@ -285,8 +352,7 @@ pub async fn upload_chunk(
     }
     cleanup_stale_uploads().await;
 
-    // Validate MIME type
-    validate_mime_type(&original_filename)?;
+    let (file_name, _) = upload_names(&original_filename)?;
 
     // Validate file size limits
     if size == 0 || size > *MAX_UPLOAD_SIZE {
@@ -310,9 +376,6 @@ pub async fn upload_chunk(
     if end <= start || chunk_data.len() as u64 != end - start || end > size {
         return Err(NurError::BadRequest("Invalid chunk range".into()));
     }
-
-    // Use sanitized original filename (DB check prevents overwrites)
-    let file_name = original_filename;
 
     // Storage path: YEAR/MONTH
     let output_file = upload_output_file(&file_name);
@@ -346,17 +409,53 @@ pub async fn upload_chunk(
             get_or_create_upload(size, &output_file, &batch_id, user.id).await?
         };
     let should_finalize = write_upload_chunk(&upload, start, end, &chunk_data).await?;
+    let alt = Path::new(&original_filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(&original_filename);
 
     if should_finalize {
         info!("Upload complete: {file_name}");
         let result = async {
-            let (media_id, stored_mime_type, processable_image) =
-                add_media_record(&pool, user.id, &batch_id, &upload.temp_file, &output_file)
-                    .await?;
+            let (media_id, stored_mime_type, processable_image) = add_media_record(
+                &pool,
+                user.id,
+                &batch_id,
+                alt,
+                &upload.temp_file,
+                &output_file,
+            )
+            .await?;
 
             if let Err(error) = fs::rename(&upload.temp_file, &output_file).await {
                 delete_media_record(&pool, media_id).await;
                 return Err(error.into());
+            }
+
+            if stored_mime_type.starts_with("video/") {
+                match enqueue_video_processing(&pool, media_id).await {
+                    Ok(()) => {
+                        let _ = tx.send(
+                            SSEMessage::new(
+                                Level::Info,
+                                &format!("Video processing queued: {file_name}"),
+                            )
+                            .to_string(),
+                        );
+                    }
+                    Err(error) => {
+                        mark_video_processing_failed(&pool, media_id).await;
+                        error!(media_id, %error, "Failed to enqueue uploaded video");
+                        let _ = tx.send(
+                            SSEMessage::new(
+                                Level::Error,
+                                &format!("Video processing could not be queued: {file_name}"),
+                            )
+                            .to_string(),
+                        );
+                    }
+                }
+                return Ok::<_, NurError>(());
             }
 
             let pool = pool.clone();

@@ -16,6 +16,7 @@ pub mod output_type;
 pub mod table;
 pub mod traits;
 pub mod ts_language;
+pub mod video_profile;
 
 pub use auth_role::*;
 pub use auth_user::*;
@@ -35,3 +36,4 @@ pub use output_type::*;
 pub use table::*;
 pub use traits::*;
 pub use ts_language::*;
+pub use video_profile::*;

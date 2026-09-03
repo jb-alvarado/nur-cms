@@ -55,12 +55,29 @@ pub async fn media_delete(
             fields: vec![
                 MediaFields::Filename,
                 MediaFields::Path,
+                MediaFields::Type,
+                MediaFields::ProcessingStatus,
                 MediaFields::MediaVariants,
+                MediaFields::VideoVariants,
             ],
             search_id: Some(id),
             ..Default::default()
         };
         let media = handles::select_media(&pool, &params).await?;
+
+        if let Some(m) = media.results.first()
+            && m.r#type
+                .as_deref()
+                .is_some_and(|mime| mime.starts_with("video/"))
+            && matches!(
+                m.processing_status.as_deref(),
+                Some("queued" | "processing")
+            )
+        {
+            return Err(NurError::Conflict(
+                "The video is still being processed and cannot be deleted.".into(),
+            ));
+        }
 
         if let Some(m) = media.results.first()
             && let Err(e) = delete_media_file(m).await
@@ -70,13 +87,12 @@ pub async fn media_delete(
             return Err(e);
         }
 
-        return match handles::delete_record(&pool, &Table::Media, id).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("{e}");
-                Err(NurError::InternalServerError)
-            }
-        };
+        if let Err(e) = handles::delete_record(&pool, &Table::Media, id).await {
+            error!("{e}");
+            return Err(NurError::InternalServerError);
+        }
+
+        return Ok(());
     }
 
     Err(NurError::Forbidden(
@@ -119,12 +135,14 @@ pub async fn media_update(
                 return Err(NurError::BadRequest("Invalid filename.".into()));
             }
         }
-
         let params: QueryObj<MediaFields> = QueryObj {
             fields: vec![
                 MediaFields::Filename,
                 MediaFields::Path,
+                MediaFields::Type,
+                MediaFields::ProcessingStatus,
                 MediaFields::MediaVariants,
+                MediaFields::VideoVariants,
             ],
             search_id: Some(id),
             ..Default::default()
@@ -139,6 +157,18 @@ pub async fn media_update(
             && let Some(m) = media.results.first_mut()
             && m.filename.as_deref() != Some(name)
         {
+            if m.r#type
+                .as_deref()
+                .is_some_and(|mime| mime.starts_with("video/"))
+                && matches!(
+                    m.processing_status.as_deref(),
+                    Some("queued" | "processing")
+                )
+            {
+                return Err(NurError::Conflict(
+                    "The video is still being processed and cannot be renamed.".into(),
+                ));
+            }
             let old_extension = m
                 .filename
                 .as_deref()
@@ -174,6 +204,13 @@ pub async fn media_update(
                         .execute(&mut *transaction)
                         .await?;
                 }
+                for variant in &media.video_variants {
+                    sqlx::query("UPDATE media_video_variants SET filename = $1 WHERE id = $2")
+                        .bind(&variant.filename)
+                        .bind(variant.id)
+                        .execute(&mut *transaction)
+                        .await?;
+                }
             }
 
             if let Some(filename) = content.get("filename").and_then(Value::as_str) {
@@ -190,7 +227,6 @@ pub async fn media_update(
                     .execute(&mut *transaction)
                     .await?;
             }
-
             transaction.commit().await?;
             Ok::<_, NurError>(())
         }
@@ -212,4 +248,68 @@ pub async fn media_update(
     Err(NurError::Forbidden(
         "You do not have permission to access this resource.".into(),
     ))
+}
+
+pub async fn media_retry_video(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), NurError> {
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+
+    let is_video = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM media WHERE id = $1 AND type LIKE 'video/%')",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await?;
+    if !is_video {
+        return Err(NurError::BadRequest(
+            "The media item is not a video.".into(),
+        ));
+    }
+
+    crate::file::video::enqueue_video_processing(&pool, id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::PgPool;
+
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn deleting_a_video_cascades_its_poster_variants(pool: PgPool) {
+        let video_id: i32 = sqlx::query_scalar(
+            "INSERT INTO media (filename, path, type) VALUES ('video.mp4', '/uploads', 'video/mp4') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("video can be inserted");
+        sqlx::query(
+            "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, 320, 180, 'video--poster-320.jpg')",
+        )
+        .bind(video_id)
+        .execute(&pool)
+        .await
+        .expect("poster variant can be inserted");
+
+        sqlx::query("DELETE FROM media WHERE id = $1")
+            .bind(video_id)
+            .execute(&pool)
+            .await
+            .expect("video can be deleted");
+
+        let poster_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM media_variants WHERE media_id = $1)")
+                .bind(video_id)
+                .fetch_one(&pool)
+                .await
+                .expect("poster variant can be queried");
+        assert!(!poster_exists);
+    }
 }

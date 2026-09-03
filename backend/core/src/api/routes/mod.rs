@@ -11,6 +11,7 @@ pub mod misc;
 pub mod node_templates;
 pub mod tags;
 pub mod types;
+pub mod video_profiles;
 
 pub use auth_user::*;
 pub use authors::*;
@@ -25,3 +26,4 @@ pub use misc::*;
 pub use node_templates::*;
 pub use tags::*;
 pub use types::*;
+pub use video_profiles::*;

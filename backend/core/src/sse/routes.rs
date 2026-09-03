@@ -68,7 +68,7 @@ pub async fn generate_uuid(
 
 pub async fn sse_handler(
     real_ip: RealIp,
-    State((tx, data)): State<(Sender<String>, SseAuthState)>,
+    State((tx, data, shutdown_tx)): State<(Sender<String>, SseAuthState, Sender<()>)>,
     Query(user): Query<User>,
 ) -> Result<impl IntoResponse, NurError> {
     let mut uuids = data.uuids.lock().await;
@@ -76,15 +76,25 @@ pub async fn sse_handler(
     check_uuid(&mut uuids, user.uuid.as_str(), &ip_address)?;
 
     let mut rx = tx.subscribe();
+    let mut shutdown_rx = shutdown_tx.subscribe();
 
     let s = stream! {
         let initial_event: Result<Event, Infallible> =
             Ok(Event::default().event("ping"));
         yield initial_event;
 
-        while let Ok(msg) = rx.recv().await {
-            let event: Result<Event, Infallible> = Ok(Event::default().data(msg));
-            yield event;
+        loop {
+            tokio::select! {
+                message = rx.recv() => match message {
+                    Ok(message) => {
+                        let event: Result<Event, Infallible> = Ok(Event::default().data(message));
+                        yield event;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                },
+                _ = shutdown_rx.recv() => break,
+            }
         }
     };
 

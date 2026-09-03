@@ -9,9 +9,9 @@ use axum::{
     Router,
     body::Body,
     extract::{ConnectInfo, State},
-    http::{Method, Request},
+    http::{Method, Request, StatusCode},
     middleware::{self},
-    routing::{get, post},
+    routing::{any, get, post},
 };
 use clap::Parser;
 use colored::Colorize;
@@ -36,7 +36,9 @@ mod utils;
 use nur_core::{
     CMS_CONFIG, CONFIG, STORAGE,
     db::handles,
-    extract, init_db,
+    extract,
+    file::video::start_video_workers,
+    init_db,
     middleware::governor::rate_limit,
     router_entries,
     sse::{
@@ -87,6 +89,29 @@ fn forwarded_client_ip(
     }
 
     headers.get("x-real-ip")?.to_str().ok()?.trim().parse().ok()
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {},
+                    _ = terminate.recv() => {},
+                }
+            }
+            Err(error) => {
+                error!(%error, "Failed to install SIGTERM handler");
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 async fn resolve_real_ip(
@@ -196,6 +221,8 @@ async fn main() -> Result<(), NurError> {
     let plugin_cache_invalidator = plugin_manager.cache_invalidator();
 
     let (tx, _rx) = broadcast::channel(20);
+    let (shutdown_tx, _) = broadcast::channel(1);
+    start_video_workers(pool.clone(), tx.clone());
 
     let sse_state = SseAuthState {
         uuids: Arc::new(Mutex::new(HashSet::new())),
@@ -234,7 +261,7 @@ async fn main() -> Result<(), NurError> {
     let sse_router = Router::new()
         .route(
             "/",
-            get(sse_handler).with_state((tx.clone(), sse_state.clone())),
+            get(sse_handler).with_state((tx.clone(), sse_state.clone(), shutdown_tx.clone())),
         )
         .route("/generate-uuid", post(generate_uuid).with_state(sse_state));
 
@@ -274,7 +301,16 @@ async fn main() -> Result<(), NurError> {
     if cfg!(debug_assertions) || args.serve_static {
         debug!("Serving static files from {:?}", STORAGE.as_str());
         let uploads_service = ServeDir::new(&*STORAGE);
-        app = app.nest_service("/uploads", uploads_service);
+        app = app
+            .route(
+                "/uploads/.processing",
+                any(|| async { StatusCode::NOT_FOUND }),
+            )
+            .route(
+                "/uploads/.processing/{*path}",
+                any(|| async { StatusCode::NOT_FOUND }),
+            )
+            .nest_service("/uploads", uploads_service);
     }
 
     let listener = TcpListener::bind(args.core.listen.as_deref().unwrap_or("127.0.0.1:8777"))
@@ -290,10 +326,15 @@ async fn main() -> Result<(), NurError> {
         debug!("listening on bound address (local_addr unavailable)");
     }
 
+    let server_shutdown = shutdown_tx.clone();
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        let _ = server_shutdown.send(());
+    })
     .await?;
 
     Ok(())

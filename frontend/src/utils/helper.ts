@@ -41,6 +41,21 @@ export function shortID(): string {
 }
 
 export function mediaPath(media: Media): string {
+    if (media.type?.startsWith('video/')) {
+        if (media.video_variants && media.video_variants.length > 0) {
+            let variance = media.video_variants[0]
+
+            for (const v of media.video_variants) {
+                if (v.width < variance.width) {
+                    variance = v
+                }
+            }
+
+            return `${media.path}/${variance.filename}`
+        }
+
+        return `${media.path}/${media.filename}`
+    }
     if (media.variants && media.variants.length > 0) {
         const variance320 = media.variants.find((v) => v.width === 320)
         if (variance320) {

@@ -50,7 +50,10 @@ use crate::{
         },
         queries::QueryObj,
     },
-    file::processing::save_image,
+    file::{
+        processing::save_image,
+        video::{enqueue_video_processing, mark_video_processing_failed},
+    },
     utils::{ast_serialize::persist_content_media, errors::NurError},
 };
 
@@ -914,14 +917,25 @@ async fn ensure_media(
     let (target_dir, target_path) = ensure_target_paths(date);
 
     // Check if media record already exists
-    if let Some(id) = sqlx::query_scalar::<_, i32>(
-        "SELECT id FROM media WHERE path = $1 AND filename = $2 LIMIT 1",
+    if let Some((id, mime_type, processing_status)) = sqlx::query_as::<
+        _,
+        (i32, Option<String>, String),
+    >(
+        "SELECT id, type, processing_status FROM media WHERE path = $1 AND filename = $2 LIMIT 1",
     )
     .bind(&target_dir)
     .bind(filename)
     .fetch_optional(pool)
     .await?
     {
+        if mime_type
+            .as_deref()
+            .is_some_and(|mime| mime.starts_with("video/"))
+            && processing_status == "failed"
+            && let Err(error) = enqueue_video_processing(pool, id).await
+        {
+            warn!("Failed to re-enqueue imported video {id}: {error}");
+        }
         return Ok(Some(id));
     }
 
@@ -1016,6 +1030,11 @@ async fn ensure_media(
                 }
             }
         }
+    } else if mime_type.starts_with("video/")
+        && let Err(error) = enqueue_video_processing(pool, id).await
+    {
+        mark_video_processing_failed(pool, id).await;
+        warn!("Failed to enqueue imported video {id}: {error}");
     }
 
     Ok(Some(id))

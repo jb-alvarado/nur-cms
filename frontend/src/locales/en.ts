@@ -167,6 +167,8 @@ export default {
         editMailTargetTitle: 'Edit Mail Target',
         createTemplate: 'Create Template',
         editTemplate: 'Edit Template',
+        createVideoProfile: 'Create Video Profile',
+        editVideoProfile: 'Edit Video Profile',
         linkTitle: 'Create Link',
         linkName: 'Link Name',
         linkURL: 'URL',
@@ -213,6 +215,15 @@ export default {
         dimension: 'Dimension',
         size: 'Size',
         uploaded: 'Uploaded',
+        retryVideo: 'Retry processing',
+        processingStatus: 'Processing',
+        videoRetryQueued: 'Video processing has been queued.',
+        processing: {
+            queued: 'Video processing is queued.',
+            processing: 'Video is being processed.',
+            completed: 'Video variants are ready.',
+            failed: 'Video processing failed.',
+        },
     },
     error: {
         notFound: 'Page not found',
@@ -292,6 +303,16 @@ export default {
     nodeTemplates: {
         title: 'Node Templates',
         select: 'Please select a node template.',
+    },
+    videoProfiles: {
+        title: 'Video Profiles',
+        container: 'Container',
+        height: 'Height',
+        enabled: 'Enabled',
+        cmd: 'ffmpeg arguments',
+        flag: 'Flag',
+        pasteHint: 'Paste ffmpeg arguments here (e.g. -c:v libx264 -crf 23)',
+        pasteFailed: 'No valid ffmpeg arguments were found in the pasted data.',
     },
     block: {
         create: 'Create Block',

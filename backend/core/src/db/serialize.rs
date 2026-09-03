@@ -544,8 +544,12 @@ pub struct MediaSerializer {
     pub end_offset: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processing_status: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<MediaVariantSerializer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub video_variants: Vec<MediaVideoVariantSerializer>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -558,7 +562,13 @@ impl FromRow<'_, PgRow> for MediaSerializer {
             .unwrap_or_default()
             .map(|v| serde_json::from_value::<Vec<MediaVariantSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
-
+        let video_variants = row
+            .try_get::<Option<serde_json::Value>, _>("video_variants")
+            .unwrap_or_default()
+            .map(|v| {
+                serde_json::from_value::<Vec<MediaVideoVariantSerializer>>(v).unwrap_or_default()
+            })
+            .unwrap_or_default();
         Ok(Self {
             id: row.try_get("id").ok(),
             alt: row.try_get("alt").ok(),
@@ -574,7 +584,9 @@ impl FromRow<'_, PgRow> for MediaSerializer {
             start_offset: row.try_get("start_offset").ok(),
             end_offset: row.try_get("end_offset").ok(),
             created_at: row.try_get("created_at").ok(),
+            processing_status: row.try_get("processing_status").ok(),
             variants,
+            video_variants,
             total_count: row.try_get("total_count").ok(),
         })
     }
@@ -594,6 +606,25 @@ pub struct MediaVariantSerializer {
     pub width: i32,
     pub height: i32,
     pub filename: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "serialized.d.ts")]
+pub struct MediaVideoVariantSerializer {
+    #[ts(as = "i32")]
+    pub id: i64,
+    pub kind: String,
+    pub profile: String,
+    pub width: i32,
+    pub height: i32,
+    pub container: String,
+    pub video_codec: String,
+    pub audio_codec: Option<String>,
+    pub filename: String,
+    #[ts(as = "i32")]
+    pub size: i64,
+    #[ts(as = "Option<i32>")]
+    pub duration_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]

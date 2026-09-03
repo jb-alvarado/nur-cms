@@ -127,6 +127,14 @@ function mimeType(media: Media) {
     return type ? type : ext ? ext : 'File'
 }
 
+function posterPath(media: Media): string | undefined {
+    if (!media.type?.startsWith('video/') || !media.variants?.length) return undefined
+    const poster = media.variants.reduce((smallest, variant) =>
+        variant.width * variant.height < smallest.width * smallest.height ? variant : smallest,
+    )
+    return `${media.path}/${poster.filename}`
+}
+
 function variantsDim(variants: Variants[]) {
     const dims = new Map<number, string>()
 
@@ -223,6 +231,13 @@ function resetUpload() {
                         class="w-full h-full object-contain rounded-t cursor-pointer"
                         @click="openUpdateModal(media.id!)"
                     />
+                    <img
+                        v-else-if="posterPath(media)"
+                        :src="posterPath(media)"
+                        :alt="media.alt ?? media.filename ?? ''"
+                        class="w-full h-full object-contain rounded-t cursor-pointer"
+                        @click="openUpdateModal(media.id!)"
+                    />
                     <i v-else class="bi text-8xl" :class="iconFrom(media.type)"></i>
                     <button
                         class="bg-black/60 text-white/80 hyphens-auto rounded-xs font-bold text-left absolute z-2 left-0 bottom-0 px-1.5 py-0.5 me-1 break-all cursor-pointer"
@@ -251,6 +266,10 @@ function resetUpload() {
                         <li v-if="media.created_at">
                             <strong>{{ $t('media.uploaded') }}:</strong>
                             {{ dayjs(media.created_at).format('YYYY-MM-DD HH:mm:ss') }}
+                        </li>
+                        <li v-if="media.type?.startsWith('video/')">
+                            <strong>{{ $t('media.processingStatus') }}:</strong>
+                            {{ $t(`media.processing.${media.processing_status ?? 'completed'}`) }}
                         </li>
                         <li v-if="media.variants">
                             <p><i class="bi bi-collection me-1"></i> {{ variantsExt(media.variants) }}</p>

@@ -101,6 +101,16 @@ pub static UPLOAD_TTL_SECONDS: LazyLock<u64> =
 pub static IMAGE_PROCESSING_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| {
     Semaphore::new(env_parse_or("IMAGE_PROCESSING_CONCURRENCY", 2usize).clamp(1, 16))
 });
+pub static VIDEO_PROCESSING_CONCURRENCY: LazyLock<usize> =
+    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_CONCURRENCY", 1usize).clamp(1, 4));
+pub static VIDEO_PROCESSING_THREADS: LazyLock<usize> =
+    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_THREADS", 2usize).clamp(1, 32));
+pub static VIDEO_PROCESSING_TIMEOUT_SECONDS: LazyLock<u64> =
+    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_TIMEOUT_SECONDS", 3_600u64).clamp(60, 86_400));
+pub static VIDEO_PROCESSING_LEASE_SECONDS: LazyLock<u64> =
+    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_LEASE_SECONDS", 120u64).clamp(30, 3_600));
+pub static VIDEO_PROCESSING_MAX_ATTEMPTS: LazyLock<i32> =
+    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_MAX_ATTEMPTS", 3i32).clamp(1, 10));
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
@@ -208,7 +218,15 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
     let config_routes = Router::new()
         .route("/", get(config_select).put(config_update))
         .route("/cms", get(cms_config_select).put(cms_config_update))
-        .route("/branding", get(branding_config_select));
+        .route("/branding", get(branding_config_select))
+        .route(
+            "/video-profiles",
+            get(video_profile_select).post(video_profile_insert),
+        )
+        .route(
+            "/video-profiles/{id}",
+            delete(video_profile_delete).put(video_profile_update),
+        );
 
     let locale_routes = Router::new()
         .route("/", get(locale_select).post(locale_insert))
@@ -255,6 +273,7 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
 
     let media_routes = Router::new()
         .route("/", get(media_select))
+        .route("/{id}/retry-video", post(media_retry_video))
         .route("/{id}", put(media_update).delete(media_delete));
 
     let contact_routes = Router::new()
