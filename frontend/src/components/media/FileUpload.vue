@@ -66,6 +66,7 @@ function uploadBatchId(file: File): string {
 
     const batchId = shortID()
     localStorage.setItem(storageKey, batchId)
+
     return batchId
 }
 
