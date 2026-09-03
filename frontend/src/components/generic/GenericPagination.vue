@@ -139,7 +139,7 @@ function emitUpdate(pageVal: number) {
                 :class="{ 'btn-disabled': p === currentPage }"
                 @click="goto(Number(p))"
             >
-                1{{ p }}
+                {{ p }}
             </button>
             <button v-else class="btn btn-disabled join-item border-t-base-content/20 border-b-base-content/20 w-9">
                 …
