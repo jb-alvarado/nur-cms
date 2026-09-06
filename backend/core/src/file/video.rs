@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use rand::RngExt;
 use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction, postgres::PgPool};
 use tokio::{fs, process::Command, sync::broadcast::Sender, time};
@@ -25,6 +26,7 @@ use crate::{
 };
 
 const JOB_KIND: &str = "video_variants";
+const THUMBNAIL_JOB_KIND: &str = "video_thumbnail";
 const WORKER_IDLE_DELAY: Duration = Duration::from_secs(2);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -36,6 +38,8 @@ struct VideoJob {
     filename: String,
     path: String,
     mime_type: Option<String>,
+    kind: String,
+    source_media_id: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,14 +88,32 @@ struct ProcessedThumbnail {
 }
 
 pub async fn enqueue_video_processing(pool: &PgPool, media_id: i32) -> Result<(), NurError> {
+    enqueue_video_job(pool, media_id, JOB_KIND, None).await
+}
+
+pub async fn enqueue_video_thumbnail(
+    pool: &PgPool,
+    media_id: i32,
+    source_media_id: Option<i32>,
+) -> Result<(), NurError> {
+    enqueue_video_job(pool, media_id, THUMBNAIL_JOB_KIND, source_media_id).await
+}
+
+async fn enqueue_video_job(
+    pool: &PgPool,
+    media_id: i32,
+    kind: &str,
+    source_media_id: Option<i32>,
+) -> Result<(), NurError> {
     let mut transaction = pool.begin().await?;
     let inserted = sqlx::query(
-        r#"INSERT INTO media_processing_jobs (media_id, kind, max_attempts)
-           VALUES ($1, $2, $3)
-           ON CONFLICT (media_id, kind) WHERE status IN ('queued', 'running') DO NOTHING"#,
+        r#"INSERT INTO media_processing_jobs (media_id, kind, source_media_id, max_attempts)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (media_id) WHERE status IN ('queued', 'running') DO NOTHING"#,
     )
     .bind(media_id)
-    .bind(JOB_KIND)
+    .bind(kind)
+    .bind(source_media_id)
     .bind(*VIDEO_PROCESSING_MAX_ATTEMPTS)
     .execute(&mut *transaction)
     .await?;
@@ -253,7 +275,7 @@ async fn claim_job(pool: &PgPool) -> Result<Option<VideoJob>, sqlx::Error> {
 
     let job = sqlx::query_as::<_, VideoJob>(
         r#"SELECT jobs.id, jobs.lease_token, jobs.media_id, media.filename, media.path,
-                  media.type AS mime_type
+                  media.type AS mime_type, jobs.kind, jobs.source_media_id
            FROM media_processing_jobs jobs
            JOIN media ON media.id = jobs.media_id
            WHERE jobs.id = $1"#,
@@ -272,12 +294,13 @@ async fn claim_job(pool: &PgPool) -> Result<Option<VideoJob>, sqlx::Error> {
 }
 
 async fn process_claimed_job(pool: &PgPool, tx: &Sender<String>, job: VideoJob) {
+    let action = if job.kind == THUMBNAIL_JOB_KIND {
+        "thumbnail generation"
+    } else {
+        "video processing"
+    };
     let _ = tx.send(
-        SSEMessage::new(
-            Level::Info,
-            &format!("Video processing started: {}", job.filename),
-        )
-        .to_string(),
+        SSEMessage::new(Level::Info, &format!("{action} started: {}", job.filename)).to_string(),
     );
     let lease_pool = pool.clone();
     let lease_job_id = job.id;
@@ -303,14 +326,22 @@ async fn process_claimed_job(pool: &PgPool, tx: &Sender<String>, job: VideoJob) 
 
     let media_id = job.media_id;
     let filename = job.filename.clone();
-    let result = process_job(pool, tx, &job).await;
+    let result = match job.kind.as_str() {
+        JOB_KIND => process_job(pool, tx, &job).await,
+        THUMBNAIL_JOB_KIND => process_thumbnail_job(pool, &job).await,
+        _ => Err("Unknown video processing job kind.".into()),
+    };
     lease_task.abort();
 
     match result {
         Ok(()) => {
+            let completed = if job.kind == THUMBNAIL_JOB_KIND {
+                "Video thumbnail done"
+            } else {
+                "Video variants done"
+            };
             let _ = tx.send(
-                SSEMessage::new(Level::Success, &format!("Video variants done: {filename}"))
-                    .to_string(),
+                SSEMessage::new(Level::Success, &format!("{completed}: {filename}")).to_string(),
             );
         }
         Err(error) => {
@@ -321,11 +352,7 @@ async fn process_claimed_job(pool: &PgPool, tx: &Sender<String>, job: VideoJob) 
                 error!(job_id = job.id, %update_error, "Failed to store video processing failure");
             }
             let _ = tx.send(
-                SSEMessage::new(
-                    Level::Error,
-                    &format!("Video processing failed: {filename}"),
-                )
-                .to_string(),
+                SSEMessage::new(Level::Error, &format!("{action} failed: {filename}")).to_string(),
             );
         }
     }
@@ -506,6 +533,118 @@ async fn process_job(pool: &PgPool, tx: &Sender<String>, job: &VideoJob) -> Resu
     result
 }
 
+async fn process_thumbnail_job(pool: &PgPool, job: &VideoJob) -> Result<(), String> {
+    if !job
+        .mime_type
+        .as_deref()
+        .is_some_and(|mime| mime.starts_with("video/"))
+    {
+        return Err("The media record is not a video.".into());
+    }
+
+    let source = contained_storage_target(&job.path, &job.filename)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !fs::try_exists(&source)
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        return Err("The uploaded video file no longer exists.".into());
+    }
+    let video_info = probe_video(&source).await?;
+    let stem = Path::new(&job.filename)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Invalid video filename.".to_string())?;
+    let staging_dir = processing_root().join(format!("{}-{}", job.id, job.lease_token));
+    remove_stale_job_staging(job.id, &staging_dir).await?;
+    fs::create_dir_all(&staging_dir)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let result = async {
+        let poster_source = match job.source_media_id {
+            Some(source_media_id) => {
+                let (filename, path, mime_type): (String, String, Option<String>) =
+                    sqlx::query_as("SELECT filename, path, type FROM media WHERE id = $1")
+                        .bind(source_media_id)
+                        .fetch_optional(pool)
+                        .await
+                        .map_err(|error| error.to_string())?
+                        .ok_or_else(|| {
+                            "The selected thumbnail image no longer exists.".to_string()
+                        })?;
+                let extension = image_extension(mime_type.as_deref())
+                    .ok_or_else(|| "The selected thumbnail must be a raster image.".to_string())?;
+                let thumbnail_source = contained_storage_target(&path, &filename)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if !fs::try_exists(&thumbnail_source)
+                    .await
+                    .map_err(|error| error.to_string())?
+                {
+                    return Err("The selected thumbnail image file no longer exists.".into());
+                }
+                let poster_source = staging_dir.join(format!("{stem}--poster-manual.{extension}"));
+                fs::copy(&thumbnail_source, &poster_source)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                poster_source
+            }
+            None => {
+                let seek_ms = random_thumbnail_seek(video_info.duration_ms.unwrap_or_default());
+                let poster_source = staging_dir.join(format!("{stem}--poster-random.jpg"));
+                create_thumbnail_at(&source, &poster_source, video_info.width, seek_ms).await?;
+                poster_source
+            }
+        };
+        let (image_resolutions, image_extensions) = {
+            let configuration = CONFIG.read().await;
+            (
+                configuration.image_resolutions.clone().unwrap_or_default(),
+                configuration.image_extensions.clone().unwrap_or_default(),
+            )
+        };
+        let thumbnails =
+            create_thumbnail_variants(&poster_source, image_resolutions, image_extensions).await?;
+        fs::remove_file(&poster_source)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        let mut transaction = lock_owned_job(pool, job).await?;
+        ensure_output_targets_available(&mut transaction, job, &[], &thumbnails).await?;
+        publish_outputs(&job.path, &[], &thumbnails).await?;
+        persist_thumbnail_outputs(transaction, job, &thumbnails).await
+    }
+    .await;
+
+    if let Err(error) = fs::remove_dir_all(&staging_dir).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        warn!(path = %staging_dir.display(), %error, "Failed to remove video thumbnail staging directory");
+    }
+    result
+}
+
+fn image_extension(mime_type: Option<&str>) -> Option<&'static str> {
+    match mime_type {
+        Some("image/avif") => Some("avif"),
+        Some("image/gif") => Some("gif"),
+        Some("image/jpeg" | "image/jpg") => Some("jpg"),
+        Some("image/png") => Some("png"),
+        Some("image/webp") => Some("webp"),
+        _ => None,
+    }
+}
+
+fn random_thumbnail_seek(duration_ms: i64) -> i64 {
+    if duration_ms <= 1 {
+        return 0;
+    }
+    rand::rng().random_range(0..duration_ms)
+}
+
 async fn remove_stale_job_staging(job_id: i64, current: &Path) -> Result<(), String> {
     let root = processing_root();
     let mut entries = match fs::read_dir(&root).await {
@@ -636,8 +775,26 @@ async fn create_thumbnails(
     let poster_source = staging_dir.join(format!("{stem}--poster.jpg"));
     create_thumbnail(source, &poster_source, source_width, duration_ms).await?;
 
+    let variants =
+        create_thumbnail_variants(&poster_source, image_resolutions, image_extensions).await?;
+
+    fs::remove_file(&poster_source)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(variants)
+}
+
+async fn create_thumbnail_variants(
+    poster_source: &Path,
+    image_resolutions: Vec<i32>,
+    image_extensions: Vec<String>,
+) -> Result<Vec<ProcessedThumbnail>, String> {
+    if image_extensions.is_empty() {
+        return Err("At least one image extension must be configured for video posters.".into());
+    }
     let variants = tokio::task::spawn_blocking({
-        let poster_source = poster_source.clone();
+        let poster_source = poster_source.to_path_buf();
         move || {
             save_image(image_resolutions, &image_extensions, &poster_source, None)
                 .map_err(|error| error.to_string())
@@ -645,10 +802,6 @@ async fn create_thumbnails(
     })
     .await
     .map_err(|error| error.to_string())??;
-
-    fs::remove_file(&poster_source)
-        .await
-        .map_err(|error| error.to_string())?;
 
     if variants.is_empty() {
         return Err("No image variants were generated for the video poster.".into());
@@ -658,7 +811,7 @@ async fn create_thumbnails(
         .into_iter()
         .map(|(width, height, filename)| {
             Ok(ProcessedThumbnail {
-                staging_path: staging_dir.join(&filename),
+                staging_path: poster_source.with_file_name(&filename),
                 filename,
                 width,
                 height,
@@ -821,6 +974,76 @@ async fn persist_outputs(
     Ok(())
 }
 
+async fn persist_thumbnail_outputs(
+    mut transaction: Transaction<'_, Postgres>,
+    job: &VideoJob,
+    thumbnails: &[ProcessedThumbnail],
+) -> Result<(), String> {
+    let old_thumbnail_filenames =
+        sqlx::query_scalar::<_, String>("SELECT filename FROM media_variants WHERE media_id = $1")
+            .bind(job.media_id)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|error| error.to_string())?;
+    sqlx::query("DELETE FROM media_variants WHERE media_id = $1")
+        .bind(job.media_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    for thumbnail in thumbnails {
+        sqlx::query(
+            r#"INSERT INTO media_variants (media_id, width, height, filename)
+               VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(job.media_id)
+        .bind(thumbnail.width)
+        .bind(thumbnail.height)
+        .bind(&thumbnail.filename)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+    let completed = sqlx::query(
+        "UPDATE media_processing_jobs SET status = 'completed', finished_at = now(), locked_at = NULL, lease_expires_at = NULL, lease_token = NULL, last_error = NULL, updated_at = now() WHERE id = $1 AND lease_token = $2 AND status = 'running'",
+    )
+    .bind(job.id)
+    .bind(&job.lease_token)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| error.to_string())?;
+    if completed.rows_affected() != 1 {
+        return Err("Video processing lease was lost during thumbnail publication.".into());
+    }
+    sqlx::query("UPDATE media SET processing_status = 'completed' WHERE id = $1")
+        .bind(job.media_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| error.to_string())?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let current_names: HashSet<&str> = thumbnails
+        .iter()
+        .map(|thumbnail| thumbnail.filename.as_str())
+        .collect();
+    for filename in old_thumbnail_filenames
+        .into_iter()
+        .filter(|filename| !current_names.contains(filename.as_str()))
+    {
+        let path = contained_storage_target(&job.path, &filename)
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Err(error) = fs::remove_file(&path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            warn!(path = %path.display(), %error, "Failed to remove replaced video thumbnail");
+        }
+    }
+    Ok(())
+}
+
 async fn encode_variant(
     source: &Path,
     output: &Path,
@@ -872,6 +1095,15 @@ async fn create_thumbnail(
     duration_ms: i64,
 ) -> Result<(), String> {
     let seek_ms = (duration_ms / 10).clamp(0, 1_000);
+    create_thumbnail_at(source, output, width, seek_ms).await
+}
+
+async fn create_thumbnail_at(
+    source: &Path,
+    output: &Path,
+    width: u32,
+    seek_ms: i64,
+) -> Result<(), String> {
     run_ffmpeg(vec![
         "-ss".into(),
         format!("{}.{:03}", seek_ms / 1_000, seek_ms % 1_000),
@@ -1127,8 +1359,8 @@ mod tests {
     use crate::db::models::VideoProfileArg;
 
     use super::{
-        VideoInfo, VideoProfile, enqueue_video_processing, profile_command_args,
-        validate_video_profile,
+        VideoInfo, VideoProfile, enqueue_video_processing, enqueue_video_thumbnail,
+        profile_command_args, random_thumbnail_seek, validate_video_profile,
     };
 
     const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -1217,6 +1449,14 @@ mod tests {
         assert_eq!(info.width * info.height, 2_073_600);
     }
 
+    #[test]
+    fn random_thumbnail_seek_stays_within_the_video_duration() {
+        for _ in 0..32 {
+            assert!((0..2).contains(&random_thumbnail_seek(2)));
+        }
+        assert_eq!(random_thumbnail_seek(1), 0);
+    }
+
     #[sqlx::test(migrator = "MIGRATOR")]
     async fn does_not_reset_an_active_job_when_enqueued_twice(pool: PgPool) {
         let media_id: i32 = sqlx::query_scalar(
@@ -1241,5 +1481,24 @@ mod tests {
         .await
         .expect("jobs can be counted");
         assert_eq!(jobs, 1);
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn thumbnail_jobs_do_not_run_alongside_video_processing(pool: PgPool) {
+        let media_id: i32 = sqlx::query_scalar(
+            "INSERT INTO media (filename, path, type) VALUES ('video.mp4', '/uploads', 'video/mp4') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("video can be inserted");
+        enqueue_video_processing(&pool, media_id)
+            .await
+            .expect("video processing can be queued");
+
+        let thumbnail = enqueue_video_thumbnail(&pool, media_id, None).await;
+        assert!(matches!(
+            thumbnail,
+            Err(crate::utils::errors::NurError::Conflict(_))
+        ));
     }
 }

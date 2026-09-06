@@ -539,6 +539,9 @@ Update fields: `entry_id`, `parent_id`, `user_id`, `author_name`,
 | `GET`    | `/api/media`      | `admin`, `author`, `user` |
 | `PUT`    | `/api/media/{id}` | `admin`, `author`         |
 | `DELETE` | `/api/media/{id}` | `admin`, `author`         |
+| `POST`   | `/api/media/{id}/retry-video` | `admin`, `author` |
+| `PUT`    | `/api/media/{id}/thumbnail` | `admin`, `author` |
+| `POST`   | `/api/media/{id}/regenerate-thumbnail` | `admin`, `author` |
 
 Additional GET filters:
 
@@ -558,6 +561,22 @@ An update accepts only `alt` and `filename`:
 
 The file extension cannot be changed. Deleting a media record removes the
 original file, its variants, and the database record.
+
+For a video, `PUT /api/media/{id}/thumbnail` selects an existing raster image
+as a replacement poster. The request body is:
+
+```json
+{
+    "media_id": 42
+}
+```
+
+The CMS generates poster variants from that image and replaces the previous
+poster variants after the job succeeds. The selected source image remains a
+normal library item; the generated poster files belong to the video and are
+removed with it. `POST /api/media/{id}/regenerate-thumbnail` instead creates a
+poster from a randomly chosen position in the video. Both operations run as
+background jobs and cannot run while the video is otherwise being processed.
 
 ### Upload status
 

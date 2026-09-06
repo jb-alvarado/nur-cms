@@ -216,6 +216,9 @@ export default {
         size: 'Size',
         uploaded: 'Uploaded',
         retryVideo: 'Retry processing',
+        replaceThumbnail: 'Replace thumbnail',
+        regenerateThumbnail: 'Generate new thumbnail',
+        thumbnailQueued: 'Thumbnail generation has been queued.',
         processingStatus: 'Processing',
         videoRetryQueued: 'Video processing has been queued.',
         processing: {

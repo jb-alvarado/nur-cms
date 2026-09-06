@@ -5,6 +5,7 @@ use axum::{
     extract::{OriginalUri, Path, Query, State},
 };
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
+use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
@@ -276,6 +277,83 @@ pub async fn media_retry_video(
     crate::file::video::enqueue_video_processing(&pool, id).await
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoThumbnailSource {
+    pub media_id: i32,
+}
+
+pub async fn media_replace_video_thumbnail(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+    Json(source): Json<VideoThumbnailSource>,
+) -> Result<(), NurError> {
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+    if id == source.media_id {
+        return Err(NurError::BadRequest(
+            "A video cannot be its own thumbnail.".into(),
+        ));
+    }
+    ensure_video_ready_for_thumbnail(&pool, id).await?;
+    let usable_image = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM media WHERE id = $1 AND type IN ('image/avif', 'image/gif', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'))",
+    )
+    .bind(source.media_id)
+    .fetch_one(&pool)
+    .await?;
+    if !usable_image {
+        return Err(NurError::BadRequest(
+            "The thumbnail must be an uploaded raster image.".into(),
+        ));
+    }
+
+    crate::file::video::enqueue_video_thumbnail(&pool, id, Some(source.media_id)).await
+}
+
+pub async fn media_regenerate_video_thumbnail(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    Path(id): Path<i32>,
+    details: AuthDetails<Role>,
+) -> Result<(), NurError> {
+    if !details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+    ensure_video_ready_for_thumbnail(&pool, id).await?;
+    crate::file::video::enqueue_video_thumbnail(&pool, id, None).await
+}
+
+async fn ensure_video_ready_for_thumbnail(pool: &PgPool, id: i32) -> Result<(), NurError> {
+    let video_status = sqlx::query_as::<_, (Option<String>, String)>(
+        "SELECT type, processing_status FROM media WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(NurError::NotFound)?;
+    if !video_status
+        .0
+        .as_deref()
+        .is_some_and(|mime| mime.starts_with("video/"))
+    {
+        return Err(NurError::BadRequest(
+            "The media item is not a video.".into(),
+        ));
+    }
+    if matches!(video_status.1.as_str(), "queued" | "processing") {
+        return Err(NurError::Conflict(
+            "The video is still being processed.".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use sqlx::PgPool;
@@ -283,7 +361,7 @@ mod tests {
     const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
     #[sqlx::test(migrator = "MIGRATOR")]
-    async fn deleting_a_video_cascades_its_poster_variants(pool: PgPool) {
+    async fn deleting_a_video_cascades_its_generated_poster_variants(pool: PgPool) {
         let video_id: i32 = sqlx::query_scalar(
             "INSERT INTO media (filename, path, type) VALUES ('video.mp4', '/uploads', 'video/mp4') RETURNING id",
         )
@@ -291,7 +369,7 @@ mod tests {
         .await
         .expect("video can be inserted");
         sqlx::query(
-            "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, 320, 180, 'video--poster-320.jpg')",
+            "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, 320, 180, 'video--poster-manual-320.jpg')",
         )
         .bind(video_id)
         .execute(&pool)

@@ -5,7 +5,8 @@ CHECK (processing_status IN ('queued', 'processing', 'completed', 'failed'));
 CREATE TABLE media_processing_jobs (
     id BIGSERIAL PRIMARY KEY,
     media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
-    kind VARCHAR(32) NOT NULL CHECK (kind IN ('video_variants')),
+    source_media_id INT REFERENCES media (id) ON DELETE SET NULL,
+    kind VARCHAR(32) NOT NULL CHECK (kind IN ('video_variants', 'video_thumbnail')),
     status VARCHAR(16) NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'completed', 'failed')),
     attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -20,8 +21,8 @@ CREATE TABLE media_processing_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX media_processing_jobs_active_media_kind_idx
-ON media_processing_jobs (media_id, kind)
+CREATE UNIQUE INDEX media_processing_jobs_active_media_idx
+ON media_processing_jobs (media_id)
 WHERE status IN ('queued', 'running');
 
 CREATE INDEX media_processing_jobs_claim_idx

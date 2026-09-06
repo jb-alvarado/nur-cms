@@ -47,7 +47,11 @@ watch([data], () => {
         try {
             const msg = JSON.parse(data.value) as SSEMessage
             store.msgAlert(msg.variance, msg.text)
-            if (msg.text.startsWith('Variants done:') || msg.text.startsWith('Video variants done:')) {
+            if (
+                msg.text.startsWith('Variants done:') ||
+                msg.text.startsWith('Video variants done:') ||
+                msg.text.startsWith('Video thumbnail done:')
+            ) {
                 window.dispatchEvent(new Event('nur-cms:media-variants-ready'))
             }
         } catch {

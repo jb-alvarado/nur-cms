@@ -274,6 +274,11 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
     let media_routes = Router::new()
         .route("/", get(media_select))
         .route("/{id}/retry-video", post(media_retry_video))
+        .route("/{id}/thumbnail", put(media_replace_video_thumbnail))
+        .route(
+            "/{id}/regenerate-thumbnail",
+            post(media_regenerate_video_thumbnail),
+        )
         .route("/{id}", put(media_update).delete(media_delete));
 
     let contact_routes = Router::new()

@@ -219,6 +219,9 @@ export default {
         altText: 'Alt-Text',
         filename: 'Dateiname',
         retryVideo: 'Verarbeitung erneut starten',
+        replaceThumbnail: 'Thumbnail ersetzen',
+        regenerateThumbnail: 'Neues Thumbnail erzeugen',
+        thumbnailQueued: 'Die Thumbnail-Erzeugung wurde eingereiht.',
         processingStatus: 'Verarbeitung',
         videoRetryQueued: 'Die Videoverarbeitung wurde eingereiht.',
         processing: {
