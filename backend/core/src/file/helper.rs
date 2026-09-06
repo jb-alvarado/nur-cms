@@ -889,10 +889,17 @@ fn is_generated_variant_filename(filename: &str, stem: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_generated_variant_filename, is_upload_complete, merge_ranges, safe_file_name,
-        storage_relative_path, uploading_path,
+        delete_media_file, is_generated_variant_filename, is_upload_complete, merge_ranges,
+        safe_file_name, storage_relative_path, uploading_path,
     };
-    use std::{ops::Range, path::Path};
+    use crate::{
+        STORAGE,
+        db::serialize::{MediaSerializer, MediaVariantSerializer},
+    };
+    use std::{
+        ops::Range,
+        path::{Path, PathBuf},
+    };
 
     #[test]
     fn merges_overlapping_and_adjacent_ranges() {
@@ -946,5 +953,52 @@ mod tests {
         ));
         assert!(!is_generated_variant_filename("photo-320", "photo"));
         assert!(!is_generated_variant_filename("other-320.jpg", "photo"));
+    }
+
+    #[tokio::test]
+    async fn deleting_a_video_removes_its_recorded_thumbnail_files() {
+        let directory_name = format!("video-delete-test-{}", uuid::Uuid::new_v4());
+        let storage_root = PathBuf::from(STORAGE.as_str());
+        let directory = storage_root.join(&directory_name);
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("test directory can be created");
+        let video = directory.join("video.mp4");
+        let poster = directory.join("video--1--poster-320.webp");
+        tokio::fs::write(&video, b"video")
+            .await
+            .expect("video file can be written");
+        tokio::fs::write(&poster, b"poster")
+            .await
+            .expect("poster file can be written");
+        let media = MediaSerializer {
+            filename: Some("video.mp4".into()),
+            path: Some(format!("/uploads/{directory_name}")),
+            variants: vec![MediaVariantSerializer {
+                id: 1,
+                width: 320,
+                height: 180,
+                filename: "video--1--poster-320.webp".into(),
+            }],
+            ..Default::default()
+        };
+
+        delete_media_file(&media)
+            .await
+            .expect("video and poster can be deleted");
+
+        assert!(
+            !tokio::fs::try_exists(video)
+                .await
+                .expect("video can be checked")
+        );
+        assert!(
+            !tokio::fs::try_exists(poster)
+                .await
+                .expect("poster can be checked")
+        );
+        tokio::fs::remove_dir(directory)
+            .await
+            .expect("test directory can be removed");
     }
 }

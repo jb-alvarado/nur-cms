@@ -6,7 +6,11 @@ CREATE TABLE media_processing_jobs (
     id BIGSERIAL PRIMARY KEY,
     media_id INT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
     source_media_id INT REFERENCES media (id) ON DELETE SET NULL,
-    kind VARCHAR(32) NOT NULL CHECK (kind IN ('video_variants', 'video_thumbnail')),
+    kind VARCHAR(32) NOT NULL CHECK (kind IN (
+        'video_variants',
+        'video_thumbnail_manual',
+        'video_thumbnail_random'
+    )),
     status VARCHAR(16) NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'completed', 'failed')),
     attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),

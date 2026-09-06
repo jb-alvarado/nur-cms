@@ -3,6 +3,7 @@ import { ref, onBeforeUnmount, watch } from 'vue'
 import { useEventSource } from '@vueuse/core'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores'
+import { filenameFromProcessingMessage } from '@/utils/mediaProcessing'
 
 const auth = useAuth()
 const store = useIndex()
@@ -47,12 +48,13 @@ watch([data], () => {
         try {
             const msg = JSON.parse(data.value) as SSEMessage
             store.msgAlert(msg.variance, msg.text)
-            if (
-                msg.text.startsWith('Variants done:') ||
-                msg.text.startsWith('Video variants done:') ||
-                msg.text.startsWith('Video thumbnail done:')
-            ) {
-                window.dispatchEvent(new Event('nur-cms:media-variants-ready'))
+            const mediaFilename = filenameFromProcessingMessage(msg.text)
+            if (mediaFilename) {
+                window.dispatchEvent(
+                    new CustomEvent('nur-cms:media-variants-ready', {
+                        detail: { filename: mediaFilename, mediaId: msg.media_id },
+                    }),
+                )
             }
         } catch {
             store.msgAlert('error', data.value)

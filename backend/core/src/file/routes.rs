@@ -479,7 +479,8 @@ pub async fn upload_chunk(
                         let msg = SSEMessage::new(
                             Level::Success,
                             &format!("Variants done: {completed_file_name}"),
-                        );
+                        )
+                        .with_media_id(media_id);
                         let _ = tx.send(msg.to_string());
                     }
                     Err(error) => {
@@ -487,7 +488,8 @@ pub async fn upload_chunk(
                         let msg = SSEMessage::new(
                             Level::Error,
                             &format!("Variant generation failed: {completed_file_name}"),
-                        );
+                        )
+                        .with_media_id(media_id);
                         let _ = tx.send(msg.to_string());
                     }
                 }

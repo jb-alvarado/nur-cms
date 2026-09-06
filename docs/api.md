@@ -879,7 +879,17 @@ Accept: text/event-stream
 The UUID is bound to the client IP and, where applicable, the user ID. It
 cannot be reused arbitrarily. The backend sends a `ping` event immediately
 after establishing the connection. Further events contain JSON-serialized
-status and error messages, such as upload and image-variant updates.
+status and error messages, such as upload and image-variant updates. Events
+associated with a specific media record include its `media_id` so clients can
+correlate concurrent background jobs:
+
+```json
+{
+    "variance": "success",
+    "text": "Video thumbnail done: clip.mp4",
+    "media_id": 42
+}
+```
 
 ## Rate limits
 

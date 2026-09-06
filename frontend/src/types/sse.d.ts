@@ -2,4 +2,4 @@
 
 export type SSELevel = "error" | "info" | "success" | "warning";
 
-export type SSEMessage = { variance: SSELevel, text: string, };
+export type SSEMessage = { variance: SSELevel, text: string, media_id?: number, };

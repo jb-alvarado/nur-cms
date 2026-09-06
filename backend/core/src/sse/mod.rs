@@ -81,6 +81,9 @@ impl fmt::Display for SSELevel {
 pub struct SSEMessage {
     pub variance: SSELevel,
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub media_id: Option<i32>,
 }
 
 impl SSEMessage {
@@ -88,7 +91,13 @@ impl SSEMessage {
         Self {
             variance,
             text: text.to_owned(),
+            media_id: None,
         }
+    }
+
+    pub fn with_media_id(mut self, media_id: i32) -> Self {
+        self.media_id = Some(media_id);
+        self
     }
 }
 
@@ -128,5 +137,30 @@ pub fn check_uuid(
             Ok("UUID is valid")
         }
         None => Err(NurError::Forbidden("Invalid or expired UUID".to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SSELevel, SSEMessage};
+
+    #[test]
+    fn media_events_include_the_affected_media_id() {
+        let message = SSEMessage::new(SSELevel::Success, "Video thumbnail done: clip.mp4")
+            .with_media_id(42)
+            .to_string();
+        let json: serde_json::Value =
+            serde_json::from_str(&message).expect("SSE message is valid JSON");
+
+        assert_eq!(json["media_id"], 42);
+    }
+
+    #[test]
+    fn unrelated_events_do_not_include_an_empty_media_id() {
+        let message = SSEMessage::new(SSELevel::Info, "Ready").to_string();
+        let json: serde_json::Value =
+            serde_json::from_str(&message).expect("SSE message is valid JSON");
+
+        assert!(json.get("media_id").is_none());
     }
 }

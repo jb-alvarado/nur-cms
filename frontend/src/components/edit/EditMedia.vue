@@ -34,11 +34,12 @@ selectMedia()
 onMounted(() => window.addEventListener('nur-cms:media-variants-ready', refreshAfterThumbnail))
 onBeforeUnmount(() => window.removeEventListener('nur-cms:media-variants-ready', refreshAfterThumbnail))
 
-async function refreshAfterThumbnail() {
-    if (!thumbnailQueued.value) return
+async function refreshAfterThumbnail(event: Event) {
+    const detail = event instanceof CustomEvent ? (event.detail as { mediaId?: unknown }) : undefined
+    if (!thumbnailQueued.value || detail?.mediaId !== props.id) return
 
-    thumbnailQueued.value = false
     await selectMedia()
+    thumbnailQueued.value = ['queued', 'processing'].includes(media.value.processing_status ?? '')
 }
 
 async function selectMedia() {

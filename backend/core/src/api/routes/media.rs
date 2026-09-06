@@ -346,9 +346,9 @@ async fn ensure_video_ready_for_thumbnail(pool: &PgPool, id: i32) -> Result<(), 
             "The media item is not a video.".into(),
         ));
     }
-    if matches!(video_status.1.as_str(), "queued" | "processing") {
+    if video_status.1 != "completed" {
         return Err(NurError::Conflict(
-            "The video is still being processed.".into(),
+            "The video must finish processing before its thumbnail can be changed.".into(),
         ));
     }
     Ok(())
@@ -369,7 +369,7 @@ mod tests {
         .await
         .expect("video can be inserted");
         sqlx::query(
-            "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, 320, 180, 'video--poster-manual-320.jpg')",
+            "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, 320, 180, 'video--poster-320.jpg')",
         )
         .bind(video_id)
         .execute(&pool)
