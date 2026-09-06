@@ -40,7 +40,7 @@ export function shortID(): string {
     return id
 }
 
-export function mediaPath(media: Media): string {
+export function mediaPath(media: Media, preferredWidth = 320): string {
     if (media.type?.startsWith('video/')) {
         if (media.video_variants && media.video_variants.length > 0) {
             let variance = media.video_variants[0]
@@ -57,9 +57,9 @@ export function mediaPath(media: Media): string {
         return `${media.path}/${media.filename}`
     }
     if (media.variants && media.variants.length > 0) {
-        const variance320 = media.variants.find((v) => v.width === 320)
-        if (variance320) {
-            return `${media.path}/${variance320.filename}`
+        const variants = media.variants.find((v) => v.width === preferredWidth)
+        if (variants) {
+            return `${media.path}/${variants.filename}`
         }
     }
     return `${media.path}/${media.filename}`

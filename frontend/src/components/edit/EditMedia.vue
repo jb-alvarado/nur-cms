@@ -134,19 +134,19 @@ async function updateMedia() {
 }
 </script>
 <template>
-    <div class="flex gap-4">
-        <div class="mt-3">
-            <img v-if="media.type?.startsWith('image/')" :src="mediaPath(media)" :alt="media.alt ?? ''" width="210" />
+    <div class="flex flex-wrap gap-4">
+        <div class="mt-3 mx-auto">
+            <img v-if="media.type?.startsWith('image/')" :src="mediaPath(media, 768)" :alt="media.alt ?? ''" width="100%" class="w-full md:max-w-150 lg:max-w-100" />
             <video
                 v-else-if="media.type?.startsWith('video/')"
                 :src="mediaPath(media)"
                 controls
                 preload="metadata"
-                width="210"
+                class="w-full lg:max-w-100"
             />
             <i v-else class="bi bi-file-earmark text-8xl"></i>
         </div>
-        <div class="grow">
+        <div class="grow w-full lg:max-w-84">
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('media.altText') }}</legend>
                 <input v-model="media.alt" type="text" class="input w-full" :placeholder="$t('media.alt')" />
@@ -156,7 +156,6 @@ async function updateMedia() {
                 <input v-model="media.filename" type="text" class="input w-full" :placeholder="$t('media.filename')" />
             </fieldset>
             <div v-if="media.type?.startsWith('video/')" class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                <span class="me-auto">{{ $t(`media.processing.${media.processing_status ?? 'completed'}`) }}</span>
                 <button
                     v-if="media.processing_status === 'failed'"
                     type="button"
@@ -181,6 +180,7 @@ async function updateMedia() {
                 >
                     {{ $t('media.regenerateThumbnail') }}
                 </button>
+                <span class="me-auto">{{ $t(`media.processing.${media.processing_status ?? 'completed'}`) }}</span>
             </div>
         </div>
     </div>

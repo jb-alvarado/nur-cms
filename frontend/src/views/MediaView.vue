@@ -296,7 +296,7 @@ function resetUpload() {
             <p>{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>
         </GenericModal>
 
-        <GenericModal ref="editModal" :key="editID" :title="$t('media.editTitle')" width="2xl" :ok-action="runUpdate">
+        <GenericModal ref="editModal" :key="editID" :title="$t('media.editTitle')" width="200" :ok-action="runUpdate">
             <EditMedia ref="updater" :id="editID" />
         </GenericModal>
     </div>
