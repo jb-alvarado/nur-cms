@@ -52,7 +52,7 @@ watch([data], () => {
             if (mediaFilename) {
                 window.dispatchEvent(
                     new CustomEvent('nur-cms:media-variants-ready', {
-                        detail: { filename: mediaFilename, mediaId: msg.media_id },
+                        detail: { filename: mediaFilename, mediaId: msg.media_id, message: msg.text },
                     }),
                 )
             }

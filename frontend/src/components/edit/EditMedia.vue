@@ -35,11 +35,13 @@ onMounted(() => window.addEventListener('nur-cms:media-variants-ready', refreshA
 onBeforeUnmount(() => window.removeEventListener('nur-cms:media-variants-ready', refreshAfterThumbnail))
 
 async function refreshAfterThumbnail(event: Event) {
-    const detail = event instanceof CustomEvent ? (event.detail as { mediaId?: unknown }) : undefined
+    const detail =
+        event instanceof CustomEvent ? (event.detail as { mediaId?: unknown; message?: unknown }) : undefined
     if (!thumbnailQueued.value || detail?.mediaId !== props.id) return
+    if (typeof detail.message === 'string' && detail.message.includes('retry queued:')) return
 
     await selectMedia()
-    thumbnailQueued.value = ['queued', 'processing'].includes(media.value.processing_status ?? '')
+    thumbnailQueued.value = false
 }
 
 async function selectMedia() {
@@ -84,7 +86,6 @@ async function replaceThumbnail(thumbnail: Media) {
     })
         .then(() => {
             thumbnailQueued.value = true
-            media.value.processing_status = 'queued'
             thumbnailModal.value?.close()
             store.msgAlert('success', t('media.thumbnailQueued'))
         })
@@ -95,7 +96,6 @@ async function regenerateThumbnail() {
     await authFetch(`/api/media/${props.id}/regenerate-thumbnail`, { method: 'POST' })
         .then(() => {
             thumbnailQueued.value = true
-            media.value.processing_status = 'queued'
             store.msgAlert('success', t('media.thumbnailQueued'))
         })
         .catch((err) => store.msgAlert('error', err))
@@ -180,7 +180,9 @@ async function updateMedia() {
                 >
                     {{ $t('media.regenerateThumbnail') }}
                 </button>
-                <span class="me-auto">{{ $t(`media.processing.${media.processing_status ?? 'completed'}`) }}</span>
+                <span class="me-auto">
+                    {{ $t(`media.processing.${thumbnailQueued ? 'queued' : (media.processing_status ?? 'completed')}`) }}
+                </span>
             </div>
         </div>
     </div>

@@ -15,11 +15,11 @@ use tokio::{fs, sync::broadcast::Sender, task};
 use tracing::{error, info};
 
 use crate::{
-    AuthUserMeta, CONFIG, MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE, PUBLIC_UPLOADS, STORAGE,
+    AuthUserMeta, CONFIG, ENTRY_CACHE, MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE, PUBLIC_UPLOADS, STORAGE,
     db::models::Role,
     file::{
         helper::*,
-        video::{enqueue_video_processing, mark_video_processing_failed},
+        video::{enqueue_video_processing, ensure_video_processing, mark_video_processing_failed},
     },
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
@@ -101,6 +101,7 @@ fn upload_names(original_filename: &str) -> Result<(String, String), NurError> {
         matches!(components.next(), Some(std::path::Component::Normal(_)))
             && components.next().is_none();
     if original_filename.is_empty()
+        || original_filename.len() > MAX_FILENAME_LENGTH
         || !is_single_normal_component
         || original_filename.chars().any(char::is_control)
     {
@@ -119,7 +120,7 @@ fn upload_names(original_filename: &str) -> Result<(String, String), NurError> {
     Ok((filename, mime_type))
 }
 
-fn web_video_filename(original_filename: &str) -> Result<String, NurError> {
+pub(crate) fn web_video_filename(original_filename: &str) -> Result<String, NurError> {
     let path = Path::new(original_filename);
     let stem = path
         .file_stem()
@@ -154,9 +155,16 @@ fn web_video_filename(original_filename: &str) -> Result<String, NurError> {
     Ok(format!("{stem}.{}", extension.to_ascii_lowercase()))
 }
 
+fn valid_batch_id(batch_id: &str) -> bool {
+    (7..=MAX_BATCH_ID_LENGTH).contains(&batch_id.len())
+        && batch_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{upload_names, validate_mime_type};
+    use super::{upload_names, valid_batch_id, validate_mime_type, web_video_filename};
 
     #[test]
     fn accepts_svg_uploads() {
@@ -171,6 +179,24 @@ mod tests {
         let (filename, mime_type) = upload_names("My Sermon 2026!.MP4").unwrap();
         assert_eq!(filename, "my-sermon-2026.mp4");
         assert_eq!(mime_type, "video/mp4");
+    }
+
+    #[test]
+    fn normalizes_video_names_consistently() {
+        assert_eq!(
+            web_video_filename("Ä Nice...VIDEO_file!.WebM").unwrap(),
+            "nice...video_file.webm"
+        );
+        assert!(web_video_filename("!!.mp4").is_err());
+        assert!(web_video_filename("clip.m-p4").is_err());
+    }
+
+    #[test]
+    fn accepts_safe_uuid_and_legacy_batch_ids() {
+        assert!(valid_batch_id("550e8400-e29b-41d4-a716-446655440000"));
+        assert!(valid_batch_id("aHcyWqp"));
+        assert!(valid_batch_id("dundefinedGundefinedbmw"));
+        assert!(!valid_batch_id("../../upload"));
     }
 }
 
@@ -260,10 +286,9 @@ pub async fn upload_status(
         ));
     }
 
-    let (file_name, _) = upload_names(&query.file_name)?;
+    let (file_name, mime_type) = upload_names(&query.file_name)?;
     if file_name.len() > MAX_FILENAME_LENGTH
-        || query.batch_id.is_empty()
-        || query.batch_id.len() > MAX_BATCH_ID_LENGTH
+        || !valid_batch_id(&query.batch_id)
         || query.size == 0
         || query.size > *MAX_UPLOAD_SIZE
     {
@@ -275,26 +300,32 @@ pub async fn upload_status(
     ensure_upload_directory(&output_file).await?;
     let file_path = public_upload_path(&output_file);
 
-    if let Some(existing_upload_id) = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT upload_id FROM media WHERE filename = $1 AND path = $2",
-    )
-    .bind(&file_name)
-    .bind(&file_path)
-    .fetch_optional(&pool)
-    .await?
+    if let Some((media_id, existing_upload_id, uploaded_by)) =
+        sqlx::query_as::<_, (i32, Option<String>, Option<i32>)>(
+            "SELECT id, upload_id, uploaded_by FROM media WHERE filename = $1 AND path = $2",
+        )
+        .bind(&file_name)
+        .bind(&file_path)
+        .fetch_optional(&pool)
+        .await?
     {
         if existing_upload_id.as_deref() == Some(query.batch_id.as_str())
-            && fs::try_exists(&output_file).await?
+            && uploaded_by == Some(user.id)
         {
-            return Ok(Json(UploadStatus {
-                received_ranges: Vec::new(),
-                complete: true,
-            }));
+            if fs::try_exists(&output_file).await? {
+                if mime_type.starts_with("video/") {
+                    ensure_video_processing(&pool, media_id).await?;
+                }
+                return Ok(Json(UploadStatus {
+                    received_ranges: Vec::new(),
+                    complete: true,
+                }));
+            }
+        } else {
+            return Err(NurError::Conflict(format!(
+                "File '{file_name}' already exists in database."
+            )));
         }
-
-        return Err(NurError::Conflict(format!(
-            "File '{file_name}' already exists in database."
-        )));
     }
 
     let upload = get_or_create_upload(query.size, &output_file, &query.batch_id, user.id).await?;
@@ -345,10 +376,9 @@ pub async fn upload_chunk(
     let chunk_data = chunk_data.ok_or_else(|| NurError::BadRequest("Missing chunk".into()))?;
     if original_filename.is_empty()
         || original_filename.len() > MAX_FILENAME_LENGTH
-        || batch_id.is_empty()
-        || batch_id.len() > MAX_BATCH_ID_LENGTH
+        || !valid_batch_id(&batch_id)
     {
-        return Err(NurError::BadRequest("Missing batch id".into()));
+        return Err(NurError::BadRequest("Invalid upload metadata".into()));
     }
     cleanup_stale_uploads().await;
 
@@ -383,31 +413,38 @@ pub async fn upload_chunk(
 
     let file_path = public_upload_path(&output_file);
 
-    let upload =
-        if let Some(upload) = get_active_upload(&output_file, &batch_id, user.id, size).await? {
-            upload
-        } else {
-            if let Some(existing_upload_id) = sqlx::query_scalar::<_, Option<String>>(
-                "SELECT upload_id FROM media WHERE filename = $1 AND path = $2",
+    let upload = if let Some(upload) =
+        get_active_upload(&output_file, &batch_id, user.id, size).await?
+    {
+        upload
+    } else {
+        if let Some((media_id, existing_upload_id, uploaded_by)) =
+            sqlx::query_as::<_, (i32, Option<String>, Option<i32>)>(
+                "SELECT id, upload_id, uploaded_by FROM media WHERE filename = $1 AND path = $2",
             )
             .bind(&file_name)
             .bind(&file_path)
             .fetch_optional(&pool)
             .await?
+        {
+            if existing_upload_id.as_deref() == Some(batch_id.as_str())
+                && uploaded_by == Some(user.id)
             {
-                if existing_upload_id.as_deref() == Some(batch_id.as_str())
-                    && fs::try_exists(&output_file).await?
-                {
+                if fs::try_exists(&output_file).await? {
+                    if validate_mime_type(&file_name)?.starts_with("video/") {
+                        ensure_video_processing(&pool, media_id).await?;
+                    }
                     return Ok(StatusCode::OK);
                 }
-
+            } else {
                 return Err(NurError::Conflict(format!(
                     "File '{file_name}' already exists in database."
                 )));
             }
+        }
 
-            get_or_create_upload(size, &output_file, &batch_id, user.id).await?
-        };
+        get_or_create_upload(size, &output_file, &batch_id, user.id).await?
+    };
     let should_finalize = write_upload_chunk(&upload, start, end, &chunk_data).await?;
     let alt = Path::new(&original_filename)
         .file_stem()
@@ -440,6 +477,7 @@ pub async fn upload_chunk(
                                 Level::Info,
                                 &format!("Video processing queued: {file_name}"),
                             )
+                            .with_media_id(media_id)
                             .to_string(),
                         );
                     }
@@ -451,6 +489,7 @@ pub async fn upload_chunk(
                                 Level::Error,
                                 &format!("Video processing could not be queued: {file_name}"),
                             )
+                            .with_media_id(media_id)
                             .to_string(),
                         );
                     }
@@ -476,6 +515,7 @@ pub async fn upload_chunk(
                 .await
                 {
                     Ok(()) => {
+                        ENTRY_CACHE.invalidate();
                         let msg = SSEMessage::new(
                             Level::Success,
                             &format!("Variants done: {completed_file_name}"),

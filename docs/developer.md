@@ -6,6 +6,7 @@
 2. Install **cargo-watch** with: `cargo install cargo-watch`
 3. Node 22 or newer
 4. Docker/Podman
+5. FFmpeg 6 or newer, including `ffprobe`, for video processing
 
 ## Getting Started
 

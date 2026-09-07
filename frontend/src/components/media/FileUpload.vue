@@ -4,8 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { errMsg } from '@/utils/error'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
-import { shortID } from '@/utils/helper'
 import { authFetchRaw } from '@/composables/authFetch'
+import { randomID } from '@/utils/helper'
 
 const { t } = useI18n()
 const auth = useAuth()
@@ -62,9 +62,11 @@ function uploadBatchStorageKey(file: File): string {
 function uploadBatchId(file: File): string {
     const storageKey = uploadBatchStorageKey(file)
     const existing = localStorage.getItem(storageKey)
-    if (existing) return existing
+    // Keep safe legacy IDs, including IDs produced by the old broken generator,
+    // so an upload already tracked by the server can still be resumed.
+    if (existing && /^[A-Za-z0-9_-]{7,128}$/.test(existing)) return existing
 
-    const batchId = shortID()
+    const batchId = randomID()
     localStorage.setItem(storageKey, batchId)
 
     return batchId

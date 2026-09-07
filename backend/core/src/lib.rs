@@ -111,11 +111,22 @@ pub static VIDEO_PROCESSING_LEASE_SECONDS: LazyLock<u64> =
     LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_LEASE_SECONDS", 120u64).clamp(30, 3_600));
 pub static VIDEO_PROCESSING_MAX_ATTEMPTS: LazyLock<i32> =
     LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_MAX_ATTEMPTS", 3i32).clamp(1, 10));
+pub static VIDEO_PROCESSING_MAX_DURATION_SECONDS: LazyLock<u64> = LazyLock::new(|| {
+    env_parse_or("VIDEO_PROCESSING_MAX_DURATION_SECONDS", 8 * 60 * 60).clamp(1, 7 * 24 * 60 * 60)
+});
+pub static VIDEO_PROCESSING_MAX_PIXELS: LazyLock<u64> = LazyLock::new(|| {
+    env_parse_or("VIDEO_PROCESSING_MAX_PIXELS", 33_177_600u64).clamp(1, 132_710_400)
+});
+pub static VIDEO_PROCESSING_MAX_OUTPUT_SIZE: LazyLock<Option<u64>> = LazyLock::new(|| {
+    let limit = env_parse_or("VIDEO_PROCESSING_MAX_OUTPUT_SIZE", 0u64);
+    (limit > 0).then_some(limit)
+});
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
 pub static CMS_CONFIG: LazyLock<Arc<RwLock<CmsConfiguration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(CmsConfiguration::default())));
+pub static ENTRY_CACHE: LazyLock<EntryCache> = LazyLock::new(EntryCache::from_env);
 
 pub async fn init_db() -> Result<PgPool, NurError> {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -195,7 +206,7 @@ async fn invalidate_entry_cache(
 }
 
 pub fn router_entries() -> (AuthRouter, ApiRouter) {
-    let entry_cache = EntryCache::from_env();
+    let entry_cache = ENTRY_CACHE.clone();
     let auth_routes = Router::new()
         .route("/login", post(login))
         .route("/refresh", post(refresh))

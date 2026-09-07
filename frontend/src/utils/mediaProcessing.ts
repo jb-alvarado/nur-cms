@@ -5,6 +5,8 @@ const processingMessagePrefixes = [
     'Variant generation failed: ',
     'Video processing failed: ',
     'Video thumbnail failed: ',
+    'Video processing retry queued: ',
+    'Video thumbnail retry queued: ',
 ] as const
 
 export function filenameFromProcessingMessage(message: string): string | undefined {

@@ -22,6 +22,41 @@ responses immediately.
 Time-to-idle is refreshed on each cache hit. Time-to-live is an absolute maximum lifetime and is
 not extended by access.
 
+## Video processing
+
+Video uploads are stored immediately and transcoded by durable background jobs. Install the
+`ffmpeg` package, including `ffprobe`, on every CMS instance that runs workers. FFmpeg 6 or newer is
+recommended. Every enabled profile is checked against the encoders reported by `ffmpeg -encoders`
+before it is used.
+
+| Variable                                | Default      | Description                                                       |
+| --------------------------------------- | ------------ | ----------------------------------------------------------------- |
+| `VIDEO_PROCESSING_CONCURRENCY`          | `1`          | Concurrent video jobs per CMS process; constrained to 1–4.        |
+| `VIDEO_PROCESSING_THREADS`              | `2`          | FFmpeg/filter threads per job; constrained to 1–32.                |
+| `VIDEO_PROCESSING_TIMEOUT_SECONDS`      | `3600`       | Wall-clock timeout for one FFmpeg invocation.                      |
+| `VIDEO_PROCESSING_LEASE_SECONDS`        | `120`        | Renewable database lease held by a worker.                         |
+| `VIDEO_PROCESSING_MAX_ATTEMPTS`         | `3`          | Maximum attempts for transient failures.                           |
+| `VIDEO_PROCESSING_MAX_DURATION_SECONDS` | `28800`      | Maximum accepted source duration (eight hours by default).         |
+| `VIDEO_PROCESSING_MAX_PIXELS`           | `33177600`   | Maximum source width multiplied by height (8K UHD by default).     |
+| `VIDEO_PROCESSING_MAX_OUTPUT_SIZE`      | unset / `0`  | Optional combined publication limit in bytes after encoding.       |
+| `NUR_FFMPEG_BIN`                        | `ffmpeg`     | Optional FFmpeg executable path.                                   |
+| `NUR_FFPROBE_BIN`                       | `ffprobe`    | Optional ffprobe executable path.                                  |
+
+Only temporary files below `uploads/.processing/` are written while a job runs. This directory
+must remain on the same filesystem as the public upload directory and must not be served by a
+reverse proxy. The built-in static-file service blocks it.
+
+Nur CMS does not inject FFmpeg's `-fs` option or impose an output-size limit by default. The
+optional `VIDEO_PROCESSING_MAX_OUTPUT_SIZE` check runs after each output has been encoded and
+prevents oversized results from being published, but it cannot prevent temporary disk usage while
+FFmpeg is running. Production deployments should therefore size or quota the upload filesystem,
+monitor its free space, and keep worker concurrency appropriate for the available storage.
+
+Resumable upload coordination is process-local. Run a single HTTP instance for `/api/upload` when
+instances share the same upload directory, or route all upload requests consistently to one
+instance. Video processing workers themselves may run on multiple instances because their jobs use
+database leases.
+
 ## Plugins
 
 Plugins are installed separately and must be explicitly enabled. See the [plugin documentation](plugins.md)

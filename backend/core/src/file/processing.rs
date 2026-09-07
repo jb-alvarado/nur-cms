@@ -234,3 +234,40 @@ pub async fn delete_image(size: &(u32, u32), path: &Path, name: &str) -> Result<
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use image::{GenericImageView, Rgba, RgbaImage};
+
+    use super::save_image;
+
+    #[test]
+    fn generates_configured_default_and_original_image_variants_without_upscaling() {
+        let directory =
+            std::env::temp_dir().join(format!("nur-cms-image-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("test directory can be created");
+        let source = directory.join("source.png");
+        RgbaImage::from_pixel(640, 360, Rgba([20, 40, 60, 255]))
+            .save(&source)
+            .expect("source image can be written");
+
+        let variants = save_image(vec![160, 1_280], &["png".to_string()], &source, None)
+            .expect("image variants can be generated");
+        assert_eq!(
+            variants,
+            vec![
+                (160, 90, "source-160.png".into()),
+                (320, 180, "source-320.png".into()),
+                (640, 360, "source-640.png".into()),
+            ]
+        );
+
+        for (width, height, filename) in &variants {
+            let generated =
+                image::open(directory.join(filename)).expect("generated image can be decoded");
+            assert_eq!(generated.dimensions(), (*width as u32, *height as u32));
+        }
+
+        std::fs::remove_dir_all(directory).expect("test directory can be removed");
+    }
+}

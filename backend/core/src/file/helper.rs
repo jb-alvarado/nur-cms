@@ -25,6 +25,8 @@ use crate::{
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedUpload {
+    #[serde(default)]
+    batch_id: Option<String>,
     user_id: i32,
     total_size: u64,
     ranges: Vec<(u64, u64)>,
@@ -312,6 +314,7 @@ pub async fn get_active_upload(
 
 async fn persist_upload(upload: &Upload, state: &UploadState) -> Result<(), NurError> {
     let persisted = PersistedUpload {
+        batch_id: Some(state.batch_id.clone()),
         user_id: state.user_id,
         total_size: state.total_size,
         ranges: state.ranges.iter().map(|r| (r.start, r.end)).collect(),
@@ -380,7 +383,13 @@ pub async fn get_or_create_upload(
         let data = fs::read(&metadata_file).await?;
         let persisted: PersistedUpload = serde_json::from_slice(&data)?;
 
-        if persisted.user_id != user_id || persisted.total_size != total_size {
+        if persisted
+            .batch_id
+            .as_deref()
+            .is_some_and(|id| id != batch_id)
+            || persisted.user_id != user_id
+            || persisted.total_size != total_size
+        {
             return Err(NurError::Conflict(
                 "An incompatible incomplete upload already exists.".into(),
             ));
@@ -637,25 +646,43 @@ pub async fn add_media_record(
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let media_id = sqlx::query_scalar::<_, i32>(
+    let processing_status = if mime_type.starts_with("video/") {
+        "queued"
+    } else {
+        "completed"
+    };
+    let inserted_id = sqlx::query_scalar::<_, i32>(
         r#"INSERT INTO media
-               (alt, filename, path, type, width, height, size, uploaded_by, upload_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               (alt, filename, path, type, width, height, size, uploaded_by, upload_id, processing_status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            ON CONFLICT (path, filename) DO NOTHING
            RETURNING id"#,
     )
     .bind(alt)
-    .bind(filename)
-    .bind(path)
+    .bind(&filename)
+    .bind(&path)
     .bind(&mime_type)
     .bind(width)
     .bind(height)
     .bind(size)
     .bind(user_id)
     .bind(upload_id)
+    .bind(processing_status)
     .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| NurError::Conflict("File already exists in database.".into()))?;
+    .await?;
+    let media_id = match inserted_id {
+        Some(id) => id,
+        None => sqlx::query_scalar::<_, i32>(
+            "SELECT id FROM media WHERE path = $1 AND filename = $2 AND upload_id = $3 AND uploaded_by = $4",
+        )
+        .bind(&path)
+        .bind(&filename)
+        .bind(upload_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| NurError::Conflict("File already exists in database.".into()))?,
+    };
 
     Ok((media_id, mime_type, width.is_some()))
 }
@@ -889,8 +916,9 @@ fn is_generated_variant_filename(filename: &str, stem: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        delete_media_file, is_generated_variant_filename, is_upload_complete, merge_ranges,
-        safe_file_name, storage_relative_path, uploading_path,
+        UPLOADS, add_media_record, cleanup_upload, delete_media_file, get_or_create_upload,
+        is_generated_variant_filename, is_upload_complete, merge_ranges, received_ranges,
+        safe_file_name, storage_relative_path, uploading_path, write_upload_chunk,
     };
     use crate::{
         STORAGE,
@@ -900,6 +928,8 @@ mod tests {
         ops::Range,
         path::{Path, PathBuf},
     };
+
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
     #[test]
     fn merges_overlapping_and_adjacent_ranges() {
@@ -953,6 +983,121 @@ mod tests {
         ));
         assert!(!is_generated_variant_filename("photo-320", "photo"));
         assert!(!is_generated_variant_filename("other-320.jpg", "photo"));
+    }
+
+    #[tokio::test]
+    async fn resumes_out_of_order_chunks_from_persisted_metadata() {
+        let directory_name = format!("upload-resume-test-{}", uuid::Uuid::new_v4());
+        let directory = PathBuf::from(STORAGE.as_str()).join(&directory_name);
+        tokio::fs::create_dir_all(&directory)
+            .await
+            .expect("test directory can be created");
+        let output = directory.join("resume.bin");
+        let batch_id = "resume-test-batch";
+        let user_id = 2_000_000_000;
+        let upload = get_or_create_upload(10, &output, batch_id, user_id)
+            .await
+            .expect("upload can be created");
+        assert!(
+            !write_upload_chunk(&upload, 5, 10, b"world")
+                .await
+                .expect("second chunk can be written")
+        );
+
+        UPLOADS
+            .lock()
+            .await
+            .remove(&output.to_string_lossy().to_string());
+        assert!(
+            get_or_create_upload(10, &output, "different-batch", user_id)
+                .await
+                .is_err()
+        );
+        let resumed = get_or_create_upload(10, &output, batch_id, user_id)
+            .await
+            .expect("upload can be restored from disk");
+        assert_eq!(received_ranges(&resumed).await, [(5, 10)]);
+        assert!(
+            write_upload_chunk(&resumed, 0, 5, b"hello")
+                .await
+                .expect("first chunk can complete the upload")
+        );
+        assert_eq!(
+            tokio::fs::read(uploading_path(&output))
+                .await
+                .expect("temporary upload can be read"),
+            b"helloworld"
+        );
+
+        cleanup_upload(&output, &resumed).await;
+        tokio::fs::remove_file(uploading_path(&output))
+            .await
+            .expect("temporary upload can be removed");
+        tokio::fs::remove_dir(directory)
+            .await
+            .expect("test directory can be removed");
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn media_record_creation_is_idempotent_for_upload_recovery(pool: sqlx::PgPool) {
+        let user_ids: Vec<i32> = sqlx::query_scalar(
+            r#"INSERT INTO auth_users (email, username, first_name, last_name, password)
+               VALUES ('first@example.invalid', 'first', 'First', 'User', 'unused'),
+                      ('second@example.invalid', 'second', 'Second', 'User', 'unused')
+               RETURNING id"#,
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("test users can be inserted");
+        let directory_name = format!("upload-finalize-test-{}", uuid::Uuid::new_v4());
+        let directory = PathBuf::from(STORAGE.as_str()).join(&directory_name);
+        std::fs::create_dir_all(&directory).expect("test directory can be created");
+        let output = directory.join("video.mp4");
+        let temporary = uploading_path(&output);
+        std::fs::write(&temporary, b"completed upload").expect("temporary upload can be written");
+
+        let first = add_media_record(
+            &pool,
+            user_ids[0],
+            "recovery-batch",
+            "video",
+            &temporary,
+            &output,
+        )
+        .await
+        .expect("media record can be created");
+        let recovered = add_media_record(
+            &pool,
+            user_ids[0],
+            "recovery-batch",
+            "video",
+            &temporary,
+            &output,
+        )
+        .await
+        .expect("same upload can recover its media record");
+        assert_eq!(first.0, recovered.0);
+        let status: String =
+            sqlx::query_scalar("SELECT processing_status FROM media WHERE id = $1")
+                .bind(first.0)
+                .fetch_one(&pool)
+                .await
+                .expect("processing status can be read");
+        assert_eq!(status, "queued");
+
+        assert!(
+            add_media_record(
+                &pool,
+                user_ids[1],
+                "recovery-batch",
+                "video",
+                &temporary,
+                &output,
+            )
+                .await
+                .is_err()
+        );
+        std::fs::remove_dir_all(directory).expect("test directory can be removed");
     }
 
     #[tokio::test]

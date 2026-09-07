@@ -122,6 +122,8 @@ pub async fn select_content_author(
                     'alt', m.alt,
                     'path', m.path,
                     'filename', m.filename,
+                    'type', m.type,
+                    'processing_status', m.processing_status,
                     'variants', COALESCE(
                         (
                             SELECT json_agg(
@@ -135,6 +137,29 @@ pub async fn select_content_author(
                             )
                             FROM media_variants mv
                             WHERE mv.media_id = m.id
+                        ),
+                        '[]'
+                    ),
+                    'video_variants', COALESCE(
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', vv.id,
+                                    'kind', vv.kind,
+                                    'profile', vv.profile,
+                                    'width', vv.width,
+                                    'height', vv.height,
+                                    'container', vv.container,
+                                    'video_codec', vv.video_codec,
+                                    'audio_codec', vv.audio_codec,
+                                    'filename', vv.filename,
+                                    'size', vv.size,
+                                    'duration_ms', vv.duration_ms
+                                ) ORDER BY vv.height, vv.id
+                            )
+                            FROM media_video_variants vv
+                            WHERE vv.media_id = m.id
+                              AND m.processing_status = 'completed'
                         ),
                         '[]'
                     )

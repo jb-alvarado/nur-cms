@@ -320,6 +320,36 @@ fn variants_lateral(media_alias: &str, variants_alias: &str) -> String {
     )
 }
 
+fn video_variants_lateral(media_alias: &str, variants_alias: &str) -> String {
+    format!(
+        r#"LEFT JOIN LATERAL (
+            SELECT COALESCE(
+                json_agg(
+                    json_build_object(
+                        'id', vv.id,
+                        'kind', vv.kind,
+                        'profile', vv.profile,
+                        'width', vv.width,
+                        'height', vv.height,
+                        'container', vv.container,
+                        'video_codec', vv.video_codec,
+                        'audio_codec', vv.audio_codec,
+                        'filename', vv.filename,
+                        'size', vv.size,
+                        'duration_ms', vv.duration_ms
+                    ) ORDER BY vv.height, vv.id
+                ),
+                '[]'::json
+            ) AS video_variants
+            FROM media_video_variants vv
+            WHERE vv.media_id = {media_alias}.id
+              AND {media_alias}.processing_status = 'completed'
+        ) AS {variants_alias} ON TRUE "#,
+        media_alias = media_alias,
+        variants_alias = variants_alias
+    )
+}
+
 fn media_join(entry_alias: &str) -> String {
     let mut s = String::new();
 
@@ -329,13 +359,17 @@ fn media_join(entry_alias: &str) -> String {
                 'alt', m.alt,
                 'path', m.path,
                 'filename', m.filename,
-                'variants', mv.variants
+                'type', m.type,
+                'processing_status', m.processing_status,
+                'variants', mv.variants,
+                'video_variants', vv.video_variants
             ) AS data
             FROM media m
         "#,
     );
 
     s.push_str(&variants_lateral("m", "mv"));
+    s.push_str(&video_variants_lateral("m", "vv"));
 
     s.push_str(&format!(
         r#"WHERE m.id = {entry}.media_id
@@ -377,6 +411,11 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
     for f in &query_obj.fields {
         match f {
             CF::Author(ContentAuthorFields::Media) => {
+                let variant_joins = format!(
+                    "{}{}",
+                    variants_lateral("m", "mv"),
+                    video_variants_lateral("m", "vv")
+                );
                 fields.push(format!(
                     r#"'media', CASE
                     WHEN ca2.media_id IS NOT NULL THEN (
@@ -385,7 +424,10 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
                             'alt', m.alt,
                             'path', m.path,
                             'filename', m.filename,
-                            'variants', mv.variants
+                            'type', m.type,
+                            'processing_status', m.processing_status,
+                            'variants', mv.variants,
+                            'video_variants', vv.video_variants
                         )
                         FROM media m
                         {}
@@ -393,7 +435,7 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
                     )
                     ELSE NULL
                 END"#,
-                    variants_lateral("m", "mv")
+                    variant_joins
                 ));
             }
             CF::Author(author_field) => {
@@ -461,6 +503,11 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
     for f in &query_obj.fields {
         match f {
             CF::Category(ContentCategoryFields::Media) => {
+                let variant_joins = format!(
+                    "{}{}",
+                    variants_lateral("m", "mv"),
+                    video_variants_lateral("m", "vv")
+                );
                 fields.push(format!(
                     r#"'media', CASE
                             WHEN cc2.media_id IS NOT NULL THEN (
@@ -469,7 +516,10 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                                     'alt', m.alt,
                                     'path', m.path,
                                     'filename', m.filename,
-                                    'variants', mv.variants
+                                    'type', m.type,
+                                    'processing_status', m.processing_status,
+                                    'variants', mv.variants,
+                                    'video_variants', vv.video_variants
                                 )
                                 FROM media m
                                 {}
@@ -477,7 +527,7 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                             )
                             ELSE NULL
                         END"#,
-                    variants_lateral("m", "mv")
+                    variant_joins
                 ));
             }
             CF::Category(ContentCategoryFields::GroupMembers) => {
@@ -567,6 +617,11 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                 fields.push("'embeds', COALESCE(embed_data.media, '[]'::json)".to_string());
             }
             CF::Node(CN::Media) => {
+                let variant_joins = format!(
+                    "{}{}",
+                    variants_lateral("m", "mv"),
+                    video_variants_lateral("m", "vv")
+                );
                 fields.push(format!(
                     r#"'media', CASE
                             WHEN cn.media_id IS NOT NULL THEN (
@@ -575,7 +630,10 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                                     'alt', m.alt,
                                     'path', m.path,
                                     'filename', m.filename,
-                                    'variants', mv.variants
+                                    'type', m.type,
+                                    'processing_status', m.processing_status,
+                                    'variants', mv.variants,
+                                    'video_variants', vv.video_variants
                                 )
                                 FROM media m
                                 {}
@@ -583,7 +641,7 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                             )
                             ELSE NULL
                         END"#,
-                    variants_lateral("m", "mv")
+                    variant_joins
                 ));
                 null_check_fields.push("cn.media_id".to_string());
             }
@@ -627,8 +685,10 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                             'filename', m.filename,
                             'path', m.path,
                             'type', m.type,
+                            'processing_status', m.processing_status,
                             'ast_line', cnm.ast_line,
-                            'variants', mv.variants
+                            'variants', mv.variants,
+                            'video_variants', vv.video_variants
                         )
                         ORDER BY cnm.ast_line, cnm.start_offset, cnm.end_offset
                     ),
@@ -640,6 +700,7 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
         );
 
         from_clause.push_str(&variants_lateral("m", "mv"));
+        from_clause.push_str(&video_variants_lateral("m", "vv"));
 
         from_clause.push_str(
             r#" WHERE cnm.node_id = cn.id
@@ -1793,6 +1854,15 @@ mod tests {
         assert!(sql.contains("FROM base_entries be"));
         assert!(sql.contains("ORDER BY f.search_score DESC, f.created_at DESC LIMIT 18 OFFSET 0"));
         assert!(sql.contains("LIMIT 1\n            ) AS node_data"));
+    }
+
+    #[test]
+    fn public_media_includes_only_completed_video_variants() {
+        let sql = sql_for("/api/content/entries?fields=id,media");
+
+        assert!(sql.contains("FROM media_video_variants vv"));
+        assert!(sql.contains("m.processing_status = 'completed'"));
+        assert!(sql.contains("'video_variants', vv.video_variants"));
     }
 
     #[test]

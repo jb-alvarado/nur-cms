@@ -29,15 +29,14 @@ export function formatBytes(bytes: number | undefined, dp = 2): string {
     return bytes.toFixed(dp) + ' ' + units[u]
 }
 
+export function randomID(byteLength = 16): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(byteLength))
+
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
 export function shortID(): string {
-    const input = 'useandom26T198340PX75pxJACKVERYMINDBUSHWOLFGQZbfghjklqvwyzrict'
-    let id = ''
-
-    for (let i = 0; i < 7; i++) {
-        id += input[(Math.random() * 64) | 0]
-    }
-
-    return id
+    return randomID(4).slice(0, 7)
 }
 
 export function mediaPath(media: Media, preferredWidth = 320): string {

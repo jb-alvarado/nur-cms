@@ -222,7 +222,8 @@ async fn main() -> Result<(), NurError> {
 
     let (tx, _rx) = broadcast::channel(20);
     let (shutdown_tx, _) = broadcast::channel(1);
-    start_video_workers(pool.clone(), tx.clone());
+    let video_workers = start_video_workers(pool.clone(), tx.clone());
+    let video_shutdown = video_workers.shutdown_sender();
 
     let sse_state = SseAuthState {
         uuids: Arc::new(Mutex::new(HashSet::new())),
@@ -334,8 +335,11 @@ async fn main() -> Result<(), NurError> {
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
         let _ = server_shutdown.send(());
+        let _ = video_shutdown.send(true);
     })
     .await?;
+
+    video_workers.wait().await;
 
     Ok(())
 }

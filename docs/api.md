@@ -616,9 +616,12 @@ Access: `admin`, `author`. Multipart fields:
 
 The server configuration limits file size, chunk size, and concurrent uploads.
 The backend derives the file type from the filename, and it must be present in
-the server-side MIME allowlist. After the last chunk, the media record is
-created synchronously. Image variants are generated in the background and
-report their status through SSE.
+the server-side MIME allowlist. Video filenames are normalized to lowercase
+ASCII using only letters, numbers, `-`, `_`, and `.`; the original stem is kept
+as alternative text. After the last chunk, the media record is created
+synchronously. Image and video variants are generated in the background and
+report their status through SSE. Public content responses include video
+variants only after processing has completed.
 
 SVG files are accepted as `image/svg+xml` and can be selected for image node
 blocks. They are kept in their original vector form; no raster dimensions or
