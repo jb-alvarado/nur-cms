@@ -1094,8 +1094,8 @@ mod tests {
                 &temporary,
                 &output,
             )
-                .await
-                .is_err()
+            .await
+            .is_err()
         );
         std::fs::remove_dir_all(directory).expect("test directory can be removed");
     }
