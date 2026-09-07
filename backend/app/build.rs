@@ -12,7 +12,7 @@ fn main() {
     {
         let output = Command::new("npm")
             .args(["run", "build"])
-            .current_dir("../../frontend")
+            .current_dir("../..")
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
