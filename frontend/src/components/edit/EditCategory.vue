@@ -46,6 +46,14 @@ const needsSave = computed(() => {
 })
 const status = ['draft', 'published']
 
+function autoSelectSingleStoreLocale() {
+    if (categoryId === 0 && !category.value.locale_id && store.locales.length === 1) {
+        category.value.locale_id = store.locales[0]?.id ?? 0
+    }
+}
+
+autoSelectSingleStoreLocale()
+
 if (categoryId > 0) {
     selectCategory()
 } else if (groupID > 0) {
@@ -65,6 +73,7 @@ if (categoryId > 0) {
 } else {
     setTimeout(() => {
         locales.value = store.locales
+        autoSelectSingleStoreLocale()
     }, 1000)
 }
 
@@ -234,40 +243,41 @@ function addMedia(m: Media) {
 
                 <div class="mt-3 md:mt-8 flex flex-col md:flex-row gap-2">
                     <div class="join">
-                        <details v-if="category.id === 0" class="dropdown">
-                            <summary class="btn join-item" @blur="closeDropdown">
-                                {{
-                                    store.locales.find((l) => l.id === category.locale_id)?.name ||
-                                    $t('common.language')
-                                }}
-                            </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
-                                <li v-for="l in locales" :key="l.id">
-                                    <a @click="category.locale_id = l.id">{{ l.name }}</a>
-                                </li>
-                            </ul>
-                        </details>
+                        <template v-if="store.locales.length > 1">
+                            <details v-if="category.id === 0" class="dropdown">
+                                <summary class="btn join-item" @blur="closeDropdown">
+                                    {{
+                                        store.locales.find((l) => l.id === category.locale_id)?.name ||
+                                        $t('common.language')
+                                    }}
+                                </summary>
+                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
+                                    <li v-for="l in locales" :key="l.id">
+                                        <a @click="category.locale_id = l.id">{{ l.name }}</a>
+                                    </li>
+                                </ul>
+                            </details>
 
-                        <details v-if="(category.id ?? 0) > 0" class="dropdown">
-                            <summary class="btn join-item" @blur="closeDropdown">
-                                {{ store.locales.find((l) => l.id === category.locale_id)?.name }}
-                            </summary>
-                            <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
-                                <li v-for="l in locales" :key="l.id">
-                                    <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
-                                </li>
-                            </ul>
-                        </details>
+                            <details v-if="(category.id ?? 0) > 0" class="dropdown">
+                                <summary class="btn join-item" @blur="closeDropdown">
+                                    {{ store.locales.find((l) => l.id === category.locale_id)?.name }}
+                                </summary>
+                                <ul class="menu dropdown-content bg-base-100 rounded-box z-1 w-34 p-1 shadow-sm">
+                                    <li v-for="l in locales" :key="l.id">
+                                        <RouterLink :to="memberLink(l.code!)">{{ l.name }}</RouterLink>
+                                    </li>
+                                </ul>
+                            </details>
 
-                        <RouterLink
-                            :to="`/category/0/${category.group_id}`"
-                            class="btn join-item px-2"
-                            :title="$t('common.addLanguage')"
-                        >
-                            <i class="bi bi-plus-lg"></i>
-                        </RouterLink>
+                            <RouterLink
+                                :to="`/category/0/${category.group_id}`"
+                                class="btn join-item px-2"
+                                :title="$t('common.addLanguage')"
+                            >
+                                <i class="bi bi-plus-lg"></i>
+                            </RouterLink>
+                        </template>
 
-                        <button class="btn btn-disabled bg-base-300 p-1"></button>
                         <details class="dropdown">
                             <summary
                                 class="btn join-item"
