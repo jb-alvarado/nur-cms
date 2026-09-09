@@ -8,10 +8,10 @@ use serde_json::{Map, Value, json};
 use sqlx::postgres::{PgConnection, PgPool};
 
 use crate::{
-    NurError, PUBLIC_UPLOADS,
+    NurError,
     db::serialize::MediaSerializer,
     utils::markdown::{
-        MarkdownImageRef, MarkdownSource, is_reference_definition, is_video_url,
+        MarkdownImageRef, MarkdownSource, is_reference_definition, is_video_url, media_location,
         uses_reference_syntax,
     },
 };
@@ -39,8 +39,7 @@ impl MediaLookup {
     }
 
     fn pop_for_url(&mut self, url: &str) -> Option<MediaSerializer> {
-        let location = normalize_media_path(url)?;
-        self.by_location.get_mut(&location)?.pop_front()
+        self.by_location.get_mut(&media_location(url)?)?.pop_front()
     }
 
     fn restore_unmatched(mut self, media: &mut Vec<MediaSerializer>) {
@@ -641,43 +640,6 @@ pub fn truncate_structure_root(root: &mut Value, limit: usize) {
     }
 }
 
-fn normalize_media_path(raw_url: &str) -> Option<(String, String)> {
-    let mut path = raw_url.trim().to_string();
-    if path.is_empty() {
-        return None;
-    }
-
-    if let Some(pos) = path.find("://") {
-        let slash_pos = path[pos + 3..].find('/')?;
-        path = path[pos + 3 + slash_pos..].to_string();
-    }
-
-    if let Some(pos) = path.find('#') {
-        path.truncate(pos);
-    }
-
-    if let Some(pos) = path.find('?') {
-        path.truncate(pos);
-    }
-
-    if !path.starts_with(PUBLIC_UPLOADS) {
-        return None;
-    }
-
-    let (dir, filename) = path.rsplit_once('/')?;
-    if filename.is_empty() {
-        return None;
-    }
-
-    let dir = if dir.is_empty() {
-        "/".to_string()
-    } else {
-        dir.to_string()
-    };
-
-    Some((dir, filename.to_string()))
-}
-
 pub(crate) async fn persist_content_media(
     pool: &PgPool,
     node_id: i64,
@@ -697,7 +659,7 @@ pub(crate) async fn persist_content_media_on(
     let mut positions = Vec::new();
 
     for image in images {
-        if let Some((path, filename)) = normalize_media_path(&image.url) {
+        if let Some((path, filename)) = media_location(&image.url) {
             paths.push(path);
             filenames.push(filename);
             positions.push(image.document_index);

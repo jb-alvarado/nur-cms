@@ -84,18 +84,21 @@ pub fn save_image(
         .and_then(|s| s.to_str())
         .unwrap_or("image");
 
-    // ensure 320 exists, sort + dedup
-    if !image_resolutions.contains(&320) {
-        image_resolutions.push(320);
-    }
-
-    // add original resolution
-    if !image_resolutions.contains(&(orig_w as i32)) {
-        image_resolutions.push(orig_w as i32);
-    }
-
+    image_resolutions.retain(|width| *width > 0);
     image_resolutions.sort_unstable();
     image_resolutions.dedup();
+
+    // Do not upscale images. Without a usable configured size, retain one
+    // variant at the natural width instead of making image uploads and video
+    // posters fail processing.
+    if image_resolutions.is_empty()
+        || !image_resolutions
+            .iter()
+            .any(|width| *width <= orig_w as i32)
+    {
+        image_resolutions.push(orig_w as i32);
+        image_resolutions.sort_unstable();
+    }
 
     let mut variants = Vec::new();
 
@@ -242,7 +245,7 @@ mod tests {
     use super::save_image;
 
     #[test]
-    fn generates_configured_default_and_original_image_variants_without_upscaling() {
+    fn generates_only_configured_image_variants_without_upscaling() {
         let directory =
             std::env::temp_dir().join(format!("nur-cms-image-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).expect("test directory can be created");
@@ -253,20 +256,47 @@ mod tests {
 
         let variants = save_image(vec![160, 1_280], &["png".to_string()], &source, None)
             .expect("image variants can be generated");
-        assert_eq!(
-            variants,
-            vec![
-                (160, 90, "source-160.png".into()),
-                (320, 180, "source-320.png".into()),
-                (640, 360, "source-640.png".into()),
-            ]
-        );
+        assert_eq!(variants, vec![(160, 90, "source-160.png".into()),]);
 
         for (width, height, filename) in &variants {
             let generated =
                 image::open(directory.join(filename)).expect("generated image can be decoded");
             assert_eq!(generated.dimensions(), (*width as u32, *height as u32));
         }
+
+        std::fs::remove_dir_all(directory).expect("test directory can be removed");
+    }
+
+    #[test]
+    fn generates_a_natural_size_variant_when_the_image_is_smaller_than_every_configuration() {
+        let directory =
+            std::env::temp_dir().join(format!("nur-cms-small-image-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("test directory can be created");
+        let source = directory.join("source.png");
+        RgbaImage::from_pixel(120, 60, Rgba([20, 40, 60, 255]))
+            .save(&source)
+            .expect("source image can be written");
+
+        let variants = save_image(vec![480, 1_280], &["webp".to_string()], &source, None)
+            .expect("small image variant can be generated");
+        assert_eq!(variants, vec![(120, 60, "source-120.webp".into())]);
+
+        std::fs::remove_dir_all(directory).expect("test directory can be removed");
+    }
+
+    #[test]
+    fn generates_an_original_size_variant_without_configured_resolutions() {
+        let directory =
+            std::env::temp_dir().join(format!("nur-cms-no-sizes-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("test directory can be created");
+        let source = directory.join("source.png");
+        RgbaImage::from_pixel(100, 50, Rgba([20, 40, 60, 255]))
+            .save(&source)
+            .expect("source image can be written");
+
+        let variants = save_image(Vec::new(), &["webp".to_string()], &source, None)
+            .expect("fallback image variant can be generated");
+        assert_eq!(variants, vec![(100, 50, "source-100.webp".into())]);
 
         std::fs::remove_dir_all(directory).expect("test directory can be removed");
     }

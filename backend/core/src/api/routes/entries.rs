@@ -59,7 +59,10 @@ pub async fn entries_select(
     params.path = original_uri.path().into();
     params.query = original_uri.query().unwrap_or("").into();
 
-    let mut output = CONFIG.read().await.output_type.clone();
+    let configuration = CONFIG.read().await;
+    let mut output = configuration.output_type.clone();
+    let max_image_variant_width = configuration.max_image_resolution();
+    drop(configuration);
 
     if let Some(typ) = &params.output_type
         && (details.has_any_authority(&[&Role::Admin, &Role::Author]) || cfg!(debug_assertions))
@@ -72,9 +75,10 @@ pub async fn entries_select(
         params.search_status = Some("published".to_string());
     }
 
+    let embeds_requested = params.fields.contains(&CEF::Node(CNF::Embeds));
     if params.fields.contains(&CEF::Node(CNF::Text))
-        && !params.fields.contains(&CEF::Node(CNF::Embeds))
-        && output == OutputType::AST
+        && !embeds_requested
+        && matches!(output, OutputType::AST | OutputType::HTML)
     {
         params.fields.push(CEF::Node(CNF::Embeds));
     }
@@ -88,7 +92,13 @@ pub async fn entries_select(
     let mut content = handles::select_content_entries(&pool, &params).await?;
 
     if params.fields.contains(&CEF::Node(CNF::Text)) {
-        render_entry_nodes(&mut content.results, &output, params.character_limit)?;
+        render_entry_nodes(
+            &mut content.results,
+            &output,
+            params.character_limit,
+            embeds_requested,
+            max_image_variant_width,
+        )?;
     }
 
     if let Some(key) = cache_key {
@@ -113,7 +123,10 @@ pub async fn entry_select(
     params.type_slug = Some(type_slug);
     params.search_slug = Some(slug);
 
-    let mut output = CONFIG.read().await.output_type.clone();
+    let configuration = CONFIG.read().await;
+    let mut output = configuration.output_type.clone();
+    let max_image_variant_width = configuration.max_image_resolution();
+    drop(configuration);
 
     if let Some(typ) = &params.output_type
         && (details.has_any_authority(&[&Role::Admin, &Role::Author]) || cfg!(debug_assertions))
@@ -121,9 +134,10 @@ pub async fn entry_select(
         output = typ.clone();
     }
 
+    let embeds_requested = params.fields.contains(&CEF::Node(CNF::Embeds));
     if params.fields.contains(&CEF::Node(CNF::Text))
-        && !params.fields.contains(&CEF::Node(CNF::Embeds))
-        && output == OutputType::AST
+        && !embeds_requested
+        && matches!(output, OutputType::AST | OutputType::HTML)
     {
         params.fields.push(CEF::Node(CNF::Embeds));
     }
@@ -152,7 +166,13 @@ pub async fn entry_select(
         .next()
     {
         if params.fields.contains(&CEF::Node(CNF::Text)) {
-            render_entry_nodes(std::slice::from_mut(&mut content), &output, character_limit)?;
+            render_entry_nodes(
+                std::slice::from_mut(&mut content),
+                &output,
+                character_limit,
+                embeds_requested,
+                max_image_variant_width,
+            )?;
         }
 
         if let Some(key) = cache_key {

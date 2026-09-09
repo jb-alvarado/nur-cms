@@ -303,6 +303,20 @@ Videos use the standard Markdown image syntax, for example
 rendered as safe `<video controls>` elements in HTML output. Other URLs keep
 their normal image behavior.
 
+For HTML output, CMS media linked from Markdown automatically uses completed
+variants: image variants become a responsive `<picture>` with a `srcset` per
+available image format. Processed videos expose all variants as a JSON array in
+the `data-sources` attribute. Each object contains `src`, `type`, the browser
+codec identifier (`avc1`, `vp09`, or `av01` where known), `width`, and `height`.
+Client-side JavaScript must parse this attribute and select a suitable variant;
+browsers do not process `data-sources` themselves. The regular `<source>`
+fallback is the largest available H.264 variant, or the largest available
+variant when H.264 is unavailable. URLs not linked to CMS media, and CMS media
+without variants, use the original image or video URL. Generated image sources
+never exceed the largest configured image resolution; images smaller than all
+configured resolutions receive one variant at their original dimensions. With
+no configured image resolution, processing retains one original-size variant.
+
 Example:
 
 ```http

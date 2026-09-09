@@ -1,5 +1,6 @@
 use colored::Colorize;
 use nur_core::{
+    CONFIG,
     db::{
         fields::{ContentEntryFields, ContentNodeFields, OutputType},
         handles,
@@ -483,13 +484,14 @@ impl bindings::nur::cms::content::Host for HostState {
             bindings::nur::cms::content::OutputType::Ast => OutputType::AST,
             bindings::nur::cms::content::OutputType::Html => OutputType::HTML,
         };
+        let embeds_requested = params
+            .fields
+            .contains(&ContentEntryFields::Node(ContentNodeFields::Embeds));
         if params
             .fields
             .contains(&ContentEntryFields::Node(ContentNodeFields::Text))
-            && !params
-                .fields
-                .contains(&ContentEntryFields::Node(ContentNodeFields::Embeds))
-            && output == OutputType::AST
+            && !embeds_requested
+            && matches!(output, OutputType::AST | OutputType::HTML)
         {
             params
                 .fields
@@ -499,12 +501,19 @@ impl bindings::nur::cms::content::Host for HostState {
         let host_call_started = Instant::now();
         let result = self.tokio_handle.block_on(async {
             tokio::time::timeout(self.host_call_timeout, async {
+                let max_image_variant_width = CONFIG.read().await.max_image_resolution();
                 let mut entries = handles::select_content_entries(&self.pool, &params).await?;
                 if params
                     .fields
                     .contains(&ContentEntryFields::Node(ContentNodeFields::Text))
                 {
-                    render_entry_nodes(&mut entries.results, &output, params.character_limit)?;
+                    render_entry_nodes(
+                        &mut entries.results,
+                        &output,
+                        params.character_limit,
+                        embeds_requested,
+                        max_image_variant_width,
+                    )?;
                 }
                 serde_json::to_vec(&entries).map_err(nur_core::utils::errors::NurError::from)
             })

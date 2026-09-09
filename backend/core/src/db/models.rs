@@ -103,6 +103,17 @@ pub struct Configuration {
     pub image_resolutions: Option<Vec<i32>>,
 }
 
+impl Configuration {
+    pub fn max_image_resolution(&self) -> Option<i32> {
+        self.image_resolutions
+            .as_deref()?
+            .iter()
+            .copied()
+            .filter(|width| *width > 0)
+            .max()
+    }
+}
+
 impl ColumnCounter for Configuration {
     fn total_count(&self) -> i64 {
         1
