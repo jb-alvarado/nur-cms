@@ -741,6 +741,40 @@ mod tests {
     }
 
     #[test]
+    fn rejects_sql_injection_like_ordering() {
+        for input in [
+            "created_at;SELECT 1",
+            "created_at' DESC",
+            "created_at--",
+            "created_at/*x*/DESC",
+            "created_at DESC NULLS FIRST",
+        ] {
+            assert!(
+                parse_ordering(input).is_empty(),
+                "ordering should be rejected: {input}"
+            );
+        }
+    }
+
+    #[test]
+    fn drops_invalid_ordering_fragments() {
+        assert_eq!(
+            parse_ordering("created_at DESC, title;SELECT"),
+            "created_at DESC"
+        );
+
+        assert_eq!(
+            parse_ordering("title;SELECT, created_at DESC"),
+            "created_at DESC"
+        );
+
+        assert_eq!(
+            parse_ordering("created_at DESC, title;SELECT, updated_at ASC"),
+            "created_at DESC, updated_at ASC"
+        );
+    }
+
+    #[test]
     fn ignores_invalid_ordering_fragments() {
         for input in [
             "created_at DESC DROP TABLE content_entries",
