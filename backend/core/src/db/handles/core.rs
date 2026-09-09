@@ -56,10 +56,7 @@ fn table_field_allowed(table: &Table, field: &str) -> bool {
         Table::ContentMeta => matches!(field, "entry_id" | "start_time" | "end_time"),
         Table::ContentEntryTags => matches!(field, "entry_id" | "tag_id"),
         Table::ContentEntryAuthors => matches!(field, "entry_id" | "author_id"),
-        Table::ContentNodeMedia => matches!(
-            field,
-            "node_id" | "media_id" | "ast_line" | "start_offset" | "end_offset"
-        ),
+        Table::ContentNodeMedia => matches!(field, "node_id" | "media_id" | "position_index"),
         _ => false,
     }
 }
@@ -429,9 +426,8 @@ mod tests {
         assert!(table_field_allowed(&Table::ContentNodeMedia, "media_id"));
         assert!(table_field_allowed(
             &Table::ContentNodeMedia,
-            "start_offset"
+            "position_index"
         ));
-        assert!(table_field_allowed(&Table::ContentNodeMedia, "end_offset"));
         assert!(!table_field_allowed(
             &Table::ContentEntries,
             "unknown_field"

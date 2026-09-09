@@ -16,7 +16,7 @@ const deleteModal = ref()
 const uploadModal = ref()
 const editModal = ref()
 const uploader = ref()
-const updater = ref()
+const updater = ref<{ update: () => Promise<void>; stopPlayback: () => void }>()
 const medias = ref<Media[]>([])
 const selectCount = computed(() => medias.value.reduce((acc, item: any) => acc + (item.check ? 1 : 0), 0))
 const uploadKey = ref(shortID())
@@ -176,6 +176,10 @@ async function runUpdate() {
     }
 }
 
+function stopEditingVideo() {
+    updater.value?.stopPlayback()
+}
+
 function resetUpload() {
     uploadKey.value = shortID()
 }
@@ -296,7 +300,14 @@ function resetUpload() {
             <p>{{ $t('dialog.deleteConfirm', { count: selectCount }) }}</p>
         </GenericModal>
 
-        <GenericModal ref="editModal" :key="editID" :title="$t('media.editTitle')" width="200" :ok-action="runUpdate">
+        <GenericModal
+            ref="editModal"
+            :key="editID"
+            :title="$t('media.editTitle')"
+            width="200"
+            :ok-action="runUpdate"
+            @close="stopEditingVideo"
+        >
             <EditMedia ref="updater" :id="editID" />
         </GenericModal>
     </div>

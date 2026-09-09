@@ -54,7 +54,7 @@ use crate::{
         processing::save_image,
         video::{enqueue_video_processing, mark_video_processing_failed},
     },
-    utils::{ast_serialize::persist_content_media, errors::NurError},
+    utils::{ast_serialize::persist_content_media, errors::NurError, markdown::media_references},
 };
 
 #[derive(Debug, Clone)]
@@ -443,7 +443,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
 
     let mut updated_at = created_at;
 
-    let ast = markdown::to_mdast(&body, &markdown::ParseOptions::default())?;
+    let images = media_references(&body);
 
     let (title, slug, status) = if let Some(ref fm) = frontmatter {
         let title = fm.title.clone().unwrap_or_else(|| fallback_title.clone());
@@ -543,8 +543,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     .await?;
 
     // Build AST from body content and persist content_media links (with positions)
-    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
-    persist_content_media(pool, node_id, &tree).await?;
+    persist_content_media(pool, node_id, &images).await?;
 
     // Insert authors, content-node metadata and tags if present.
     if let Some(ref fm) = frontmatter {

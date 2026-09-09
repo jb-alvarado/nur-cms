@@ -297,6 +297,12 @@ Markdown text. The actual response field depends on `output_type`:
 - `html`: `html`
 - `ast`: `ast`
 
+Videos use the standard Markdown image syntax, for example
+`![Short clip](/uploads/clip.mp4)`. URLs ending in `mp4`, `m4v`, `mov`,
+`webm`, `ogv`, or `ogg` are returned as `video` nodes in AST output and
+rendered as safe `<video controls>` elements in HTML output. Other URLs keep
+their normal image behavior.
+
 Example:
 
 ```http

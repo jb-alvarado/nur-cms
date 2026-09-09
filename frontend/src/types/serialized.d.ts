@@ -30,7 +30,7 @@ export type GroupMemberSerializer = { id: number, locale_code: string | null, lo
 
 export type LocaleFacet = { code: string, name: string, count: number, };
 
-export type MediaSerializer = { id?: number | null, alt?: string | null, title?: string | null, src?: string | null, filename?: string | null, path?: string | null, type?: string | null, width?: number | null, height?: number | null, size?: number, ast_line?: number | null, start_offset?: number | null, end_offset?: number | null, created_at?: string | null, processing_status?: string | null, variants?: Array<MediaVariantSerializer>, video_variants?: Array<MediaVideoVariantSerializer>, };
+export type MediaSerializer = { id?: number | null, alt?: string | null, title?: string | null, src?: string | null, filename?: string | null, path?: string | null, type?: string | null, width?: number | null, height?: number | null, size?: number, position_index?: number | null, created_at?: string | null, processing_status?: string | null, variants?: Array<MediaVariantSerializer>, video_variants?: Array<MediaVideoVariantSerializer>, };
 
 export type MediaVariantSerializer = { id: number, width: number, height: number, filename: string, };
 

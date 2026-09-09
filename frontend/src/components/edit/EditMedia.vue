@@ -15,6 +15,7 @@ const media = ref<Media>({})
 const mediaOriginal = ref<Media>({})
 const thumbnailModal = ref()
 const thumbnailQueued = ref(false)
+const video = ref<HTMLVideoElement>()
 
 const props = defineProps({
     id: {
@@ -27,12 +28,20 @@ defineExpose({
     async update() {
         await updateMedia()
     },
+    stopPlayback,
 })
 
 selectMedia()
 
 onMounted(() => window.addEventListener('nur-cms:media-variants-ready', refreshAfterThumbnail))
-onBeforeUnmount(() => window.removeEventListener('nur-cms:media-variants-ready', refreshAfterThumbnail))
+onBeforeUnmount(() => {
+    window.removeEventListener('nur-cms:media-variants-ready', refreshAfterThumbnail)
+    stopPlayback()
+})
+
+function stopPlayback() {
+    video.value?.pause()
+}
 
 async function refreshAfterThumbnail(event: Event) {
     const detail =
@@ -139,6 +148,7 @@ async function updateMedia() {
             <img v-if="media.type?.startsWith('image/')" :src="mediaPath(media, 768)" :alt="media.alt ?? ''" width="100%" class="w-full md:max-w-150 lg:max-w-100" />
             <video
                 v-else-if="media.type?.startsWith('video/')"
+                ref="video"
                 :src="mediaPath(media)"
                 controls
                 preload="metadata"

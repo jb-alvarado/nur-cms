@@ -35,7 +35,7 @@ lettre = { version = "0.11", default-features = false, features = [
   "builder", "smtp-transport", "tokio1-rustls-tls"
 ] }
 libwebp-sys = "0.14"
-markdown = { version = "1", features = ["serde"] }
+comrak = { version = "0.55", default-features = false }
 mime_guess = "2"
 moka = { version = "0.12", default-features = false, features = ["sync"] }
 protect-axum = "0.2"

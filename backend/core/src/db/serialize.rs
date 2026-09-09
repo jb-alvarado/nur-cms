@@ -537,11 +537,7 @@ pub struct MediaSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ast_line: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_offset: Option<i32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub end_offset: Option<i32>,
+    pub position_index: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -580,9 +576,7 @@ impl FromRow<'_, PgRow> for MediaSerializer {
             width: row.try_get("width").ok(),
             height: row.try_get("height").ok(),
             size: row.try_get("size").ok(),
-            ast_line: row.try_get("ast_line").ok(),
-            start_offset: row.try_get("start_offset").ok(),
-            end_offset: row.try_get("end_offset").ok(),
+            position_index: row.try_get("position_index").ok(),
             created_at: row.try_get("created_at").ok(),
             processing_status: row.try_get("processing_status").ok(),
             variants,

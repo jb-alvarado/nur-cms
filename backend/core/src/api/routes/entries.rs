@@ -5,7 +5,6 @@ use axum::{
 };
 use axum_extra::extract::Query;
 use chrono::Utc;
-use markdown::{ParseOptions, to_mdast};
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
@@ -23,7 +22,7 @@ use crate::{
     },
     utils::{
         ast_serialize::persist_content_media_on, content_output::render_entry_nodes,
-        errors::NurError,
+        errors::NurError, markdown::media_references,
     },
 };
 
@@ -63,7 +62,7 @@ pub async fn entries_select(
     let mut output = CONFIG.read().await.output_type.clone();
 
     if let Some(typ) = &params.output_type
-        && details.has_any_authority(&[&Role::Admin, &Role::Author])
+        && (details.has_any_authority(&[&Role::Admin, &Role::Author]) || cfg!(debug_assertions))
     {
         output = typ.clone();
     }
@@ -117,7 +116,7 @@ pub async fn entry_select(
     let mut output = CONFIG.read().await.output_type.clone();
 
     if let Some(typ) = &params.output_type
-        && details.has_any_authority(&[&Role::Admin, &Role::Author])
+        && (details.has_any_authority(&[&Role::Admin, &Role::Author]) || cfg!(debug_assertions))
     {
         output = typ.clone();
     }
@@ -251,10 +250,9 @@ pub async fn entry_insert(
                     handles::insert_record(&mut *transaction, &Table::ContentNodes, &node).await?;
 
                 if let Some(text) = node.get("text").and_then(|t| t.as_str()) {
-                    let ast = to_mdast(text, &ParseOptions::gfm())?;
-                    let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+                    let images = media_references(text);
 
-                    persist_content_media_on(&mut transaction, node_id, &tree).await?;
+                    persist_content_media_on(&mut transaction, node_id, &images).await?;
                 }
 
                 order_index += 1;

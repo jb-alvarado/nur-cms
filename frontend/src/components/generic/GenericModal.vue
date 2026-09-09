@@ -2,6 +2,9 @@
 import { ref } from 'vue'
 
 const genModal = ref()
+const emit = defineEmits<{
+    close: []
+}>()
 
 defineProps({
     title: {
@@ -37,7 +40,7 @@ defineExpose({
 </script>
 
 <template>
-    <dialog ref="genModal" id="generic_modal" class="modal modal-bottom sm:modal-middle">
+    <dialog ref="genModal" id="generic_modal" class="modal modal-bottom sm:modal-middle" @close="emit('close')">
         <div class="modal-box" :class="width ? `max-w-${width}` : ''">
             <h3 class="text-lg font-bold">{{ title }}</h3>
 

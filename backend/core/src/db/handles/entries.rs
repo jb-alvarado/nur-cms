@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use markdown::{ParseOptions, to_mdast};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{
@@ -28,7 +27,7 @@ use crate::db::{
         ContentTagFacet, LocaleFacet,
     },
 };
-use crate::utils::errors::NurError;
+use crate::utils::{errors::NurError, markdown::media_references};
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -686,11 +685,11 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                             'path', m.path,
                             'type', m.type,
                             'processing_status', m.processing_status,
-                            'ast_line', cnm.ast_line,
+                            'position_index', cnm.position_index,
                             'variants', mv.variants,
                             'video_variants', vv.video_variants
                         )
-                        ORDER BY cnm.ast_line, cnm.start_offset, cnm.end_offset
+                        ORDER BY cnm.position_index
                     ),
                     '[]'::json
                 ) AS media
@@ -1667,12 +1666,11 @@ pub async fn sync_entry_nodes(
                     if let Some(text_str) = text
                         && !text_str.is_empty()
                     {
-                        let ast = to_mdast(text_str, &ParseOptions::default())?;
-                        let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+                        let images = media_references(text_str);
                         crate::utils::ast_serialize::persist_content_media_on(
                             &mut *connection,
                             id,
-                            &tree,
+                            &images,
                         )
                         .await?;
                     }
@@ -1696,12 +1694,11 @@ pub async fn sync_entry_nodes(
                     if let Some(text_str) = text
                         && !text_str.is_empty()
                     {
-                        let ast = to_mdast(text_str, &ParseOptions::default())?;
-                        let tree: Value = serde_json::to_value(ast).unwrap_or_default();
+                        let images = media_references(text_str);
                         crate::utils::ast_serialize::persist_content_media_on(
                             &mut *connection,
                             new_node_id,
-                            &tree,
+                            &images,
                         )
                         .await?;
                     }

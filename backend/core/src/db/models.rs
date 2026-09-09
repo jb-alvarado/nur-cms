@@ -656,11 +656,7 @@ pub struct ContentNodeMedia {
     #[ts(as = "i32")]
     pub node_id: i64,
     pub media_id: i32,
-    pub ast_line: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_offset: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_offset: Option<i32>,
+    pub position_index: i32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, FromRow, TS)]

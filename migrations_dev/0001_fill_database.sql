@@ -421,12 +421,12 @@ VALUES
     (12, 3);
 
 INSERT INTO
-    content_node_media (node_id, media_id, ast_line)
+    content_node_media (node_id, media_id, position_index)
 VALUES
-    (1, 1, 6),
-    (1, 2, 10),
-    (2, 1, 6),
-    (2, 2, 10);
+    (1, 1, 0),
+    (1, 2, 1),
+    (2, 1, 0),
+    (2, 2, 1);
 
 INSERT INTO
     comments (entry_id, parent_id, user_id, author_name, author_email, text, status)

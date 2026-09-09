@@ -1,26 +1,55 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 
-use markdown::mdast::Node;
+use comrak::{
+    Arena,
+    nodes::{AstNode, NodeValue},
+};
 use serde_json::{Map, Value, json};
 use sqlx::postgres::{PgConnection, PgPool};
 
 use crate::{
     NurError, PUBLIC_UPLOADS,
-    db::{fields::Table, handles, models::ContentNodeMedia, serialize::MediaSerializer},
+    db::serialize::MediaSerializer,
+    utils::markdown::{
+        MarkdownImageRef, MarkdownSource, is_reference_definition, is_video_url,
+        uses_reference_syntax,
+    },
 };
 
-#[derive(Debug)]
-struct AstImageRef {
-    url: String,
-    ast_line: i32,
-    start_offset: Option<i32>,
-    end_offset: Option<i32>,
+#[derive(Default)]
+struct MediaLookup {
+    by_location: HashMap<(String, String), VecDeque<MediaSerializer>>,
+    unmatched: Vec<MediaSerializer>,
 }
 
-fn pop_media_mdast(node: &Node, media: &mut Vec<MediaSerializer>) -> Option<MediaSerializer> {
-    let line: i32 = node.position()?.start.line.try_into().ok()?;
-    let pos = media.iter().position(|m| m.ast_line == Some(line))?;
-    Some(media.remove(pos))
+impl MediaLookup {
+    fn take_from(media: &mut Vec<MediaSerializer>) -> Self {
+        let mut lookup = Self::default();
+        for item in media.drain(..) {
+            match (item.path.clone(), item.filename.clone()) {
+                (Some(path), Some(filename)) => lookup
+                    .by_location
+                    .entry((path, filename))
+                    .or_default()
+                    .push_back(item),
+                _ => lookup.unmatched.push(item),
+            }
+        }
+        lookup
+    }
+
+    fn pop_for_url(&mut self, url: &str) -> Option<MediaSerializer> {
+        let location = normalize_media_path(url)?;
+        self.by_location.get_mut(&location)?.pop_front()
+    }
+
+    fn restore_unmatched(mut self, media: &mut Vec<MediaSerializer>) {
+        self.unmatched
+            .extend(self.by_location.into_values().flat_map(VecDeque::into_iter));
+        self.unmatched
+            .sort_by_key(|item| item.position_index.unwrap_or(i32::MAX));
+        *media = self.unmatched;
+    }
 }
 
 fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
@@ -96,37 +125,68 @@ fn merge_html_blocks(nodes: Vec<Value>) -> Vec<Value> {
     merged
 }
 
-fn node_type_name(node: &Node) -> &'static str {
+fn merge_adjacent_text_nodes(nodes: Vec<Value>) -> Vec<Value> {
+    let mut merged: Vec<Value> = Vec::with_capacity(nodes.len());
+
+    for node in nodes {
+        let Some(current) = node.as_object() else {
+            merged.push(node);
+            continue;
+        };
+        let Some(previous) = merged.last_mut().and_then(Value::as_object_mut) else {
+            merged.push(node);
+            continue;
+        };
+
+        let same_attributes = previous.len() == current.len()
+            && current.iter().all(|(key, value)| {
+                key == "text" || previous.get(key).is_some_and(|previous| previous == value)
+            });
+
+        if same_attributes
+            && current.get("type").and_then(Value::as_str) == Some("text")
+            && previous.get("type").and_then(Value::as_str) == Some("text")
+        {
+            let suffix = current.get("text").and_then(Value::as_str).unwrap_or("");
+            if let Some(Value::String(text)) = previous.get_mut("text") {
+                text.push_str(suffix);
+                continue;
+            }
+        }
+
+        merged.push(node);
+    }
+
+    merged
+}
+
+fn node_type_name(node: &NodeValue) -> &'static str {
     match node {
-        Node::Root(_) => "root",
-        Node::Blockquote(_) => "blockquote",
-        Node::FootnoteDefinition(_) => "footnoteDefinition",
-        Node::Paragraph(_) => "paragraph",
-        Node::Heading(_) => "heading",
-        Node::List(_) => "list",
-        Node::Toml(_) => "toml",
-        Node::Yaml(_) => "yaml",
-        Node::Break(_) => "break",
-        Node::InlineMath(_) => "inlineMath",
-        Node::FootnoteReference(_) => "footnoteReference",
-        Node::Link(_) => "link",
-        Node::LinkReference(_) => "linkReference",
-        Node::Image(_) => "image",
-        Node::ImageReference(_) => "imageReference",
-        Node::Text(_) => "text",
-        Node::Html(_) => "html",
-        Node::Strong(_) => "strong",
-        Node::Emphasis(_) => "emphasis",
-        Node::Delete(_) => "delete",
-        Node::InlineCode(_) => "inlineCode",
-        Node::Code(_) => "code",
-        Node::Math(_) => "math",
-        Node::Table(_) => "table",
-        Node::ThematicBreak(_) => "thematicBreak",
-        Node::TableRow(_) => "tableRow",
-        Node::TableCell(_) => "tableCell",
-        Node::ListItem(_) => "listItem",
-        Node::Definition(_) => "definition",
+        NodeValue::Document => "root",
+        NodeValue::BlockQuote => "blockquote",
+        NodeValue::FootnoteDefinition(_) => "footnoteDefinition",
+        NodeValue::Paragraph => "paragraph",
+        NodeValue::Heading(_) => "heading",
+        NodeValue::List(_) => "list",
+        NodeValue::FrontMatter(_) => "yaml",
+        NodeValue::LineBreak => "break",
+        NodeValue::Math(math) if !math.display_math => "inlineMath",
+        NodeValue::Math(_) => "math",
+        NodeValue::FootnoteReference(_) => "footnoteReference",
+        NodeValue::Link(_) => "link",
+        NodeValue::Image(_) => "image",
+        NodeValue::Text(_) => "text",
+        NodeValue::HtmlBlock(_) | NodeValue::HtmlInline(_) => "html",
+        NodeValue::Strong => "strong",
+        NodeValue::Emph => "emphasis",
+        NodeValue::Strikethrough => "delete",
+        NodeValue::Code(_) => "inlineCode",
+        NodeValue::CodeBlock(_) => "code",
+        NodeValue::Table(_) => "table",
+        NodeValue::ThematicBreak => "thematicBreak",
+        NodeValue::TableRow(_) => "tableRow",
+        NodeValue::TableCell => "tableCell",
+        NodeValue::Item(_) | NodeValue::TaskItem(_) => "listItem",
         _ => "unknown",
     }
 }
@@ -156,41 +216,95 @@ fn apply_style_to_text_descendants(node: &mut Value, style_key: &str) {
     }
 }
 
-fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
-    match ast {
-        Node::Text(text) => {
+fn append_plain_text<'a>(node: &'a AstNode<'a>, text: &mut String) {
+    match &node.data.borrow().value {
+        NodeValue::Text(value) => text.push_str(value),
+        NodeValue::HtmlInline(value) => text.push_str(value),
+        NodeValue::Code(code) => text.push_str(&code.literal),
+        NodeValue::SoftBreak | NodeValue::LineBreak => text.push('\n'),
+        _ => {}
+    }
+
+    for child in node.children() {
+        append_plain_text(child, text);
+    }
+}
+
+fn plain_text<'a>(node: &'a AstNode<'a>) -> String {
+    let mut text = String::new();
+    append_plain_text(node, &mut text);
+    text
+}
+
+fn to_structure_ast<'a>(
+    ast: &'a AstNode<'a>,
+    source: &MarkdownSource<'_>,
+    media: &mut MediaLookup,
+) -> Value {
+    let data = ast.data.borrow();
+    match &data.value {
+        NodeValue::Text(value) => {
             json!({
                 "type": "text",
-                "text": text.value,
+                "text": value,
             })
         }
-        Node::Html(html) => {
+        NodeValue::SoftBreak => {
+            json!({
+                "type": "text",
+                "text": "\n",
+            })
+        }
+        NodeValue::LineBreak => json!({ "type": "break" }),
+        NodeValue::HtmlInline(value) => {
             json!({
                 "type": "html",
-                "text": html.value,
+                "text": value,
             })
         }
-        Node::InlineCode(code) => {
+        NodeValue::HtmlBlock(html) => {
+            json!({
+                "type": "html",
+                "text": html.literal,
+            })
+        }
+        NodeValue::Code(code) => {
             json!({
                 "type": "text",
-                "text": code.value,
+                "text": code.literal,
                 "code": true,
             })
         }
-        Node::Image(image) => {
-            let mut node = json!({
-                "type": "image",
-            });
-
-            if let Some(title) = image.title.as_deref().filter(|t| !t.trim().is_empty()) {
-                node["title"] = title.into();
+        NodeValue::Image(image) => {
+            if source
+                .slice(data.sourcepos)
+                .is_some_and(|value| uses_reference_syntax(value, true))
+            {
+                let media_type = if is_video_url(&image.url) {
+                    "videoReference"
+                } else {
+                    "imageReference"
+                };
+                return json!({ "type": media_type });
             }
 
-            if let Some(media_node) = pop_media_mdast(ast, media) {
-                let alt = if image.alt.trim().is_empty() {
+            let media_type = if is_video_url(&image.url) {
+                "video"
+            } else {
+                "image"
+            };
+            let mut node = json!({ "type": media_type });
+
+            if !image.title.trim().is_empty() {
+                node["title"] = image.title.clone().into();
+            }
+
+            if let Some(media_node) = media.pop_for_url(&image.url) {
+                let image_alt = plain_text(ast);
+                let alt = if image_alt.trim().is_empty() {
                     media_node.alt.unwrap_or_default()
                 } else {
-                    image.alt.clone()
+                    image_alt
                 };
 
                 node["alt"] = alt.into();
@@ -200,85 +314,104 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
                 if let Ok(variants) = serde_json::to_value(media_node.variants) {
                     node["variants"] = variants;
                 }
+                if media_type == "video"
+                    && let Ok(video_variants) = serde_json::to_value(media_node.video_variants)
+                {
+                    node["video_variants"] = video_variants;
+                }
 
                 return node;
             }
 
-            node["alt"] = image.alt.clone().into();
+            node["alt"] = plain_text(ast).into();
             node["src"] = image.url.clone().into();
 
             node
         }
-        Node::FootnoteReference(reference) => {
+        NodeValue::FootnoteReference(reference) => {
             json!({
                 "type": "footnote_reference",
-                "identifier": reference.identifier,
-                "label": reference.label,
+                "identifier": reference.name.clone(),
+                "label": reference.name.clone(),
             })
         }
-        Node::FootnoteDefinition(definition) => {
+        NodeValue::FootnoteDefinition(definition) => {
+            let name = definition.name.clone();
+            drop(data);
             json!({
                 "type": "footnote_definition",
-                "children": definition.children.iter().map(|child| to_structure_mdast(child, media)).collect::<Vec<_>>(),
-                "identifier": definition.identifier.clone(),
-                "label": definition.label.clone(),
+                "children": ast.children().map(|child| to_structure_ast(child, source, media)).collect::<Vec<_>>(),
+                "identifier": name.clone(),
+                "label": name,
             })
         }
         _ => {
-            let node_type = node_type_name(ast);
-            let is_paragraph = matches!(ast, Node::Paragraph(_));
-            let is_link = matches!(ast, Node::Link(_));
-            let style_key = match ast {
-                Node::Strong(_) => Some("bold"),
-                Node::Emphasis(_) => Some("italic"),
-                Node::Delete(_) => Some("strikethrough"),
+            let is_link_reference = matches!(data.value, NodeValue::Link(_))
+                && source
+                    .slice(data.sourcepos)
+                    .is_some_and(|value| uses_reference_syntax(value, false));
+            let node_type = if is_link_reference {
+                "linkReference"
+            } else {
+                node_type_name(&data.value)
+            };
+            let is_paragraph = matches!(data.value, NodeValue::Paragraph);
+            let heading_level = match &data.value {
+                NodeValue::Heading(heading) => Some(heading.level),
                 _ => None,
             };
+            let link_url = match &data.value {
+                NodeValue::Link(link) if !is_link_reference => Some(link.url.clone()),
+                _ => None,
+            };
+            let style_key = match data.value {
+                NodeValue::Strong => Some("bold"),
+                NodeValue::Emph => Some("italic"),
+                NodeValue::Strikethrough => Some("strikethrough"),
+                _ => None,
+            };
+            drop(data);
 
-            let mut children: Vec<Value> = ast
-                .children()
-                .map(|nodes| Vec::with_capacity(nodes.len()))
-                .unwrap_or_default();
+            let mut children = Vec::new();
+            for child in ast.children() {
+                let mut converted = to_structure_ast(child, source, media);
 
-            if let Some(nodes) = ast.children() {
-                for child in nodes {
-                    let mut converted = to_structure_mdast(child, media);
-
-                    if let Some(style_key) = style_key {
-                        apply_style_to_text_descendants(&mut converted, style_key);
-                    }
-
-                    if is_link
-                        && let Node::Link(parent_link) = ast
-                        && let Some(obj) = converted.as_object()
-                        && obj.get("type").and_then(Value::as_str) == Some("link")
-                        && obj.get("url").and_then(Value::as_str) == Some(parent_link.url.as_str())
-                        && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
-                    {
-                        children.extend(inner_children.iter().cloned());
-                        continue;
-                    }
-
-                    if let Some(obj) = converted.as_object()
-                        && matches!(
-                            obj.get("type").and_then(Value::as_str),
-                            Some("strong" | "emphasis" | "delete")
-                        )
-                        && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
-                    {
-                        children.extend(inner_children.iter().cloned());
-                        continue;
-                    }
-
-                    children.push(converted);
+                if let Some(style_key) = style_key {
+                    apply_style_to_text_descendants(&mut converted, style_key);
                 }
+
+                if let Some(parent_link) = &link_url
+                    && let Some(obj) = converted.as_object()
+                    && obj.get("type").and_then(Value::as_str) == Some("link")
+                    && obj.get("url").and_then(Value::as_str) == Some(parent_link.as_str())
+                    && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
+                {
+                    children.extend(inner_children.iter().cloned());
+                    continue;
+                }
+
+                if let Some(obj) = converted.as_object()
+                    && matches!(
+                        obj.get("type").and_then(Value::as_str),
+                        Some("strong" | "emphasis" | "delete")
+                    )
+                    && let Some(inner_children) = obj.get("children").and_then(Value::as_array)
+                {
+                    children.extend(inner_children.iter().cloned());
+                    continue;
+                }
+
+                children.push(converted);
             }
 
-            // Handle paragraph with single image: unwrap if only child
+            // Handle paragraphs containing one standalone media element.
             if is_paragraph
                 && children.len() == 1
                 && let Some(first) = children.first()
-                && first.get("type").and_then(Value::as_str) == Some("image")
+                && matches!(
+                    first.get("type").and_then(Value::as_str),
+                    Some("image" | "video")
+                )
             {
                 return first.clone();
             }
@@ -287,19 +420,20 @@ fn to_structure_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
             result.insert("type".into(), Value::String(node_type.into()));
 
             if !children.is_empty() {
+                let children = merge_adjacent_text_nodes(children);
                 let children = merge_html_blocks(children);
                 result.insert("children".into(), Value::Array(children));
             }
 
-            if let Node::Heading(heading) = ast {
+            if let Some(level) = heading_level {
                 result.insert(
                     "level".into(),
-                    Value::Number(serde_json::Number::from(heading.depth)),
+                    Value::Number(serde_json::Number::from(level)),
                 );
             }
 
-            if let Node::Link(link) = ast {
-                result.insert("url".into(), Value::String(link.url.clone()));
+            if let Some(url) = link_url {
+                result.insert("url".into(), Value::String(url));
             }
 
             Value::Object(result)
@@ -317,18 +451,51 @@ fn extract_tag_name(tag: &str) -> Option<String> {
     if name.is_empty() { None } else { Some(name) }
 }
 
-pub fn to_structure_root_mdast(ast: &Node, media: &mut Vec<MediaSerializer>) -> Value {
-    if let Node::Root(root) = ast {
-        let mut converted: Vec<Value> = Vec::with_capacity(root.children.len());
-        for child in &root.children {
-            converted.push(to_structure_mdast(child, media));
+pub fn to_structure_root(markdown: &str, media: &mut Vec<MediaSerializer>) -> Value {
+    let arena = Arena::new();
+    let ast = crate::utils::markdown::parse_gfm(&arena, markdown);
+    let source = MarkdownSource::new(markdown);
+    let mut media_lookup = MediaLookup::take_from(media);
+    let children = ast.children().collect::<Vec<_>>();
+    let line_count = markdown.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let mut covered_lines = vec![false; line_count + 1];
+    for child in &children {
+        let sourcepos = child.data.borrow().sourcepos;
+        let end = sourcepos.end.line.min(line_count);
+        if sourcepos.start.line <= end {
+            covered_lines[sourcepos.start.line..=end].fill(true);
         }
-
-        let merged = merge_html_blocks(converted);
-        Value::Array(merged)
-    } else {
-        Value::Array(vec![to_structure_mdast(ast, media)])
     }
+    let mut converted = children
+        .into_iter()
+        .enumerate()
+        .map(|(order, child)| {
+            let line = child.data.borrow().sourcepos.start.line;
+            (
+                line,
+                order,
+                to_structure_ast(child, &source, &mut media_lookup),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    converted.extend(
+        markdown
+            .lines()
+            .enumerate()
+            .filter(|(index, line)| {
+                let line_number = index + 1;
+                is_reference_definition(line)
+                    && !covered_lines.get(line_number).copied().unwrap_or(true)
+            })
+            .map(|(index, _)| (index + 1, usize::MAX, json!({ "type": "definition" }))),
+    );
+    converted.sort_by_key(|(line, order, _)| (*line, *order));
+
+    media_lookup.restore_unmatched(media);
+    Value::Array(merge_html_blocks(
+        converted.into_iter().map(|(_, _, node)| node).collect(),
+    ))
 }
 
 fn truncate_text_at_word(text: &str, remaining: usize) -> String {
@@ -474,59 +641,6 @@ pub fn truncate_structure_root(root: &mut Value, limit: usize) {
     }
 }
 
-fn collect_image_refs(node: &Value, acc: &mut Vec<AstImageRef>) {
-    match node {
-        Value::Object(map) => {
-            if map.get("type").and_then(Value::as_str) == Some("image") {
-                let url = map
-                    .get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-
-                let position = map.get("position");
-                let ast_line = position
-                    .and_then(|pos| pos.get("start"))
-                    .and_then(|start| start.get("line"))
-                    .and_then(Value::as_i64)
-                    .and_then(|v| i32::try_from(v).ok())
-                    .unwrap_or_default();
-
-                let start_offset = position
-                    .and_then(|pos| pos.get("start"))
-                    .and_then(|start| start.get("offset"))
-                    .and_then(Value::as_i64)
-                    .and_then(|v| i32::try_from(v).ok());
-
-                let end_offset = position
-                    .and_then(|pos| pos.get("end"))
-                    .and_then(|end| end.get("offset"))
-                    .and_then(Value::as_i64)
-                    .and_then(|v| i32::try_from(v).ok());
-
-                acc.push(AstImageRef {
-                    url,
-                    ast_line,
-                    start_offset,
-                    end_offset,
-                });
-            }
-
-            if let Some(children) = map.get("children").and_then(Value::as_array) {
-                for child in children {
-                    collect_image_refs(child, acc);
-                }
-            }
-        }
-        Value::Array(arr) => {
-            for child in arr {
-                collect_image_refs(child, acc);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn normalize_media_path(raw_url: &str) -> Option<(String, String)> {
     let mut path = raw_url.trim().to_string();
     if path.is_empty() {
@@ -564,62 +678,230 @@ fn normalize_media_path(raw_url: &str) -> Option<(String, String)> {
     Some((dir, filename.to_string()))
 }
 
-pub async fn persist_content_media(
+pub(crate) async fn persist_content_media(
     pool: &PgPool,
     node_id: i64,
-    ast: &Value,
+    images: &[MarkdownImageRef],
 ) -> Result<(), NurError> {
     let mut connection = pool.acquire().await?;
-    persist_content_media_on(&mut connection, node_id, ast).await
+    persist_content_media_on(&mut connection, node_id, images).await
 }
 
-pub async fn persist_content_media_on(
+pub(crate) async fn persist_content_media_on(
     connection: &mut PgConnection,
     node_id: i64,
-    ast: &Value,
+    images: &[MarkdownImageRef],
 ) -> Result<(), NurError> {
-    let mut images = Vec::new();
-    collect_image_refs(ast, &mut images);
-
-    if images.is_empty() {
-        return Ok(());
-    }
-
-    let mut seen = HashSet::new();
+    let mut paths = Vec::new();
+    let mut filenames = Vec::new();
+    let mut positions = Vec::new();
 
     for image in images {
-        let Some((path, filename)) = normalize_media_path(&image.url) else {
-            continue;
-        };
-
-        let media_id =
-            sqlx::query_scalar::<_, i32>("SELECT id FROM media WHERE path = $1 AND filename = $2")
-                .bind(&path)
-                .bind(&filename)
-                .fetch_optional(&mut *connection)
-                .await?;
-
-        if let Some(media_id) = media_id {
-            if !seen.insert((media_id, image.ast_line)) {
-                continue;
-            }
-
-            let link = ContentNodeMedia {
-                node_id,
-                media_id,
-                ast_line: image.ast_line,
-                start_offset: image.start_offset,
-                end_offset: image.end_offset,
-            };
-
-            handles::insert_record::<_, ContentNodeMedia, i64>(
-                &mut *connection,
-                &Table::ContentNodeMedia,
-                &link,
-            )
-            .await?;
+        if let Some((path, filename)) = normalize_media_path(&image.url) {
+            paths.push(path);
+            filenames.push(filename);
+            positions.push(image.document_index);
         }
     }
 
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        WITH matched_images AS (
+            SELECT
+                m.id AS media_id,
+                (row_number() OVER (ORDER BY image.document_index) - 1)::int AS position_index
+            FROM UNNEST($2::text[], $3::text[], $4::int[])
+                AS image(path, filename, document_index)
+            JOIN media m
+              ON m.path = image.path
+             AND m.filename = image.filename
+        )
+        INSERT INTO content_node_media (node_id, media_id, position_index)
+        SELECT $1, media_id, position_index
+        FROM matched_images
+        ON CONFLICT (node_id, position_index) DO UPDATE
+        SET media_id = EXCLUDED.media_id,
+            updated_at = now()
+        "#,
+    )
+    .bind(node_id)
+    .bind(&paths)
+    .bind(&filenames)
+    .bind(&positions)
+    .execute(&mut *connection)
+    .await?;
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::db::serialize::{MediaSerializer, MediaVideoVariantSerializer};
+
+    use super::to_structure_root;
+
+    #[test]
+    fn preserves_the_public_structure_ast_shape_for_gfm_content() {
+        let mut media = Vec::new();
+        let ast = to_structure_root(
+            "# Heading\n\nA **bold** and *italic* with [a link](https://example.test).\n\n| Name | Value |\n| --- | --- |\n| One | 1 |",
+            &mut media,
+        );
+
+        assert_eq!(
+            ast[0],
+            json!({
+                "type": "heading",
+                "level": 1,
+                "children": [{ "type": "text", "text": "Heading" }],
+            })
+        );
+        assert_eq!(ast[1]["type"], "paragraph");
+        assert_eq!(
+            ast[1]["children"][1],
+            json!({ "type": "text", "text": "bold", "bold": true })
+        );
+        assert_eq!(
+            ast[1]["children"][3],
+            json!({ "type": "text", "text": "italic", "italic": true })
+        );
+        assert_eq!(
+            ast[1]["children"][5],
+            json!({
+                "type": "link",
+                "url": "https://example.test",
+                "children": [{ "type": "text", "text": "a link" }],
+            })
+        );
+        assert_eq!(ast[2]["type"], "table");
+        assert_eq!(ast[2]["children"][0]["type"], "tableRow");
+        assert_eq!(ast[2]["children"][0]["children"][0]["type"], "tableCell");
+    }
+
+    #[test]
+    fn preserves_soft_and_hard_break_shapes() {
+        let mut media = Vec::new();
+        let ast = to_structure_root("soft\nbreak\n\nhard  \nbreak", &mut media);
+
+        assert_eq!(
+            ast[0]["children"],
+            json!([{ "type": "text", "text": "soft\nbreak" }])
+        );
+        assert_eq!(ast[1]["children"][0]["text"], "hard");
+        assert_eq!(ast[1]["children"][1], json!({ "type": "break" }));
+        assert_eq!(ast[1]["children"][2]["text"], "break");
+    }
+
+    #[test]
+    fn preserves_reference_node_types() {
+        let mut media = Vec::new();
+        let ast = to_structure_root(
+            "[Docs][docs] and ![Logo][logo]\n\n[docs]: https://example.test\n[logo]: /uploads/logo.png",
+            &mut media,
+        );
+
+        assert_eq!(ast[0]["children"][0]["type"], "linkReference");
+        assert_eq!(ast[0]["children"][2]["type"], "imageReference");
+        assert_eq!(ast[1]["type"], "definition");
+        assert_eq!(ast[2]["type"], "definition");
+
+        let ast = to_structure_root("Ä [Docs][docs]\n\n[docs]: https://example.test", &mut media);
+        assert_eq!(ast[0]["children"][1]["type"], "linkReference");
+
+        let ast = to_structure_root("![Clip][clip]\n\n[clip]: /uploads/clip.webm", &mut media);
+        assert_eq!(ast[0]["children"][0]["type"], "videoReference");
+    }
+
+    #[test]
+    fn matches_embedded_media_by_url_when_external_images_come_first() {
+        let mut media = vec![MediaSerializer {
+            filename: Some("local.jpg".into()),
+            path: Some("/uploads".into()),
+            position_index: Some(0),
+            ..MediaSerializer::default()
+        }];
+        let ast = to_structure_root(
+            "![External](https://example.test/image.jpg) ![Local](/uploads/local.jpg)",
+            &mut media,
+        );
+
+        assert_eq!(
+            ast[0]["children"][0]["src"],
+            "https://example.test/image.jpg"
+        );
+        assert_eq!(ast[0]["children"][2]["path"], "/uploads");
+        assert_eq!(ast[0]["children"][2]["filename"], "local.jpg");
+        assert!(media.is_empty());
+    }
+
+    #[test]
+    fn matches_repeated_occurrences_of_the_same_media() {
+        let linked_media = || MediaSerializer {
+            filename: Some("same.jpg".into()),
+            path: Some("/uploads".into()),
+            ..MediaSerializer::default()
+        };
+        let mut media = vec![linked_media(), linked_media()];
+        let ast = to_structure_root(
+            "![First](/uploads/same.jpg) ![Second](/uploads/same.jpg)",
+            &mut media,
+        );
+
+        assert_eq!(ast[0]["children"][0]["filename"], "same.jpg");
+        assert_eq!(ast[0]["children"][2]["filename"], "same.jpg");
+        assert!(media.is_empty());
+    }
+
+    #[test]
+    fn represents_image_style_video_urls_as_video_nodes() {
+        let mut media = vec![MediaSerializer {
+            filename: Some("clip.mp4".into()),
+            path: Some("/uploads".into()),
+            r#type: Some("video/mp4".into()),
+            position_index: Some(0),
+            video_variants: vec![MediaVideoVariantSerializer {
+                id: 7,
+                kind: "transcode".into(),
+                profile: "h264-720".into(),
+                width: 1280,
+                height: 720,
+                container: "mp4".into(),
+                video_codec: "h264".into(),
+                audio_codec: Some("aac".into()),
+                filename: "clip--h264-720.mp4".into(),
+                size: 12_345,
+                duration_ms: Some(5_000),
+            }],
+            ..MediaSerializer::default()
+        }];
+        let ast = to_structure_root(
+            "![A short clip](/uploads/clip.mp4 \"Clip title\")",
+            &mut media,
+        );
+
+        assert_eq!(ast[0]["type"], "video");
+        assert_eq!(ast[0]["alt"], "A short clip");
+        assert_eq!(ast[0]["title"], "Clip title");
+        assert_eq!(ast[0]["path"], "/uploads");
+        assert_eq!(ast[0]["filename"], "clip.mp4");
+        assert_eq!(
+            ast[0]["video_variants"][0]["filename"],
+            "clip--h264-720.mp4"
+        );
+        assert!(media.is_empty());
+
+        let mut external_media = Vec::new();
+        let external = to_structure_root(
+            "![External](https://example.test/clip.webm)",
+            &mut external_media,
+        );
+        assert_eq!(external[0]["type"], "video");
+        assert_eq!(external[0]["src"], "https://example.test/clip.webm");
+    }
 }

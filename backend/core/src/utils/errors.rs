@@ -106,11 +106,6 @@ impl From<inquire::InquireError> for NurError {
     }
 }
 
-impl From<markdown::message::Message> for NurError {
-    fn from(err: markdown::message::Message) -> NurError {
-        Self::Conflict(err.to_string())
-    }
-}
 impl From<axum::extract::multipart::MultipartError> for NurError {
     fn from(err: axum::extract::multipart::MultipartError) -> NurError {
         error!("{err:?}");

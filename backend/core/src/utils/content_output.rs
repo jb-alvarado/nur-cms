@@ -1,12 +1,10 @@
-use markdown::{ParseOptions, to_mdast};
-
 use crate::{
     db::{
         fields::OutputType,
         serialize::{ContentEntrySerializer, ContentNodeSerializer, NodeSerializer},
     },
     utils::{
-        ast_serialize::{to_structure_root_mdast, truncate_structure_root},
+        ast_serialize::{to_structure_root, truncate_structure_root},
         errors::NurError,
         markdown::render_gfm_html,
     },
@@ -38,8 +36,7 @@ pub fn render_entry_nodes(
 
                 match output {
                     OutputType::AST => {
-                        let ast = to_mdast(&text, &ParseOptions::gfm())?;
-                        let mut body = to_structure_root_mdast(&ast, &mut node.embeds);
+                        let mut body = to_structure_root(&text, &mut node.embeds);
                         if let Some(limit) = character_limit {
                             truncate_structure_root(&mut body, limit as usize);
                         }
