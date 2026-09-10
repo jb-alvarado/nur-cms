@@ -7,6 +7,7 @@ use argon2::{Argon2, PasswordHasher, PasswordVerifier, password_hash::phc::Passw
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, TimeDelta, Utc};
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
+use lettre::message::Mailbox;
 use rand::RngExt;
 use real::RealIp;
 use serde::{Deserialize, Serialize};
@@ -128,6 +129,10 @@ fn email_two_factor_is_configured(config: &Configuration) -> bool {
     ]
     .into_iter()
     .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
+}
+
+fn is_valid_mailbox(value: &str) -> bool {
+    value.parse::<Mailbox>().is_ok()
 }
 
 /// Create a json web token (JWT)
@@ -286,6 +291,21 @@ pub async fn login(
                                 "Two-factor authentication is not configured.".into(),
                             )
                         })?;
+                    if !is_valid_mailbox(&mail_user) {
+                        error!("Two-factor authentication sender address is invalid");
+                        return Err(NurError::ServiceUnavailable(
+                            "Two-factor authentication is not configured.".into(),
+                        ));
+                    }
+                    if !is_valid_mailbox(&email) {
+                        error!(
+                            user_id,
+                            "Two-factor authentication recipient address is invalid"
+                        );
+                        return Err(NurError::ServiceUnavailable(
+                            "Two-factor authentication is not configured.".into(),
+                        ));
+                    }
                     // Generate 7-digit random code
                     let verification_code: String = (0..7)
                         .map(|_| rand::rng().random_range(0..10).to_string())
@@ -698,6 +718,14 @@ mod tests {
 
         config.mail_password = Some("  ".into());
         assert!(!email_two_factor_is_configured(&config));
+    }
+
+    #[test]
+    fn email_two_factor_requires_valid_mailboxes() {
+        assert!(is_valid_mailbox("noreply@example.org"));
+        assert!(is_valid_mailbox("Nur CMS <noreply@example.org>"));
+        assert!(!is_valid_mailbox("not an email address"));
+        assert!(!is_valid_mailbox("noreply@"));
     }
 
     #[tokio::test]
