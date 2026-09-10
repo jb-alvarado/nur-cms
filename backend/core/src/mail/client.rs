@@ -1,6 +1,7 @@
 use html_parser::Dom;
 use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::header,
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::{Mailbox, header},
     transport::smtp::authentication::Credentials,
 };
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,11 @@ impl Msg {
     }
 }
 
+fn reply_to_mailbox(name: String, mail: &str) -> Result<Mailbox, NurError> {
+    let mail: Mailbox = mail.parse()?;
+    Ok(Mailbox::new(Some(name), mail.email))
+}
+
 pub async fn send(message: Message) -> Result<(), NurError> {
     let config = CONFIG.read().await.clone();
     let credentials = Credentials::new(
@@ -86,7 +92,7 @@ pub async fn message(msg: Msg) -> Result<(), NurError> {
     let mut message = Message::builder()
         .subject(&subject)
         .from(config.mail_user.unwrap_or_default().parse()?)
-        .reply_to(format!("{} <{}>", msg.name, msg.mail).parse()?);
+        .reply_to(reply_to_mailbox(msg.name.clone(), &msg.mail)?);
 
     for recipient in &msg.target.recipients {
         let addr = recipient.trim();
@@ -110,4 +116,18 @@ pub async fn message(msg: Msg) -> Result<(), NurError> {
     send(mail).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reply_to_mailbox;
+
+    #[test]
+    fn reply_to_accepts_a_frontend_name_with_mailbox_characters() {
+        let reply_to = reply_to_mailbox("NUR <CMS>".into(), "noreply@example.org")
+            .expect("valid reply-to mailbox");
+
+        assert_eq!(reply_to.name.as_deref(), Some("NUR <CMS>"));
+        assert_eq!(reply_to.email.to_string(), "noreply@example.org");
+    }
 }
