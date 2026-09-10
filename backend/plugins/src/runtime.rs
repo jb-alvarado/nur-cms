@@ -97,7 +97,7 @@ struct HostState {
     metrics_enabled: bool,
     public_route: bool,
     route_id: String,
-    client_ip: IpAddr,
+    client_ip: Option<IpAddr>,
     public_mail_rate_limiter: Arc<Mutex<PublicMailRateLimiter>>,
     public_mail_authorized: Option<bool>,
     mail_calls_remaining: u8,
@@ -277,7 +277,7 @@ impl PluginComponent {
         &self,
         request: bindings::nur::cms::types::Request,
         public_route: bool,
-        client_ip: IpAddr,
+        client_ip: Option<IpAddr>,
     ) -> Result<bindings::nur::cms::types::Response, Error> {
         let permit = acquire_runtime_permit(Arc::clone(&self.runtime.semaphore))?;
         let component = self.clone();
@@ -295,7 +295,7 @@ impl PluginComponent {
         &self,
         request: bindings::nur::cms::types::Request,
         public_route: bool,
-        client_ip: IpAddr,
+        client_ip: Option<IpAddr>,
     ) -> Result<bindings::nur::cms::types::Response, Error> {
         let call_started = Instant::now();
         let mut linker = Linker::new(&self.runtime.engine);
@@ -750,11 +750,8 @@ impl HostState {
             self.public_route,
             &mut self.public_mail_authorized,
             || {
-                let Ok(mut limiter) = limiter.lock() else {
-                    return false;
-                };
-                allow_public_mail(
-                    &mut limiter,
+                allow_public_mail_for_client(
+                    &limiter,
                     &plugin_id,
                     &route_id,
                     client_ip,
@@ -895,6 +892,22 @@ fn allow_public_mail(
     true
 }
 
+fn allow_public_mail_for_client(
+    limiter: &Arc<Mutex<PublicMailRateLimiter>>,
+    plugin_id: &str,
+    route_id: &str,
+    client_ip: Option<IpAddr>,
+    now: Instant,
+) -> bool {
+    let Some(client_ip) = client_ip else {
+        return false;
+    };
+    let Ok(mut limiter) = limiter.lock() else {
+        return false;
+    };
+    allow_public_mail(&mut limiter, plugin_id, route_id, client_ip, now)
+}
+
 fn database_error(message: impl Into<String>) -> bindings::nur::cms::types::PluginError {
     bindings::nur::cms::types::PluginError::Failed(message.into())
 }
@@ -944,7 +957,7 @@ mod tests {
 
     use super::{
         MailPermissions, PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit,
-        allow_mail_for_request, allow_public_mail, bindings,
+        allow_mail_for_request, allow_public_mail, allow_public_mail_for_client, bindings,
     };
 
     #[test]
@@ -1151,6 +1164,28 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn public_mail_fails_closed_without_a_client_ip() {
+        let limiter = Arc::new(Mutex::new(PublicMailRateLimiter {
+            sent: HashMap::new(),
+            expirations: VecDeque::new(),
+            window: Duration::from_secs(180),
+            max_clients: 10_000,
+        }));
+        let now = Instant::now();
+
+        assert!(!allow_public_mail_for_client(
+            &limiter, "echo", "mail", None, now,
+        ));
+        assert!(allow_public_mail_for_client(
+            &limiter,
+            "echo",
+            "mail",
+            Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            now,
+        ));
+    }
+
     #[tokio::test]
     #[ignore = "requires a prebuilt wasm32-wasip2 echo example"]
     async fn invokes_built_echo_component_when_available() {
@@ -1179,7 +1214,7 @@ mod tests {
                     identity: None,
                 },
                 true,
-                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             )
             .await
             .expect("example request succeeds");
@@ -1216,7 +1251,7 @@ mod tests {
                     identity: None,
                 },
                 true,
-                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             )
             .await;
 
@@ -1254,7 +1289,7 @@ mod tests {
                     }),
                 },
                 false,
-                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             )
             .await
             .expect("Vue admin example request succeeds");

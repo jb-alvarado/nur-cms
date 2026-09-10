@@ -2682,6 +2682,7 @@ version = "0.18.0"
 dependencies = [
  "axum",
  "build-print",
+ "bytes",
  "chrono",
  "clap",
  "colored",
@@ -2690,6 +2691,7 @@ dependencies = [
  "ipnet",
  "lazy-limit",
  "mime_guess",
+ "moka",
  "nur_core",
  "nur_plugins",
  "protect-axum",
@@ -2747,13 +2749,9 @@ dependencies = [
 name = "nur_plugins"
 version = "0.18.0"
 dependencies = [
- "axum",
  "colored",
  "futures-util",
- "moka",
  "nur_core",
- "protect-axum",
- "real",
  "semver",
  "serde",
  "serde_json",
@@ -2764,7 +2762,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "toml_edit 0.25.13+spec-1.1.0",
- "tower-http",
  "tracing",
  "wasmtime",
  "wasmtime-wasi",

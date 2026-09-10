@@ -15,6 +15,7 @@ workspace = true
 nur_core = { path = "../core" }
 nur_plugins = { path = "../plugins" }
 axum = { version = "0.8", features = ["multipart"] }
+bytes = "1"
 chrono = { version = "0.4", default-features = false, features = [
     "clock",
     "std",
@@ -27,6 +28,7 @@ include_dir = "0.7"
 ipnet = "2"
 lazy-limit = "1"
 mime_guess = "2"
+moka = { version = "0.12", default-features = false, features = ["sync"] }
 protect-axum = "0.2"
 real = { version = "0.1", features = ["axum"] }
 tower = { version = "0.5", features = ["limit"] }

@@ -31,6 +31,7 @@ use tracing::{debug, error};
 #[cfg(not(debug_assertions))]
 mod serve;
 
+mod plugins;
 mod utils;
 
 use nur_core::{
@@ -47,8 +48,9 @@ use nur_core::{
     },
     utils::{cmd_args::add_user, errors::NurError, importer},
 };
-use nur_plugins::{PluginCacheInvalidator, PluginManager};
+use nur_plugins::PluginManager;
 
+use plugins::PluginCacheInvalidator;
 use utils::{
     extend_args::AppArgs,
     logging::{init_tracing, log_middleware},
@@ -214,11 +216,12 @@ async fn main() -> Result<(), NurError> {
         error!(%error, "Failed to load plugins");
         NurError::InternalServerError
     })?;
-    let plugin_routes = plugin_manager.router().map_err(|error| {
+    let plugin_manager = Arc::new(plugin_manager);
+    let plugin_routes = plugins::router(Arc::clone(&plugin_manager)).map_err(|error| {
         error!(%error, "Failed to register plugin routes");
         NurError::InternalServerError
     })?;
-    let plugin_cache_invalidator = plugin_manager.cache_invalidator();
+    let plugin_cache_invalidator = plugin_routes.cache_invalidator();
 
     let (tx, _rx) = broadcast::channel(20);
     let (shutdown_tx, _) = broadcast::channel(1);
@@ -284,7 +287,7 @@ async fn main() -> Result<(), NurError> {
         )
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .nest("/sse", sse_router)
-        .merge(plugin_routes)
+        .merge(plugin_routes.router)
         .layer(middlewares);
 
     #[cfg(not(debug_assertions))]
@@ -296,7 +299,7 @@ async fn main() -> Result<(), NurError> {
         .nest("/api", api_routes.with_state((pool, tx.clone())))
         .merge(admin_ui_routes())
         .nest("/sse", sse_router)
-        .merge(plugin_routes)
+        .merge(plugin_routes.router)
         .layer(middlewares);
 
     if cfg!(debug_assertions) || args.serve_static {

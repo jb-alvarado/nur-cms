@@ -391,8 +391,11 @@ HTTP request atomically reserves this route/IP window after the first message ha
 mail calls may then run in that same request;
 the fourth returns `rate-limited`. A second request for the same plugin route and IP remains blocked until the
 window expires. Routes and client IPs have independent keys, and protected routes skip the public-IP window but
-retain the same three-call request limit. The client IP is never exposed to Wasm. Multiple SMTP deliveries are
-not atomic: if a later send fails, a previously delivered message cannot be rolled back.
+retain the same three-call request limit. A host adapter may invoke ordinary plugin functionality without a
+client IP, but mail from a public route fails closed with `rate-limited` when no client IP is available. This is
+not configurable, to prevent accidentally creating an unrestricted mail relay. The client IP is never exposed
+to Wasm. Multiple SMTP deliveries are not atomic: if a later send fails, a previously delivered message cannot
+be rolled back.
 
 Input failures are returned as stable `bad-request` errors for unknown targets, invalid addresses, header-like
 values, empty messages, and spam. Missing manifest permissions for the target, dynamic recipient, or trusted

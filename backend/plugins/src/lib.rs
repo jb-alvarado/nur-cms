@@ -1,42 +1,22 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use std::{collections::HashSet, time::Duration};
 
-use axum::{
-    Json, Router,
-    body::{Body, to_bytes},
-    extract::{Extension, Path, Request, State},
-    http::{HeaderName, HeaderValue, Method, StatusCode},
-    response::{IntoResponse, Response},
-    routing::{MethodFilter, get, on},
-};
-use moka::sync::Cache;
-use nur_core::db::models::{AuthUserMeta, Role};
-use protect_axum::authorities::AuthDetails;
-use real::RealIp;
 use serde::Serialize;
 use sqlx::PgPool;
-use tower_http::{services::ServeDir, timeout::TimeoutLayer};
-use tracing::{error, info};
 
 mod manifest;
 mod migrations;
 mod runtime;
+pub mod transport;
 
-use manifest::{AdminManifest, CacheManifest, InstalledPlugin, RouteManifest};
+use manifest::RouteManifest;
+pub use manifest::{AdminManifest, AdminMenuItem};
 use runtime::{PluginComponent, Runtime, bindings};
+pub use transport::{AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route};
 
 pub const API_VERSION: u32 = 1;
-const FORWARDED_REQUEST_HEADERS: &[&str] =
-    &["accept", "accept-language", "content-type", "user-agent"];
-const MAX_RESPONSE_HEADERS: usize = 64;
-const MAX_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
-const MAX_RESPONSE_HEADER_VALUE_BYTES: usize = 8 * 1024;
+pub const MAX_RESPONSE_HEADERS: usize = 64;
+pub const MAX_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
+pub const MAX_RESPONSE_HEADER_VALUE_BYTES: usize = 8 * 1024;
 const MAX_ROUTE_PATH_BYTES: usize = 2 * 1024;
 const MAX_ROUTE_PARAMS: usize = 16;
 
@@ -88,131 +68,70 @@ pub struct PluginMetadata {
     pub admin: Option<AdminManifest>,
 }
 
-pub struct PluginManager {
-    plugins: Vec<LoadedPlugin>,
-    metadata: Arc<Vec<PluginMetadata>>,
-}
-
-#[derive(Clone, Default)]
-pub struct PluginCacheInvalidator {
-    caches: Arc<Vec<RouteCache>>,
-}
-
-impl PluginCacheInvalidator {
-    pub fn invalidate(&self) {
-        for cache in self.caches.iter() {
-            cache.invalidate();
-        }
-    }
-}
-
-struct LoadedPlugin {
-    installed: InstalledPlugin,
-    component: PluginComponent,
-    cache: Option<RouteCache>,
-}
-
-#[derive(Clone)]
-struct RouteState {
+struct RegisteredRoute {
+    route: Route,
     plugin: PluginComponent,
-    route_id: String,
-    roles: Vec<String>,
+}
+
+pub struct PluginManager {
+    routes: Vec<RegisteredRoute>,
+    assets: Vec<AssetDirectory>,
+    metadata: Vec<PluginMetadata>,
+    timeout: Duration,
     request_body_limit: usize,
     response_body_limit: usize,
-    cache: Option<RouteCache>,
-    plugin_cache: Option<RouteCache>,
-}
-
-#[derive(Clone)]
-struct RouteCache {
-    responses: Cache<String, CachedResponse>,
-    ttl: Duration,
-    generation: Arc<AtomicU64>,
-}
-
-#[derive(Clone)]
-struct CachedResponse {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-    expires_at: Instant,
 }
 
 impl PluginManager {
     pub async fn load(pool: &PgPool) -> Result<Self, Error> {
         let installed = manifest::discover()?;
+        let timeout = plugin_timeout();
+        let request_body_limit = request_body_limit();
+        let response_body_limit = response_body_limit();
         if installed.is_empty() {
             return Ok(Self {
-                plugins: Vec::new(),
-                metadata: Arc::new(Vec::new()),
+                routes: Vec::new(),
+                assets: Vec::new(),
+                metadata: Vec::new(),
+                timeout,
+                request_body_limit,
+                response_body_limit,
             });
         }
-
         let runtime = Runtime::new(pool.clone())?;
-        let configured_caches = installed
-            .iter()
-            .filter(|plugin| plugin.manifest.cache.is_some())
-            .count();
-        let cache_capacity = plugin_cache_capacity(configured_caches);
-        let mut plugins = Vec::with_capacity(installed.len());
-        let mut metadata = Vec::with_capacity(installed.len());
+        let mut routes = Vec::new();
+        let mut assets = Vec::new();
+        let mut metadata = Vec::new();
+        let mut registered = HashSet::new();
+        let allow_root = std::env::var("NUR_PLUGIN_ALLOW_ROOT_ROUTES").as_deref() == Ok("1");
+
         for plugin in installed {
             migrations::migrate_plugin(pool, &plugin).await?;
             let component = runtime.load(&plugin)?;
-            info!(plugin = %plugin.manifest.plugin.id, "loaded plugin");
+            let plugin_id = plugin.manifest.plugin.id.clone();
+            if let Some(path) = plugin.assets.clone() {
+                assets.push(AssetDirectory {
+                    plugin_id: plugin_id.clone(),
+                    path,
+                });
+            }
             metadata.push(PluginMetadata {
-                id: plugin.manifest.plugin.id.clone(),
+                id: plugin_id.clone(),
                 name: plugin
                     .manifest
                     .plugin
                     .name
                     .clone()
-                    .unwrap_or_else(|| plugin.manifest.plugin.id.clone()),
+                    .unwrap_or_else(|| plugin_id.clone()),
                 version: plugin.manifest.plugin.version.clone(),
                 admin: plugin.manifest.admin.clone(),
             });
-            let cache = plugin_cache(plugin.manifest.cache.as_ref(), cache_capacity);
-            plugins.push(LoadedPlugin {
-                installed: plugin,
-                component,
-                cache,
+            let cache = plugin.manifest.cache.as_ref().map(|cache| CachePolicy {
+                ttl: Duration::from_secs(cache.ttl_seconds),
+                max_entries: cache.max_entries,
             });
-        }
-
-        Ok(Self {
-            plugins,
-            metadata: Arc::new(metadata),
-        })
-    }
-
-    pub fn router(&self) -> Result<Router, Error> {
-        let mut router = Router::new().route(
-            "/api/plugins",
-            get(plugin_index).with_state(Arc::clone(&self.metadata)),
-        );
-        let mut registered = HashSet::new();
-        let allow_root = std::env::var("NUR_PLUGIN_ALLOW_ROOT_ROUTES").as_deref() == Ok("1");
-        let request_body_limit = env_usize(
-            "NUR_PLUGIN_REQUEST_BODY_LIMIT",
-            1024 * 1024,
-            1024,
-            16 * 1024 * 1024,
-        );
-        let response_body_limit = env_usize(
-            "NUR_PLUGIN_RESPONSE_BODY_LIMIT",
-            4 * 1024 * 1024,
-            1024,
-            64 * 1024 * 1024,
-        );
-
-        for plugin in &self.plugins {
-            if let Some(assets) = &plugin.installed.assets {
-                let path = format!("/plugins/{}/assets", plugin.installed.manifest.plugin.id);
-                router = router.nest_service(&path, ServeDir::new(assets));
-            }
-            for route in &plugin.installed.manifest.routes {
-                validate_route(&plugin.installed.manifest.plugin.id, route, allow_root)?;
-                let method = method_filter(&route.method)?;
+            for route in &plugin.manifest.routes {
+                validate_route(&plugin_id, route, allow_root)?;
                 let key = (route.method.to_ascii_uppercase(), route_shape(&route.path)?);
                 if !registered.insert(key) {
                     return Err(Error::Manifest(format!(
@@ -220,65 +139,133 @@ impl PluginManager {
                         route.method, route.path
                     )));
                 }
-                let state = Arc::new(RouteState {
-                    plugin: plugin.component.clone(),
-                    route_id: route.id.clone(),
-                    roles: route.roles()?,
-                    request_body_limit,
-                    response_body_limit,
-                    cache: route
-                        .cache_enabled(plugin.cache.is_some())?
-                        .then(|| plugin.cache.clone())
-                        .flatten(),
-                    plugin_cache: plugin.cache.clone(),
+                let roles = route.roles()?;
+                let cache_enabled = route.cache_enabled(cache.is_some())?;
+                let route = Route::new(
+                    routes.len(),
+                    plugin_id.clone(),
+                    route.id.clone(),
+                    route.method.to_ascii_uppercase(),
+                    route.path.clone(),
+                    roles,
+                    cache_enabled.then_some(cache).flatten(),
+                );
+                routes.push(RegisteredRoute {
+                    route,
+                    plugin: component.clone(),
                 });
-                let route_router = Router::new()
-                    .route(&route.path, on(method, dispatch))
-                    .with_state(state);
-                router = router.merge(route_router);
             }
         }
-        Ok(router.layer(TimeoutLayer::with_status_code(
-            StatusCode::GATEWAY_TIMEOUT,
-            plugin_timeout() + Duration::from_millis(250),
-        )))
-    }
-
-    pub fn cache_invalidator(&self) -> PluginCacheInvalidator {
-        PluginCacheInvalidator {
-            caches: Arc::new(
-                self.plugins
-                    .iter()
-                    .filter_map(|plugin| plugin.cache.clone())
-                    .collect(),
-            ),
-        }
-    }
-}
-
-async fn plugin_index(
-    State(metadata): State<Arc<Vec<PluginMetadata>>>,
-    details: AuthDetails<Role>,
-) -> Response {
-    let role_names: Vec<String> = details
-        .authorities
-        .iter()
-        .filter(|role| !matches!(role, Role::Guest))
-        .map(ToString::to_string)
-        .collect();
-    if role_names.is_empty() {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    let visible: Vec<_> = metadata
-        .iter()
-        .cloned()
-        .map(|mut plugin| {
-            plugin.admin = visible_admin(plugin.admin, &plugin.id, &role_names);
-            plugin
+        Ok(Self {
+            routes,
+            assets,
+            metadata,
+            timeout,
+            request_body_limit,
+            response_body_limit,
         })
-        .collect();
-    Json(visible).into_response()
+    }
+
+    pub fn routes(&self) -> Vec<Route> {
+        self.routes
+            .iter()
+            .map(|route| route.route.clone())
+            .collect()
+    }
+    pub fn assets(&self) -> &[AssetDirectory] {
+        &self.assets
+    }
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+    pub fn request_body_limit(&self) -> usize {
+        self.request_body_limit
+    }
+    pub fn metadata(&self) -> &[PluginMetadata] {
+        &self.metadata
+    }
+
+    pub fn visible_metadata(&self, roles: &[String]) -> Vec<PluginMetadata> {
+        self.metadata
+            .iter()
+            .cloned()
+            .map(|mut plugin| {
+                plugin.admin = visible_admin(plugin.admin, &plugin.id, roles);
+                plugin
+            })
+            .collect()
+    }
+
+    pub fn authorized(&self, route: &Route, identity: Option<&Identity>) -> bool {
+        let Some(registered) = self.routes.get(route.key()) else {
+            return false;
+        };
+        registered.route.roles.is_empty()
+            || identity.is_some_and(|identity| {
+                identity
+                    .roles
+                    .iter()
+                    .any(|role| registered.route.roles.contains(role))
+            })
+    }
+
+    pub async fn dispatch(&self, route: &Route, request: Request) -> Result<Response, Error> {
+        let registered = self.routes.get(route.key()).ok_or(Error::PluginNotFound)?;
+        if !self.authorized(route, request.identity.as_ref()) {
+            return Err(Error::PluginForbidden);
+        }
+        if request.body.len() > self.request_body_limit {
+            return Err(Error::PluginBadRequest(
+                "plugin request body exceeds limit".into(),
+            ));
+        }
+        let response = registered
+            .plugin
+            .call(
+                bindings::nur::cms::types::Request {
+                    route_id: registered.route.id.clone(),
+                    method: request.method,
+                    path: request.path,
+                    path_params: request
+                        .path_params
+                        .into_iter()
+                        .map(|(name, value)| bindings::nur::cms::types::PathParam { name, value })
+                        .collect(),
+                    query: request.query,
+                    headers: request
+                        .headers
+                        .into_iter()
+                        .map(|header| bindings::nur::cms::types::Header {
+                            name: header.name,
+                            value: header.value,
+                        })
+                        .collect(),
+                    body: request.body,
+                    identity: request.identity.map(|identity| {
+                        bindings::nur::cms::types::Identity {
+                            user_id: identity.user_id,
+                            roles: identity.roles,
+                        }
+                    }),
+                },
+                registered.route.roles.is_empty(),
+                request.client_ip,
+            )
+            .await?;
+        validate_response(&response, self.response_body_limit)?;
+        Ok(Response {
+            status: response.status,
+            headers: response
+                .headers
+                .into_iter()
+                .map(|header| Header {
+                    name: header.name,
+                    value: header.value,
+                })
+                .collect(),
+            body: response.body,
+        })
+    }
 }
 
 fn visible_admin(
@@ -287,355 +274,59 @@ fn visible_admin(
     user_roles: &[String],
 ) -> Option<AdminManifest> {
     let mut admin = admin?;
-    let allowed = admin
+    if !admin
         .roles(plugin_id)
-        .is_ok_and(|required| required.iter().any(|role| user_roles.contains(role)));
-    if !allowed {
+        .is_ok_and(|required| required.iter().any(|role| user_roles.contains(role)))
+    {
         return None;
     }
-
-    let visible_menu = admin
-        .menu
-        .iter()
+    let menu = admin.menu.clone();
+    admin.menu = menu
+        .into_iter()
         .filter(|item| {
             admin
                 .menu_roles(item, plugin_id)
                 .is_ok_and(|required| required.iter().any(|role| user_roles.contains(role)))
         })
-        .cloned()
         .collect();
-    admin.menu = visible_menu;
     Some(admin)
 }
 
-async fn dispatch(
-    State(state): State<Arc<RouteState>>,
-    details: AuthDetails<Role>,
-    Extension(user): Extension<AuthUserMeta>,
-    Extension(real_ip): Extension<RealIp>,
-    path_params: Option<Path<HashMap<String, String>>>,
-    request: Request,
-) -> Response {
-    let role_names: Vec<String> = details
-        .authorities
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    if !state.roles.is_empty()
-        && !role_names
-            .iter()
-            .any(|role| state.roles.iter().any(|required| required == role))
-    {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    let path_params = plugin_path_params(path_params);
-
-    match dispatch_inner(&state, user, role_names, path_params, real_ip.ip(), request).await {
-        Ok(response) => response,
-        Err(error) => {
-            error!(plugin = %state.plugin.id, route = %state.route_id, %error, "plugin request failed");
-            match error {
-                Error::Timeout => StatusCode::GATEWAY_TIMEOUT.into_response(),
-                Error::Busy => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-                Error::RateLimited => StatusCode::TOO_MANY_REQUESTS.into_response(),
-                Error::PluginBadRequest(_) => StatusCode::BAD_REQUEST.into_response(),
-                Error::PluginForbidden => StatusCode::FORBIDDEN.into_response(),
-                Error::PluginNotFound => StatusCode::NOT_FOUND.into_response(),
-                _ => StatusCode::BAD_GATEWAY.into_response(),
-            }
-        }
-    }
-}
-
-async fn dispatch_inner(
-    state: &RouteState,
-    user: AuthUserMeta,
-    roles: Vec<String>,
-    path_params: Vec<bindings::nur::cms::types::PathParam>,
-    client_ip: std::net::IpAddr,
-    request: Request,
-) -> Result<Response, Error> {
-    let request_method = request.method().clone();
-    let method = request_method.to_string();
-    let uri = request.uri().clone();
-    let headers = request_headers(request.headers());
-    let body = to_bytes(request.into_body(), state.request_body_limit)
-        .await
-        .map_err(|error| Error::Plugin(error.to_string()))?;
-    validate_cached_request_body(state.cache.is_some(), &body)?;
-    let cache_key = state.cache.as_ref().map(|cache| {
-        cache.key(response_cache_key(
-            &state.route_id,
-            &request_method,
-            &uri,
-            &headers,
-        ))
-    });
-    if let (Some(cache), Some(key)) = (&state.cache, &cache_key)
-        && let Some(cached) = cache.responses.get(key)
-    {
-        if cached.expires_at > Instant::now() {
-            return build_response(cached.into_plugin_response(), state.response_body_limit);
-        }
-        cache.responses.invalidate(key);
-    }
-    let identity = request_identity(state.roles.is_empty(), user, roles);
-    let plugin_request = bindings::nur::cms::types::Request {
-        route_id: state.route_id.clone(),
-        method: method.clone(),
-        path: uri.path().into(),
-        path_params,
-        query: uri.query().map(ToOwned::to_owned),
-        headers,
-        body: body.to_vec(),
-        identity,
-    };
-    let response = state
-        .plugin
-        .call(plugin_request, state.roles.is_empty(), client_ip)
-        .await;
-    if is_plugin_write_method(&method)
-        && let Some(cache) = &state.plugin_cache
-    {
-        // Database host calls commit independently. Invalidate even when the handler later
-        // returns an error or traps, because it may already have changed plugin-local state.
-        cache.invalidate();
-    }
-    let response = response?;
-    let cached_response = if response.status == StatusCode::OK.as_u16()
-        && response.body.len() <= state.response_body_limit
-    {
-        state.cache.as_ref().zip(cache_key).map(|(cache, key)| {
-            (
-                cache,
-                key,
-                CachedResponse::from_plugin_response(&response, cache.ttl),
-            )
-        })
-    } else {
-        None
-    };
-    let response = build_response(response, state.response_body_limit)?;
-    if let Some((cache, key, cached)) = cached_response {
-        cache.responses.insert(key, cached);
-    }
-    Ok(response)
-}
-
-fn is_plugin_write_method(method: &str) -> bool {
-    matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
-}
-
-fn validate_cached_request_body(cache_enabled: bool, body: &[u8]) -> Result<(), Error> {
-    if cache_enabled && !body.is_empty() {
-        Err(Error::PluginBadRequest(
-            "cached GET and HEAD routes do not accept request bodies".into(),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-fn plugin_path_params(
-    path_params: Option<Path<HashMap<String, String>>>,
-) -> Vec<bindings::nur::cms::types::PathParam> {
-    let Some(Path(path_params)) = path_params else {
-        return Vec::new();
-    };
-    let mut path_params: Vec<_> = path_params
-        .into_iter()
-        .map(|(name, value)| bindings::nur::cms::types::PathParam { name, value })
-        .collect();
-    path_params.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-    path_params
-}
-
-impl CachedResponse {
-    fn from_plugin_response(response: &bindings::nur::cms::types::Response, ttl: Duration) -> Self {
-        Self {
-            status: response.status,
-            headers: response
-                .headers
-                .iter()
-                .map(|header| (header.name.clone(), header.value.clone()))
-                .collect(),
-            body: response.body.clone(),
-            expires_at: Instant::now() + ttl,
-        }
-    }
-
-    fn into_plugin_response(self) -> bindings::nur::cms::types::Response {
-        bindings::nur::cms::types::Response {
-            status: self.status,
-            headers: self
-                .headers
-                .into_iter()
-                .map(|(name, value)| bindings::nur::cms::types::Header { name, value })
-                .collect(),
-            body: self.body,
-        }
-    }
-}
-
-fn plugin_cache(cache: Option<&CacheManifest>, capacity: u64) -> Option<RouteCache> {
-    cache.map(|cache| RouteCache {
-        responses: Cache::builder()
-            .max_capacity(capacity)
-            .weigher(cache_weigher(capacity, cache.max_entries))
-            .build(),
-        ttl: Duration::from_secs(cache.ttl_seconds),
-        generation: Arc::new(AtomicU64::new(0)),
-    })
-}
-
-fn plugin_cache_capacity(configured_caches: usize) -> u64 {
-    if configured_caches == 0 {
-        return 0;
-    }
-    env_u64(
-        "NUR_PLUGIN_CACHE_MEMORY_LIMIT",
-        64 * 1024 * 1024,
-        1024 * 1024,
-        1024 * 1024 * 1024,
-    ) / u64::try_from(configured_caches).unwrap_or(u64::MAX)
-}
-
-fn cache_weigher(
-    capacity: u64,
-    max_entries: u64,
-) -> impl Fn(&String, &CachedResponse) -> u32 + Send + Sync + 'static {
-    let minimum_weight = capacity
-        .div_ceil(max_entries.max(1))
-        .clamp(1, u64::from(u32::MAX)) as u32;
-    move |key, response| cache_entry_weight(key, response).max(minimum_weight)
-}
-
-fn cache_entry_weight(key: &str, response: &CachedResponse) -> u32 {
-    let header_bytes = response.headers.iter().fold(0_u64, |total, (name, value)| {
-        total.saturating_add(name.len() as u64 + value.len() as u64)
-    });
-    let bytes = key.len() as u64
-        + response.body.len() as u64
-        + header_bytes
-        + std::mem::size_of::<CachedResponse>() as u64;
-    u32::try_from(bytes).unwrap_or(u32::MAX)
-}
-
-impl RouteCache {
-    fn key(&self, key: String) -> String {
-        format!("{}:{key}", self.generation.load(Ordering::Acquire))
-    }
-
-    fn invalidate(&self) {
-        self.generation.fetch_add(1, Ordering::AcqRel);
-        self.responses.invalidate_all();
-    }
-}
-
-fn response_cache_key(
-    route_id: &str,
-    method: &Method,
-    uri: &axum::http::Uri,
-    headers: &[bindings::nur::cms::types::Header],
-) -> String {
-    let mut key = format!("{route_id}\n{method}\n{uri}");
-    for header in headers {
-        key.push('\n');
-        key.push_str(&header.name);
-        key.push(':');
-        key.push_str(&header.value.len().to_string());
-        key.push(':');
-        key.push_str(&header.value);
-    }
-
-    key
-}
-
-fn request_headers(headers: &axum::http::HeaderMap) -> Vec<bindings::nur::cms::types::Header> {
-    headers
-        .iter()
-        .filter(|(name, _)| FORWARDED_REQUEST_HEADERS.contains(&name.as_str()))
-        .take(32)
-        .filter_map(|(name, value)| {
-            value
-                .to_str()
-                .ok()
-                .filter(|value| value.len() <= 8 * 1024)
-                .map(|value| bindings::nur::cms::types::Header {
-                    name: name.to_string(),
-                    value: value.to_string(),
-                })
-        })
-        .collect()
-}
-
-fn request_identity(
-    public_route: bool,
-    user: AuthUserMeta,
-    roles: Vec<String>,
-) -> Option<bindings::nur::cms::types::Identity> {
-    (!public_route && user.id >= 0).then_some(bindings::nur::cms::types::Identity {
-        user_id: user.id,
-        roles,
-    })
-}
-
-fn build_response(
-    response: bindings::nur::cms::types::Response,
+fn validate_response(
+    response: &bindings::nur::cms::types::Response,
     body_limit: usize,
-) -> Result<Response, Error> {
-    if response.body.len() > body_limit {
-        return Err(Error::Plugin("plugin response body exceeds limit".into()));
+) -> Result<(), Error> {
+    if !(100..=599).contains(&response.status)
+        || response.body.len() > body_limit
+        || response.headers.len() > MAX_RESPONSE_HEADERS
+    {
+        return Err(Error::Plugin("plugin returned an invalid response".into()));
     }
-    let status = StatusCode::from_u16(response.status)
-        .map_err(|_| Error::Plugin("plugin returned an invalid status".into()))?;
-    if response.headers.len() > MAX_RESPONSE_HEADERS {
-        return Err(Error::Plugin("plugin returned too many headers".into()));
-    }
-    let mut builder = Response::builder().status(status);
-    let mut header_bytes = 0usize;
-    for header in response.headers {
-        if header.value.len() > MAX_RESPONSE_HEADER_VALUE_BYTES {
+    let mut bytes = 0usize;
+    for header in &response.headers {
+        if header.name.is_empty()
+            || !header
+                .name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            || header
+                .value
+                .bytes()
+                .any(|byte| byte.is_ascii_control() && byte != b'\t')
+            || header.value.len() > MAX_RESPONSE_HEADER_VALUE_BYTES
+        {
             return Err(Error::Plugin(
-                "plugin returned an oversized header value".into(),
+                "plugin returned invalid response headers".into(),
             ));
         }
-        header_bytes = header_bytes
-            .checked_add(header.name.len())
-            .and_then(|size| size.checked_add(header.value.len()))
+        bytes = bytes
+            .checked_add(header.name.len() + header.value.len())
             .ok_or_else(|| Error::Plugin("plugin response headers exceed limit".into()))?;
-        if header_bytes > MAX_RESPONSE_HEADER_BYTES {
-            return Err(Error::Plugin("plugin response headers exceed limit".into()));
-        }
-        let name = HeaderName::try_from(header.name)
-            .map_err(|_| Error::Plugin("plugin returned an invalid header name".into()))?;
-        if forbidden_response_header(&name) {
-            continue;
-        }
-        let value = HeaderValue::try_from(header.value)
-            .map_err(|_| Error::Plugin("plugin returned an invalid header value".into()))?;
-        builder = builder.header(name, value);
     }
-    builder
-        .body(Body::from(response.body))
-        .map_err(|error| Error::Plugin(error.to_string()))
-}
-
-fn forbidden_response_header(name: &HeaderName) -> bool {
-    matches!(
-        name.as_str(),
-        "connection"
-            | "content-length"
-            | "keep-alive"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "set-cookie"
-            | "te"
-            | "trailer"
-            | "transfer-encoding"
-            | "upgrade"
-    )
+    if bytes > MAX_RESPONSE_HEADER_BYTES {
+        return Err(Error::Plugin("plugin response headers exceed limit".into()));
+    }
+    Ok(())
 }
 
 fn validate_route(plugin_id: &str, route: &RouteManifest, allow_root: bool) -> Result<(), Error> {
@@ -706,7 +397,16 @@ fn route_shape(path: &str) -> Result<String, Error> {
                 )));
             }
             let name = &segment[1..segment.len() - 1];
-            if !valid_route_param(name) || !params.insert(name) || params.len() > MAX_ROUTE_PARAMS {
+            if !(1..=64).contains(&name.len())
+                || !name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                || !name.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'_' | b'-')
+                })
+                || !params.insert(name)
+                || params.len() > MAX_ROUTE_PARAMS
+            {
                 return Err(Error::Manifest(format!(
                     "invalid or duplicate plugin route parameter in '{path}'"
                 )));
@@ -725,31 +425,6 @@ fn route_shape(path: &str) -> Result<String, Error> {
     Ok(shape.join("/"))
 }
 
-fn valid_route_param(name: &str) -> bool {
-    (1..=64).contains(&name.len())
-        && name.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-        && name.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-        })
-}
-
-fn method_filter(method: &str) -> Result<MethodFilter, Error> {
-    match Method::from_bytes(method.as_bytes())
-        .map_err(|_| Error::Manifest(format!("invalid plugin HTTP method '{method}'")))?
-    {
-        Method::GET => Ok(MethodFilter::GET),
-        Method::POST => Ok(MethodFilter::POST),
-        Method::PUT => Ok(MethodFilter::PUT),
-        Method::PATCH => Ok(MethodFilter::PATCH),
-        Method::DELETE => Ok(MethodFilter::DELETE),
-        Method::HEAD => Ok(MethodFilter::HEAD),
-        Method::OPTIONS => Ok(MethodFilter::OPTIONS),
-        _ => Err(Error::Manifest(format!(
-            "unsupported plugin HTTP method '{method}'"
-        ))),
-    }
-}
-
 fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize {
     std::env::var(key)
         .ok()
@@ -757,7 +432,6 @@ fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize
         .filter(|value| (minimum..=maximum).contains(value))
         .unwrap_or(default)
 }
-
 fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
     std::env::var(key)
         .ok()
@@ -765,29 +439,34 @@ fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
         .filter(|value| (minimum..=maximum).contains(value))
         .unwrap_or(default)
 }
-
-fn plugin_timeout() -> Duration {
+pub(crate) fn plugin_timeout() -> Duration {
     Duration::from_millis(env_u64("NUR_PLUGIN_TIMEOUT_MS", 5_000, 100, 60_000))
+}
+fn request_body_limit() -> usize {
+    env_usize(
+        "NUR_PLUGIN_REQUEST_BODY_LIMIT",
+        1024 * 1024,
+        1024,
+        16 * 1024 * 1024,
+    )
+}
+fn response_body_limit() -> usize {
+    env_usize(
+        "NUR_PLUGIN_RESPONSE_BODY_LIMIT",
+        4 * 1024 * 1024,
+        1024,
+        64 * 1024 * 1024,
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::{BTreeMap, HashMap},
-        sync::Arc,
-    };
-
-    use axum::extract::Path;
-    use axum::http::{HeaderMap, HeaderValue, Method, Uri};
-    use nur_core::db::models::AuthUserMeta;
+    use std::collections::BTreeMap;
 
     use super::{
-        CachedResponse, Error, PluginCacheInvalidator, RouteManifest, bindings, build_response,
-        cache_entry_weight, cache_weigher, is_plugin_write_method, plugin_cache,
-        plugin_path_params, request_identity, response_cache_key, route_shape,
-        validate_cached_request_body, validate_route, visible_admin,
+        AdminManifest, AdminMenuItem, Error, RouteManifest, bindings, route_shape,
+        validate_response, validate_route, visible_admin,
     };
-    use crate::manifest::{AdminManifest, AdminMenuItem, CacheManifest};
 
     fn route(path: &str) -> RouteManifest {
         RouteManifest {
@@ -800,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_own_namespace_without_root_permission() {
+    fn routes_require_their_own_namespace_without_root_permission() {
         assert!(validate_route("example", &route("/api/plugins/example/items"), false).is_ok());
         assert!(validate_route("example", &route("/api/plugins/other/items"), false).is_err());
     }
@@ -810,10 +489,11 @@ mod tests {
         assert!(validate_route("example", &route("/feed.xml"), false).is_err());
         assert!(validate_route("example", &route("/feed.xml"), true).is_ok());
         assert!(validate_route("example", &route("/admin/plugin"), true).is_err());
+        assert!(validate_route("example", &route("/api/other"), true).is_err());
     }
 
     #[test]
-    fn route_shapes_detect_parameter_name_conflicts() {
+    fn normalizes_route_shapes_without_accepting_invalid_parameters() {
         assert_eq!(route_shape("/items/{id}").unwrap(), "/items/{}");
         assert_eq!(route_shape("/items/{slug}").unwrap(), "/items/{}");
         assert!(route_shape("/items/{broken").is_err());
@@ -825,65 +505,36 @@ mod tests {
     }
 
     #[test]
-    fn path_parameters_are_forwarded_by_name() {
-        let params = plugin_path_params(Some(Path(HashMap::from([
-            ("slug".into(), "summer-festival".into()),
-            ("year".into(), "2026".into()),
-        ]))));
-
-        assert_eq!(params[0].name, "slug");
-        assert_eq!(params[0].value, "summer-festival");
-        assert_eq!(params[1].name, "year");
-        assert_eq!(params[1].value, "2026");
-        assert!(plugin_path_params(None).is_empty());
-    }
-
-    #[test]
-    fn invalidating_plugin_caches_changes_the_cache_generation() {
-        let cache = plugin_cache(
-            Some(&CacheManifest {
-                ttl_seconds: 60,
-                max_entries: 1,
-            }),
-            1024,
-        )
-        .expect("cache is configured");
-        let before = cache.key("home".into());
-
-        PluginCacheInvalidator {
-            caches: Arc::new(vec![cache.clone()]),
-        }
-        .invalidate();
-
-        let after = cache.key("home".into());
-        assert_ne!(before, after);
-    }
-
-    #[test]
-    fn cache_weight_accounts_for_payload_headers_and_entry_limit() {
-        let response = CachedResponse {
+    fn rejects_invalid_plugin_response_headers_before_the_http_adapter() {
+        let response = bindings::nur::cms::types::Response {
             status: 200,
-            headers: vec![("content-type".into(), "text/plain".into())],
-            body: vec![0; 256],
-            expires_at: std::time::Instant::now(),
+            headers: vec![bindings::nur::cms::types::Header {
+                name: "x-test".into(),
+                value: "line\r\nbreak".into(),
+            }],
+            body: Vec::new(),
         };
-        assert!(cache_entry_weight("cache-key", &response) >= 256);
-
-        let weigher = cache_weigher(1024, 2);
-        assert_eq!(weigher(&"a".into(), &response), 512);
+        assert!(matches!(
+            validate_response(&response, 1024),
+            Err(Error::Plugin(_))
+        ));
     }
 
     #[test]
-    fn public_routes_never_receive_an_authenticated_identity() {
-        assert!(request_identity(true, AuthUserMeta::new(42), vec!["admin".into()]).is_none());
-
-        let identity = request_identity(false, AuthUserMeta::new(42), vec!["admin".into()])
-            .expect("protected route receives identity");
-        assert_eq!(identity.user_id, 42);
+    fn rejects_oversized_plugin_response_headers() {
+        let response = bindings::nur::cms::types::Response {
+            status: 200,
+            headers: vec![bindings::nur::cms::types::Header {
+                name: "x-plugin-value".into(),
+                value: "x".repeat(super::MAX_RESPONSE_HEADER_VALUE_BYTES + 1),
+            }],
+            body: Vec::new(),
+        };
+        assert!(validate_response(&response, 1024).is_err());
     }
 
     #[test]
-    fn admin_metadata_contains_only_menu_items_allowed_for_the_role() {
+    fn admin_metadata_is_filtered_for_the_current_roles() {
         let admin = AdminManifest {
             entry: Some("admin.js".into()),
             element: Some("example-admin".into()),
@@ -911,59 +562,15 @@ mod tests {
             .expect("stat role can load the admin component");
         assert_eq!(visible.menu.len(), 1);
         assert_eq!(visible.menu[0].path, "/admin/plugins/example/statistics");
-
         assert!(visible_admin(Some(admin), "example", &["author".into()]).is_none());
     }
 
     #[test]
-    fn cache_keys_include_method_and_every_forwarded_header() {
-        let uri: Uri = "/events?year=2026".parse().expect("URI is valid");
-        let mut headers = HeaderMap::new();
-        headers.insert("accept", HeaderValue::from_static("text/html"));
-        headers.insert("user-agent", HeaderValue::from_static("desktop"));
-        let desktop = response_cache_key(
-            "events",
-            &Method::GET,
-            &uri,
-            &super::request_headers(&headers),
-        );
-
-        headers.insert("user-agent", HeaderValue::from_static("mobile"));
-        let forwarded = super::request_headers(&headers);
-        let mobile = response_cache_key("events", &Method::GET, &uri, &forwarded);
-        let head = response_cache_key("events", &Method::HEAD, &uri, &forwarded);
-
-        assert_ne!(desktop, mobile);
-        assert_ne!(mobile, head);
-    }
-
-    #[test]
-    fn cached_routes_reject_request_bodies() {
-        assert!(validate_cached_request_body(true, b"content").is_err());
-        assert!(validate_cached_request_body(true, &[]).is_ok());
-        assert!(validate_cached_request_body(false, b"content").is_ok());
-    }
-
-    #[test]
-    fn identifies_plugin_write_methods_for_cache_invalidation() {
-        assert!(is_plugin_write_method("POST"));
-        assert!(is_plugin_write_method("DELETE"));
-        assert!(!is_plugin_write_method("GET"));
-        assert!(!is_plugin_write_method("HEAD"));
-    }
-
-    #[test]
-    fn rejects_oversized_plugin_response_headers() {
-        let response = bindings::nur::cms::types::Response {
-            status: 200,
-            headers: vec![bindings::nur::cms::types::Header {
-                name: "x-plugin-value".into(),
-                value: "x".repeat(super::MAX_RESPONSE_HEADER_VALUE_BYTES + 1),
-            }],
-            body: Vec::new(),
-        };
-
-        assert!(build_response(response, 1024).is_err());
+    fn manifest_routes_keep_the_existing_public_default() {
+        let route: RouteManifest =
+            toml_edit::de::from_str("id = 'test'\nmethod = 'GET'\npath = '/api/plugins/test'\n")
+                .expect("route manifest parses");
+        assert!(route.roles().expect("roles parse").is_empty());
     }
 
     #[test]
