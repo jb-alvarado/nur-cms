@@ -296,6 +296,7 @@ mod tests {
                     directory: Some("migrations".into()),
                 },
                 mail: Default::default(),
+                storage: Default::default(),
                 routes: Vec::new(),
                 assets: None,
                 cache: None,

@@ -19,10 +19,64 @@ pub struct Manifest {
     #[serde(default)]
     pub mail: MailManifest,
     #[serde(default)]
+    pub storage: StorageManifest,
+    #[serde(default)]
     pub routes: Vec<RouteManifest>,
     pub assets: Option<AssetsManifest>,
     pub cache: Option<CacheManifest>,
     pub admin: Option<AdminManifest>,
+}
+
+/// Files owned by a plugin but never represented as CMS media records.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageManifest {
+    #[serde(default)]
+    pub directories: Vec<StorageDirectoryManifest>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageDirectoryManifest {
+    /// Stable manifest-local identifier used by the host and admin APIs.
+    pub id: String,
+    /// A relative directory below this plugin's public or private namespace.
+    pub path: String,
+    #[serde(default)]
+    #[allow(
+        dead_code,
+        reason = "storage routing is added by the app adapter in the next implementation step"
+    )]
+    pub visibility: StorageVisibility,
+    #[serde(default)]
+    #[allow(
+        dead_code,
+        reason = "upload endpoints are added by the app adapter in the next implementation step"
+    )]
+    pub upload: StorageUpload,
+    /// Required only for authenticated browser uploads and administrative access.
+    #[serde(default = "admin_access")]
+    pub access: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageVisibility {
+    #[default]
+    Public,
+    Private,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageUpload {
+    /// The plugin may write files through WIT, but no browser upload endpoint exists.
+    #[default]
+    None,
+    /// A browser upload requires an authenticated user with `access`.
+    Authenticated,
+    /// A browser upload requires a single-use upload capability created by the plugin.
+    Link,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -135,6 +189,16 @@ impl RouteManifest {
             Some(false) => Ok(false),
             None => Ok(plugin_cache_enabled && public_get),
         }
+    }
+}
+
+impl StorageDirectoryManifest {
+    pub fn roles(&self, plugin_id: &str) -> Result<Vec<String>, Error> {
+        parse_access(
+            &self.access,
+            &format!("plugin '{plugin_id}' storage directory '{}'", self.id),
+            false,
+        )
     }
 }
 
@@ -443,6 +507,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
         )));
     }
     validate_mail_permissions(&manifest.mail, &plugin.id)?;
+    validate_storage(&manifest.storage, &plugin.id)?;
     let requirement = VersionReq::parse(&plugin.cms_version).map_err(|error| {
         Error::Manifest(format!(
             "plugin '{}' has invalid cms_version: {error}",
@@ -536,6 +601,31 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             )));
         }
         admin.validate_menu_access(&plugin.id)?;
+    }
+    Ok(())
+}
+
+fn validate_storage(storage: &StorageManifest, plugin_id: &str) -> Result<(), Error> {
+    if storage.directories.len() > 16 {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' declares more than 16 storage directories"
+        )));
+    }
+
+    let mut ids = HashSet::new();
+    let mut paths = HashSet::new();
+    for directory in &storage.directories {
+        if !valid_storage_id(&directory.id) || !ids.insert(&directory.id) {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' has an invalid or duplicate storage directory id"
+            )));
+        }
+        if !valid_storage_path(&directory.path) || !paths.insert(&directory.path) {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' has an invalid or duplicate storage directory path"
+            )));
+        }
+        directory.roles(plugin_id)?;
     }
     Ok(())
 }
@@ -735,6 +825,27 @@ fn valid_route_id(id: &str) -> bool {
         })
 }
 
+fn valid_storage_id(id: &str) -> bool {
+    (1..=80).contains(&id.len())
+        && id.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
+}
+
+fn valid_storage_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= 512
+        && path.split('/').all(|segment| {
+            matches!(segment, "{year}" | "{month}")
+                || (!segment.is_empty()
+                    && segment.len() <= 128
+                    && !matches!(segment, "." | "..")
+                    && segment.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+                    }))
+        })
+}
+
 fn enabled_plugins() -> HashSet<String> {
     env::var("NUR_PLUGINS")
         .unwrap_or_default()
@@ -772,9 +883,10 @@ mod tests {
 
     use super::{
         AdminManifest, AdminMenuItem, CacheManifest, MailManifest, Manifest, RouteManifest,
+        StorageDirectoryManifest, StorageManifest, StorageUpload, StorageVisibility,
         contained_path, schema_name, valid_admin_entry, valid_admin_menu_item, valid_admin_style,
         valid_custom_element_name, valid_plugin_id, valid_plugin_name, valid_route_id,
-        validate_asset_tree, validate_mail_permissions, validate_manifest,
+        validate_asset_tree, validate_mail_permissions, validate_manifest, validate_storage,
     };
 
     #[test]
@@ -961,6 +1073,64 @@ mod tests {
         assert!(valid_route_id("public-feed.v1"));
         assert!(!valid_route_id("line\nbreak"));
         assert!(!valid_route_id(&"x".repeat(81)));
+    }
+
+    #[test]
+    fn storage_directories_keep_uploads_and_visibility_separate() {
+        let storage = StorageManifest {
+            directories: vec![
+                StorageDirectoryManifest {
+                    id: "public-exports".into(),
+                    path: "exports/{year}/{month}".into(),
+                    visibility: StorageVisibility::Public,
+                    upload: StorageUpload::None,
+                    access: "admin,author".into(),
+                },
+                StorageDirectoryManifest {
+                    id: "customer-files".into(),
+                    path: "customer-files".into(),
+                    visibility: StorageVisibility::Private,
+                    upload: StorageUpload::Link,
+                    access: "admin".into(),
+                },
+            ],
+        };
+
+        validate_storage(&storage, "example").expect("storage manifest is valid");
+    }
+
+    #[test]
+    fn storage_directories_reject_unsafe_paths_and_duplicates() {
+        let unsafe_path = StorageManifest {
+            directories: vec![StorageDirectoryManifest {
+                id: "files".into(),
+                path: "../files".into(),
+                visibility: StorageVisibility::Private,
+                upload: StorageUpload::Authenticated,
+                access: "admin".into(),
+            }],
+        };
+        assert!(validate_storage(&unsafe_path, "example").is_err());
+
+        let duplicate_id = StorageManifest {
+            directories: vec![
+                StorageDirectoryManifest {
+                    id: "files".into(),
+                    path: "one".into(),
+                    visibility: StorageVisibility::Public,
+                    upload: StorageUpload::None,
+                    access: "admin".into(),
+                },
+                StorageDirectoryManifest {
+                    id: "files".into(),
+                    path: "two".into(),
+                    visibility: StorageVisibility::Public,
+                    upload: StorageUpload::None,
+                    access: "admin".into(),
+                },
+            ],
+        };
+        assert!(validate_storage(&duplicate_id, "example").is_err());
     }
 
     #[cfg(unix)]
