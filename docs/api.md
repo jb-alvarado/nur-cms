@@ -872,6 +872,27 @@ and response formats, and access roles are declared by the individual plugin. A 
 public, restricted to one role such as `author`, or shared by multiple roles such as
 `admin,author`. Explicit non-reserved root routes may also be enabled by the server administrator.
 
+Plugins with declared storage directories can additionally use CMS-managed file routes. Directory
+roles from the manifest authorize the authenticated routes:
+
+```text
+POST   /api/plugins/{plugin}/files/{directory}?filename={filename}
+GET    /api/plugins/{plugin}/files/{directory}/download?path={stored-path}
+DELETE /api/plugins/{plugin}/files/{directory}?path={stored-path}
+```
+
+A plugin may issue a bearer-style, one-time upload URL for a directory configured with
+`upload = "link"`. That public URL accepts a resumable status request and multipart chunks:
+
+```text
+GET  /api/plugins/{plugin}/files/upload/{token}?file_name={filename}&size={bytes}&batch_id={id}
+POST /api/plugins/{plugin}/files/upload/{token}
+```
+
+The POST fields and response format are documented under [Plugin storage](plugins.md#browser-uploads-and-one-time-links).
+The token is consumed only when the complete file has been finalized. A one-time private download
+URL uses `GET /api/plugins/{plugin}/files/download/{token}`.
+
 See [Plugins](plugins.md) for the manifest, runtime, security, and migration model.
 
 ## Server-Sent Events

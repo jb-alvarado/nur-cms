@@ -136,7 +136,7 @@ mod tests {
         delete_video_profile, enabled_video_profiles, insert_video_profile, update_video_profile,
     };
 
-    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     fn sample_profile(name: &str) -> VideoProfile {
         VideoProfile {

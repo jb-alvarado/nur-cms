@@ -42,17 +42,11 @@ pub struct StorageDirectoryManifest {
     pub id: String,
     /// A relative directory below this plugin's public or private namespace.
     pub path: String,
+    /// Lowercase file extensions that may be written to this directory.
+    pub extensions: Vec<String>,
     #[serde(default)]
-    #[allow(
-        dead_code,
-        reason = "storage routing is added by the app adapter in the next implementation step"
-    )]
     pub visibility: StorageVisibility,
     #[serde(default)]
-    #[allow(
-        dead_code,
-        reason = "upload endpoints are added by the app adapter in the next implementation step"
-    )]
     pub upload: StorageUpload,
     /// Required only for authenticated browser uploads and administrative access.
     #[serde(default = "admin_access")]
@@ -625,6 +619,20 @@ fn validate_storage(storage: &StorageManifest, plugin_id: &str) -> Result<(), Er
                 "plugin '{plugin_id}' has an invalid or duplicate storage directory path"
             )));
         }
+        let extensions: HashSet<_> = directory.extensions.iter().collect();
+        if directory.extensions.is_empty()
+            || directory.extensions.len() > 32
+            || extensions.len() != directory.extensions.len()
+            || directory
+                .extensions
+                .iter()
+                .any(|extension| !valid_storage_extension(extension))
+        {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' storage directory '{}' has invalid or duplicate file extensions",
+                directory.id
+            )));
+        }
         directory.roles(plugin_id)?;
     }
     Ok(())
@@ -710,7 +718,7 @@ fn validate_admin_assets(manifest: &Manifest, assets: Option<&Path>) -> Result<(
     Ok(())
 }
 
-fn valid_plugin_id(id: &str) -> bool {
+pub(crate) fn valid_plugin_id(id: &str) -> bool {
     (3..=40).contains(&id.len())
         && id.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
         && id
@@ -825,14 +833,14 @@ fn valid_route_id(id: &str) -> bool {
         })
 }
 
-fn valid_storage_id(id: &str) -> bool {
+pub(crate) fn valid_storage_id(id: &str) -> bool {
     (1..=80).contains(&id.len())
         && id.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
         })
 }
 
-fn valid_storage_path(path: &str) -> bool {
+pub(crate) fn valid_storage_path(path: &str) -> bool {
     !path.is_empty()
         && path.len() <= 512
         && path.split('/').all(|segment| {
@@ -844,6 +852,40 @@ fn valid_storage_path(path: &str) -> bool {
                         byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
                     }))
         })
+}
+
+pub(crate) fn valid_storage_extension(extension: &str) -> bool {
+    matches!(
+        extension,
+        "avif"
+            | "csv"
+            | "doc"
+            | "docx"
+            | "gif"
+            | "jpg"
+            | "jpeg"
+            | "mp3"
+            | "mp4"
+            | "ods"
+            | "odt"
+            | "ogg"
+            | "pdf"
+            | "png"
+            | "ppt"
+            | "pptx"
+            | "rtf"
+            | "txt"
+            | "wav"
+            | "webm"
+            | "webp"
+            | "xls"
+            | "xlsx"
+            | "7z"
+            | "bzip2"
+            | "gz"
+            | "tar"
+            | "zip"
+    )
 }
 
 fn enabled_plugins() -> HashSet<String> {
@@ -1082,6 +1124,7 @@ mod tests {
                 StorageDirectoryManifest {
                     id: "public-exports".into(),
                     path: "exports/{year}/{month}".into(),
+                    extensions: vec!["pdf".into(), "docx".into()],
                     visibility: StorageVisibility::Public,
                     upload: StorageUpload::None,
                     access: "admin,author".into(),
@@ -1089,6 +1132,7 @@ mod tests {
                 StorageDirectoryManifest {
                     id: "customer-files".into(),
                     path: "customer-files".into(),
+                    extensions: vec!["odt".into()],
                     visibility: StorageVisibility::Private,
                     upload: StorageUpload::Link,
                     access: "admin".into(),
@@ -1105,6 +1149,7 @@ mod tests {
             directories: vec![StorageDirectoryManifest {
                 id: "files".into(),
                 path: "../files".into(),
+                extensions: vec!["pdf".into()],
                 visibility: StorageVisibility::Private,
                 upload: StorageUpload::Authenticated,
                 access: "admin".into(),
@@ -1117,6 +1162,7 @@ mod tests {
                 StorageDirectoryManifest {
                     id: "files".into(),
                     path: "one".into(),
+                    extensions: vec!["pdf".into()],
                     visibility: StorageVisibility::Public,
                     upload: StorageUpload::None,
                     access: "admin".into(),
@@ -1124,6 +1170,7 @@ mod tests {
                 StorageDirectoryManifest {
                     id: "files".into(),
                     path: "two".into(),
+                    extensions: vec!["pdf".into()],
                     visibility: StorageVisibility::Public,
                     upload: StorageUpload::None,
                     access: "admin".into(),
@@ -1131,6 +1178,18 @@ mod tests {
             ],
         };
         assert!(validate_storage(&duplicate_id, "example").is_err());
+
+        let active_content = StorageManifest {
+            directories: vec![StorageDirectoryManifest {
+                id: "files".into(),
+                path: "files".into(),
+                extensions: vec!["html".into(), "svg".into()],
+                visibility: StorageVisibility::Public,
+                upload: StorageUpload::None,
+                access: "admin".into(),
+            }],
+        };
+        assert!(validate_storage(&active_content, "example").is_err());
     }
 
     #[cfg(unix)]

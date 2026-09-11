@@ -27,7 +27,10 @@ use crate::{
 struct PersistedUpload {
     #[serde(default)]
     batch_id: Option<String>,
-    user_id: i32,
+    #[serde(default)]
+    owner_id: Option<String>,
+    #[serde(default)]
+    user_id: Option<i32>,
     total_size: u64,
     ranges: Vec<(u64, u64)>,
     #[serde(default)]
@@ -37,7 +40,7 @@ struct PersistedUpload {
 #[derive(Debug)]
 struct UploadState {
     batch_id: String,
-    user_id: i32,
+    owner_id: String,
     total_size: u64,
     ranges: Vec<Range<u64>>,
     finalizing: bool,
@@ -56,6 +59,17 @@ pub type UploadMap = HashMap<String, Upload>;
 
 /// Global upload map, protected by a Mutex
 pub static UPLOADS: LazyLock<Mutex<UploadMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Validate an opaque client upload-session identifier.
+///
+/// The identifier is persisted next to incomplete uploads, so keep it short and
+/// path-neutral even though it is never used as a path component.
+pub fn valid_upload_session_id(value: &str) -> bool {
+    (7..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
 
 fn unix_timestamp(time: SystemTime) -> u64 {
     time.duration_since(UNIX_EPOCH)
@@ -285,6 +299,21 @@ pub async fn get_active_upload(
     user_id: i32,
     total_size: u64,
 ) -> Result<Option<Upload>, NurError> {
+    get_active_upload_for_owner(
+        output_file,
+        batch_id,
+        &format!("user:{user_id}"),
+        total_size,
+    )
+    .await
+}
+
+pub async fn get_active_upload_for_owner(
+    output_file: &Path,
+    batch_id: &str,
+    owner_id: &str,
+    total_size: u64,
+) -> Result<Option<Upload>, NurError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let uploads = UPLOADS.lock().await;
     let Some(upload) = uploads.get(&upload_key) else {
@@ -301,7 +330,7 @@ pub async fn get_active_upload(
             ));
         }
     }
-    if state.user_id != user_id || state.total_size != total_size {
+    if state.owner_id != owner_id || state.total_size != total_size {
         return Err(NurError::Conflict(
             "Upload metadata does not match the existing upload.".into(),
         ));
@@ -315,7 +344,8 @@ pub async fn get_active_upload(
 async fn persist_upload(upload: &Upload, state: &UploadState) -> Result<(), NurError> {
     let persisted = PersistedUpload {
         batch_id: Some(state.batch_id.clone()),
-        user_id: state.user_id,
+        owner_id: Some(state.owner_id.clone()),
+        user_id: None,
         total_size: state.total_size,
         ranges: state.ranges.iter().map(|r| (r.start, r.end)).collect(),
         updated_at: unix_timestamp(state.updated_at),
@@ -336,6 +366,40 @@ pub async fn get_or_create_upload(
     batch_id: &str,
     user_id: i32,
 ) -> Result<Upload, NurError> {
+    get_or_create_upload_for_owner(
+        total_size,
+        output_file,
+        batch_id,
+        &format!("user:{user_id}"),
+    )
+    .await
+}
+
+pub async fn get_or_create_upload_for_owner(
+    total_size: u64,
+    output_file: &Path,
+    batch_id: &str,
+    owner_id: &str,
+) -> Result<Upload, NurError> {
+    get_or_create_upload_for_owner_inner(total_size, output_file, batch_id, owner_id, false).await
+}
+
+pub async fn get_or_create_preallocated_upload_for_owner(
+    total_size: u64,
+    output_file: &Path,
+    batch_id: &str,
+    owner_id: &str,
+) -> Result<Upload, NurError> {
+    get_or_create_upload_for_owner_inner(total_size, output_file, batch_id, owner_id, true).await
+}
+
+async fn get_or_create_upload_for_owner_inner(
+    total_size: u64,
+    output_file: &Path,
+    batch_id: &str,
+    owner_id: &str,
+    preallocated: bool,
+) -> Result<Upload, NurError> {
     let upload_key = output_file.to_string_lossy().to_string();
     let mut uploads = UPLOADS.lock().await;
 
@@ -350,7 +414,7 @@ pub async fn get_or_create_upload(
                 ));
             }
         }
-        if state.user_id != user_id || state.total_size != total_size {
+        if state.owner_id != owner_id || state.total_size != total_size {
             return Err(NurError::Conflict(
                 "Upload metadata does not match the existing upload.".into(),
             ));
@@ -360,13 +424,13 @@ pub async fn get_or_create_upload(
         return Ok(upload.clone());
     }
 
-    let mut active_for_user = 0usize;
+    let mut active_for_owner = 0usize;
     for upload in uploads.values() {
-        if upload.state.lock().await.user_id == user_id {
-            active_for_user += 1;
+        if upload.state.lock().await.owner_id == owner_id {
+            active_for_owner += 1;
         }
     }
-    if active_for_user >= *MAX_ACTIVE_UPLOADS_PER_USER {
+    if active_for_owner >= *MAX_ACTIVE_UPLOADS_PER_USER {
         return Err(NurError::ToManyRequests);
     }
 
@@ -383,11 +447,14 @@ pub async fn get_or_create_upload(
         let data = fs::read(&metadata_file).await?;
         let persisted: PersistedUpload = serde_json::from_slice(&data)?;
 
+        let persisted_owner = persisted
+            .owner_id
+            .or_else(|| persisted.user_id.map(|user_id| format!("user:{user_id}")));
         if persisted
             .batch_id
             .as_deref()
             .is_some_and(|id| id != batch_id)
-            || persisted.user_id != user_id
+            || persisted_owner.as_deref() != Some(owner_id)
             || persisted.total_size != total_size
         {
             return Err(NurError::Conflict(
@@ -443,34 +510,40 @@ pub async fn get_or_create_upload(
                     return Err(error.into());
                 }
             }
-            return Box::pin(get_or_create_upload(
+            return Box::pin(get_or_create_upload_for_owner_inner(
                 total_size,
                 output_file,
                 batch_id,
-                user_id,
+                owner_id,
+                preallocated,
             ))
             .await;
         }
 
         UploadState {
             batch_id: batch_id.to_string(),
-            user_id,
+            owner_id: owner_id.to_string(),
             total_size,
             ranges,
             finalizing: false,
             updated_at,
         }
     } else {
-        if fs::try_exists(&temp_file).await? {
+        if fs::try_exists(&temp_file).await? && !preallocated {
             return Err(NurError::Conflict(format!(
                 "Incomplete upload '{}' has no resume metadata.",
                 temp_file.display()
             )));
         }
+        if preallocated && fs::metadata(&temp_file).await?.len() != total_size {
+            return Err(NurError::Conflict(
+                "Incomplete upload does not match its reservation.".into(),
+            ));
+        }
 
         UploadState {
             batch_id: batch_id.to_string(),
-            user_id,
+            owner_id: owner_id.to_string(),
             total_size,
             ranges: Vec::new(),
             finalizing: false,
@@ -565,6 +638,20 @@ pub async fn cleanup_upload(output_file: &Path, upload: &Upload) {
     UPLOADS.lock().await.remove(&upload_key);
 
     if let Err(error) = fs::remove_file(&upload.metadata_file).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        error!("Failed to remove upload metadata: {error}");
+    }
+}
+
+pub async fn cleanup_upload_for_output(output_file: &Path) {
+    let upload_key = output_file.to_string_lossy().to_string();
+    UPLOADS.lock().await.remove(&upload_key);
+    let temporary = uploading_path(output_file);
+    let metadata = metadata_path(&temporary);
+    remove_upload_files(&temporary, &metadata).await;
+    let temporary_metadata = append_extension(&metadata, ".tmp");
+    if let Err(error) = fs::remove_file(&temporary_metadata).await
         && error.kind() != std::io::ErrorKind::NotFound
     {
         error!("Failed to remove upload metadata: {error}");
@@ -917,8 +1004,9 @@ fn is_generated_variant_filename(filename: &str, stem: &str) -> bool {
 mod tests {
     use super::{
         UPLOADS, add_media_record, cleanup_upload, delete_media_file, get_or_create_upload,
-        is_generated_variant_filename, is_upload_complete, merge_ranges, received_ranges,
-        safe_file_name, storage_relative_path, uploading_path, write_upload_chunk,
+        get_or_create_upload_for_owner, is_generated_variant_filename, is_upload_complete,
+        merge_ranges, received_ranges, safe_file_name, storage_relative_path, uploading_path,
+        valid_upload_session_id, write_upload_chunk,
     };
     use crate::{
         STORAGE,
@@ -929,7 +1017,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     #[test]
     fn merges_overlapping_and_adjacent_ranges() {
@@ -952,6 +1040,14 @@ mod tests {
             uploading_path(Path::new("/uploads/image.jpg")),
             Path::new("/uploads/image.jpg.uploading")
         );
+    }
+
+    #[test]
+    fn accepts_only_bounded_path_neutral_upload_session_ids() {
+        assert!(valid_upload_session_id("upload_123-abc"));
+        assert!(!valid_upload_session_id("short"));
+        assert!(!valid_upload_session_id("../../upload"));
+        assert!(!valid_upload_session_id(&"a".repeat(129)));
     }
 
     #[test]
@@ -998,6 +1094,12 @@ mod tests {
         let upload = get_or_create_upload(10, &output, batch_id, user_id)
             .await
             .expect("upload can be created");
+        assert!(
+            get_or_create_upload_for_owner(10, &output, batch_id, "plugin-link:7")
+                .await
+                .is_err(),
+            "a different owner cannot claim an active upload"
+        );
         assert!(
             !write_upload_chunk(&upload, 5, 10, b"world")
                 .await

@@ -368,7 +368,7 @@ async fn ensure_video_ready_for_thumbnail(pool: &PgPool, id: i32) -> Result<(), 
 mod tests {
     use sqlx::PgPool;
 
-    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     #[sqlx::test(migrator = "MIGRATOR")]
     async fn deleting_a_video_cascades_its_generated_poster_variants(pool: PgPool) {

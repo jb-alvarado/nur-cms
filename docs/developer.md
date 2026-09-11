@@ -61,7 +61,7 @@ npm run dev:example
 - `backend/` - Rust backend with Axum
 - `example/` - Vue 3 example frontend with TypeScript
 - `frontend/` - Vue 3 admin frontend with TypeScript
-- `migrations/` - Database schema migrations
+- `backend/core/migrations/` - Core database schema migrations
 - `migrations_dev/` - Development database seed data
 - `uploads/` - File upload directory
 

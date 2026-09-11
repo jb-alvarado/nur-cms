@@ -319,7 +319,7 @@ mod tests {
         select_comment_moderation_action,
     };
 
-    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     async fn insert_pending_comment(pool: &PgPool) -> i64 {
         let entry_id: i32 = sqlx::query_scalar(

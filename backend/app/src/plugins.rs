@@ -10,25 +10,103 @@ use std::{
 use axum::{
     Router,
     body::{Body, to_bytes},
-    extract::{Extension, Path, Request, State},
+    extract::{DefaultBodyLimit, Extension, Multipart, Path, Query, Request, State},
     http::{HeaderName, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::{MethodFilter, get, on},
+    routing::{MethodFilter, get, on, post},
 };
 use bytes::Bytes;
 use moka::sync::Cache;
-use nur_core::db::models::{AuthUserMeta, Role};
+use nur_core::{
+    MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE,
+    db::models::{AuthUserMeta, Role},
+    file::helper::{
+        Upload, cleanup_stale_uploads, cleanup_upload, cleanup_upload_for_output,
+        get_or_create_preallocated_upload_for_owner, received_ranges, reset_finalizing,
+        valid_upload_session_id, write_upload_chunk,
+    },
+};
 use nur_plugins::{
-    CachePolicy, Error, Header, Identity, PluginManager, Request as PluginRequest,
+    BrowserUpload, CachePolicy, Error, Header, Identity, PluginManager, Request as PluginRequest,
     Response as PluginResponse, Route,
 };
 use protect_axum::authorities::AuthDetails;
 use real::RealIp;
+use serde::{Deserialize, Serialize};
+use tokio_util::io::ReaderStream;
 use tower_http::{services::ServeDir, timeout::TimeoutLayer};
 use tracing::{error, info};
 
 const FORWARDED_REQUEST_HEADERS: &[&str] =
     &["accept", "accept-language", "content-type", "user-agent"];
+
+#[derive(Deserialize)]
+struct StorageUploadQuery {
+    filename: String,
+}
+
+#[derive(Deserialize)]
+struct StoragePathQuery {
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct LinkUploadStatusQuery {
+    file_name: Option<String>,
+    size: u64,
+    batch_id: String,
+}
+
+#[derive(Serialize)]
+struct LinkUploadStatus {
+    received_ranges: Vec<(u64, u64)>,
+    complete: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<nur_plugins::StoredFile>,
+}
+
+enum LinkUploadReservation {
+    Pending(ReservedLinkUpload),
+    Complete(nur_plugins::StoredFile),
+}
+
+struct ReservedLinkUpload {
+    link_id: i64,
+    directory: nur_plugins::StorageDirectory,
+    filename: String,
+    total_size: u64,
+    output_file: std::path::PathBuf,
+    upload: Upload,
+}
+
+struct UploadChunk {
+    file_name: String,
+    start: u64,
+    end: u64,
+    size: u64,
+    data: Vec<u8>,
+    batch_id: String,
+}
+
+struct FileRouteError(Box<Response>);
+
+impl FileRouteError {
+    fn new(response: Response) -> Self {
+        Self(Box::new(response))
+    }
+}
+
+impl From<StatusCode> for FileRouteError {
+    fn from(status: StatusCode) -> Self {
+        Self::new(status.into_response())
+    }
+}
+
+impl IntoResponse for FileRouteError {
+    fn into_response(self) -> Response {
+        *self.0
+    }
+}
 
 #[derive(Clone)]
 pub struct PluginCacheInvalidator {
@@ -61,6 +139,12 @@ struct RouteState {
     route: Route,
     cache: Option<RouteCache>,
     plugin_cache: Option<RouteCache>,
+}
+
+#[derive(Clone)]
+struct FileRouteState {
+    manager: Arc<PluginManager>,
+    invalidator: PluginCacheInvalidator,
 }
 
 pub struct PluginRouter {
@@ -98,12 +182,48 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
     };
     let mut router =
         Router::new().route("/api/plugins", get(index).with_state(Arc::clone(&manager)));
+    if manager.storage().is_some() {
+        let file_state = FileRouteState {
+            manager: Arc::clone(&manager),
+            invalidator: invalidator.clone(),
+        };
+        let link_upload_router = Router::new()
+            .route(
+                "/api/plugins/{plugin}/files/upload/{token}",
+                get(link_upload_status).post(link_upload_chunk),
+            )
+            .layer(DefaultBodyLimit::max(
+                usize::try_from(*MAX_CHUNK_SIZE)
+                    .unwrap_or(10 * 1024 * 1024)
+                    .saturating_add(64 * 1024),
+            ));
+        let file_router = Router::new()
+            .merge(link_upload_router)
+            .route(
+                "/api/plugins/{plugin}/files/download/{token}",
+                get(link_download),
+            )
+            .route(
+                "/api/plugins/{plugin}/files/{directory}",
+                post(authenticated_upload).delete(authenticated_delete),
+            )
+            .route(
+                "/api/plugins/{plugin}/files/{directory}/download",
+                get(authenticated_download),
+            )
+            .with_state(file_state);
+        router = router.merge(file_router.layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(300),
+        )));
+    }
     for asset in manager.assets() {
         router = router.nest_service(
             &format!("/plugins/{}/assets", asset.plugin_id),
             ServeDir::new(&asset.path),
         );
     }
+    let mut runtime_router = Router::new();
     for route in routes {
         let method = method_filter(&route.method)?;
         let state = Arc::new(RouteState {
@@ -114,17 +234,18 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
             manager: Arc::clone(&manager),
             route,
         });
-        router = router.merge(
+        runtime_router = runtime_router.merge(
             Router::new()
                 .route(&state.route.path, on(method, dispatch))
                 .with_state(state),
         );
     }
+    router = router.merge(runtime_router.layer(TimeoutLayer::with_status_code(
+        StatusCode::GATEWAY_TIMEOUT,
+        manager.timeout() + Duration::from_millis(250),
+    )));
     Ok(PluginRouter {
-        router: router.layer(TimeoutLayer::with_status_code(
-            StatusCode::GATEWAY_TIMEOUT,
-            manager.timeout() + Duration::from_millis(250),
-        )),
+        router,
         invalidator,
     })
 }
@@ -135,6 +256,528 @@ async fn index(State(manager): State<Arc<PluginManager>>, details: AuthDetails<R
         return StatusCode::FORBIDDEN.into_response();
     }
     axum::Json(manager.visible_metadata(&roles)).into_response()
+}
+
+async fn link_upload_status(
+    State(state): State<FileRouteState>,
+    Path((plugin_id, token)): Path<(String, String)>,
+    Query(query): Query<LinkUploadStatusQuery>,
+) -> Response {
+    let reserved = match reserve_link_upload(
+        &state,
+        &plugin_id,
+        &token,
+        &query.batch_id,
+        query.size,
+        query.file_name.as_deref(),
+    )
+    .await
+    {
+        Ok(LinkUploadReservation::Pending(reserved)) => reserved,
+        Ok(LinkUploadReservation::Complete(file)) => {
+            return axum::Json(LinkUploadStatus {
+                received_ranges: Vec::new(),
+                complete: true,
+                file: Some(file),
+            })
+            .into_response();
+        }
+        Err(error) => return error.into_response(),
+    };
+    axum::Json(LinkUploadStatus {
+        received_ranges: received_ranges(&reserved.upload).await,
+        complete: false,
+        file: None,
+    })
+    .into_response()
+}
+
+async fn link_upload_chunk(
+    State(state): State<FileRouteState>,
+    Path((plugin_id, token)): Path<(String, String)>,
+    multipart: Multipart,
+) -> Response {
+    let chunk = match parse_upload_chunk(multipart).await {
+        Ok(chunk) => chunk,
+        Err(error) => return error.into_response(),
+    };
+    let reserved = match reserve_link_upload(
+        &state,
+        &plugin_id,
+        &token,
+        &chunk.batch_id,
+        chunk.size,
+        Some(&chunk.file_name),
+    )
+    .await
+    {
+        Ok(LinkUploadReservation::Pending(reserved)) => reserved,
+        Ok(LinkUploadReservation::Complete(file)) => return axum::Json(file).into_response(),
+        Err(error) => return error.into_response(),
+    };
+    let should_finalize =
+        match write_upload_chunk(&reserved.upload, chunk.start, chunk.end, &chunk.data).await {
+            Ok(value) => value,
+            Err(error) => return sanitized_upload_error(error).into_response(),
+        };
+    if !should_finalize {
+        return axum::Json(LinkUploadStatus {
+            received_ranges: received_ranges(&reserved.upload).await,
+            complete: false,
+            file: None,
+        })
+        .into_response();
+    }
+
+    if let Err(error) = state
+        .manager
+        .begin_upload_link_finalization(reserved.link_id, &chunk.batch_id)
+        .await
+    {
+        reset_finalizing(&reserved.upload).await;
+        return file_link_error(error);
+    }
+    let Some(storage) = state.manager.storage().cloned() else {
+        reset_finalizing(&reserved.upload).await;
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let directory = reserved.directory.clone();
+    let filename = reserved.filename.clone();
+    let temporary = reserved.upload.temp_file.clone();
+    let quota = state.manager.storage_quota();
+    let finalized = tokio::task::spawn_blocking(move || {
+        storage.complete_resumable_upload(
+            &directory,
+            &filename,
+            &temporary,
+            reserved.total_size,
+            quota,
+        )
+    })
+    .await;
+    let file = match finalized {
+        Ok(Ok(file)) => file,
+        Ok(Err(error)) => {
+            reset_finalizing(&reserved.upload).await;
+            return plugin_storage_error(error, "plugin link upload finalization failed");
+        }
+        Err(error) => {
+            reset_finalizing(&reserved.upload).await;
+            error!(%error, "plugin link upload finalization task failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if let Err(error) = state
+        .manager
+        .complete_upload_link(reserved.link_id, &chunk.batch_id)
+        .await
+    {
+        reset_finalizing(&reserved.upload).await;
+        return file_link_error(error);
+    }
+    cleanup_upload(&reserved.output_file, &reserved.upload).await;
+    state.invalidator.invalidate();
+    axum::Json(file).into_response()
+}
+
+async fn reserve_link_upload(
+    state: &FileRouteState,
+    plugin_id: &str,
+    token: &str,
+    batch_id: &str,
+    total_size: u64,
+    supplied_filename: Option<&str>,
+) -> Result<LinkUploadReservation, FileRouteError> {
+    if !valid_upload_session_id(batch_id) || total_size == 0 || total_size > *MAX_UPLOAD_SIZE {
+        return Err(StatusCode::BAD_REQUEST.into());
+    }
+    let (link_id, directory, filename, link_limit, finalizing) = state
+        .manager
+        .reserve_upload_link(plugin_id, token, batch_id, total_size)
+        .await
+        .map_err(|error| FileRouteError::new(file_link_error(error)))?;
+    if supplied_filename.is_some_and(|supplied| supplied != filename) {
+        return Err(StatusCode::BAD_REQUEST.into());
+    }
+    let effective_limit = link_limit.min(*MAX_UPLOAD_SIZE);
+    if total_size > effective_limit {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE.into());
+    }
+    let storage = state
+        .manager
+        .storage()
+        .cloned()
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if finalizing {
+        let recovery_storage = storage.clone();
+        let recovery_directory = directory.clone();
+        let recovery_filename = filename.clone();
+        let recovered = tokio::task::spawn_blocking(move || {
+            recovery_storage.recover_resumable_upload(
+                &recovery_directory,
+                &recovery_filename,
+                total_size,
+            )
+        })
+        .await
+        .map_err(|error| {
+            error!(%error, "plugin link upload recovery task failed");
+            FileRouteError::from(StatusCode::INTERNAL_SERVER_ERROR)
+        })?
+        .map_err(|error| {
+            FileRouteError::new(plugin_storage_error(
+                error,
+                "plugin link upload recovery failed",
+            ))
+        })?;
+        if let Some((file, output_file)) = recovered {
+            state
+                .manager
+                .complete_upload_link(link_id, batch_id)
+                .await
+                .map_err(|error| FileRouteError::new(file_link_error(error)))?;
+            cleanup_upload_for_output(&output_file).await;
+            state.invalidator.invalidate();
+            return Ok(LinkUploadReservation::Complete(file));
+        }
+    }
+    let prepared_directory = directory.clone();
+    let prepared_filename = filename.clone();
+    let quota = state.manager.storage_quota();
+    let output_file = tokio::task::spawn_blocking(move || {
+        storage.prepare_resumable_upload(
+            &prepared_directory,
+            &prepared_filename,
+            total_size,
+            effective_limit,
+            quota,
+        )
+    })
+    .await
+    .map_err(|error| {
+        error!(%error, "plugin link upload preparation task failed");
+        FileRouteError::from(StatusCode::INTERNAL_SERVER_ERROR)
+    })?
+    .map_err(|error| {
+        FileRouteError::new(plugin_storage_error(
+            error,
+            "plugin link upload preparation failed",
+        ))
+    })?;
+
+    cleanup_stale_uploads().await;
+    let owner_id = format!("plugin:{plugin_id}");
+    let upload =
+        get_or_create_preallocated_upload_for_owner(total_size, &output_file, batch_id, &owner_id)
+            .await
+            .map_err(sanitized_upload_error)?;
+    Ok(LinkUploadReservation::Pending(ReservedLinkUpload {
+        link_id,
+        directory,
+        filename,
+        total_size,
+        output_file,
+        upload,
+    }))
+}
+
+async fn parse_upload_chunk(mut multipart: Multipart) -> Result<UploadChunk, FileRouteError> {
+    let mut file_name = None;
+    let mut start = None;
+    let mut end = None;
+    let mut size = None;
+    let mut data = None;
+    let mut batch_id = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| FileRouteError::from(StatusCode::BAD_REQUEST))?
+    {
+        match field.name().unwrap_or_default() {
+            "fileName" if file_name.is_none() => {
+                file_name = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| FileRouteError::from(StatusCode::BAD_REQUEST))?,
+                );
+            }
+            "start" if start.is_none() => {
+                start = Some(parse_u64_field(field).await?);
+            }
+            "end" if end.is_none() => {
+                end = Some(parse_u64_field(field).await?);
+            }
+            "size" if size.is_none() => {
+                size = Some(parse_u64_field(field).await?);
+            }
+            "chunk" if data.is_none() => {
+                data = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|_| FileRouteError::from(StatusCode::BAD_REQUEST))?
+                        .to_vec(),
+                );
+            }
+            "batch_id" if batch_id.is_none() => {
+                batch_id = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| FileRouteError::from(StatusCode::BAD_REQUEST))?,
+                );
+            }
+            "fileName" | "start" | "end" | "size" | "chunk" | "batch_id" => {
+                return Err(StatusCode::BAD_REQUEST.into());
+            }
+            _ => {}
+        }
+    }
+
+    let chunk = UploadChunk {
+        file_name: file_name.ok_or(StatusCode::BAD_REQUEST)?,
+        start: start.ok_or(StatusCode::BAD_REQUEST)?,
+        end: end.ok_or(StatusCode::BAD_REQUEST)?,
+        size: size.ok_or(StatusCode::BAD_REQUEST)?,
+        data: data.ok_or(StatusCode::BAD_REQUEST)?,
+        batch_id: batch_id.ok_or(StatusCode::BAD_REQUEST)?,
+    };
+    if !valid_upload_chunk_range(chunk.start, chunk.end, chunk.size, chunk.data.len() as u64) {
+        return Err(StatusCode::BAD_REQUEST.into());
+    }
+    Ok(chunk)
+}
+
+fn valid_upload_chunk_range(start: u64, end: u64, size: u64, chunk_size: u64) -> bool {
+    end > start && end <= size && chunk_size == end - start && chunk_size <= *MAX_CHUNK_SIZE
+}
+
+async fn parse_u64_field(
+    field: axum::extract::multipart::Field<'_>,
+) -> Result<u64, FileRouteError> {
+    field
+        .text()
+        .await
+        .map_err(|_| FileRouteError::from(StatusCode::BAD_REQUEST))?
+        .parse()
+        .map_err(|_| StatusCode::BAD_REQUEST.into())
+}
+
+fn plugin_storage_error(error: Error, message: &'static str) -> Response {
+    match error {
+        Error::PluginBadRequest(_) => StatusCode::BAD_REQUEST.into_response(),
+        Error::PluginNotFound => StatusCode::NOT_FOUND.into_response(),
+        error => {
+            error!(%error, "{message}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+fn sanitized_upload_error(error: nur_core::utils::errors::NurError) -> FileRouteError {
+    let status = error.into_response().status();
+    FileRouteError::from(status)
+}
+
+async fn authenticated_upload(
+    State(state): State<FileRouteState>,
+    Path((plugin_id, directory_id)): Path<(String, String)>,
+    Query(query): Query<StorageUploadQuery>,
+    details: AuthDetails<Role>,
+    request: Request,
+) -> Response {
+    let Some(directory) = state.manager.storage_directory(&plugin_id, &directory_id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if directory.upload != BrowserUpload::Authenticated
+        || !role_names(&details)
+            .iter()
+            .any(|role| directory.roles.contains(role))
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let quota = state.manager.storage_quota();
+    let limit = usize::try_from((*MAX_UPLOAD_SIZE).min(quota))
+        .unwrap_or(usize::MAX)
+        .min(state.manager.storage_write_limit());
+    let body = match to_bytes(request.into_body(), limit).await {
+        Ok(body) if !body.is_empty() => body,
+        Ok(_) => return StatusCode::BAD_REQUEST.into_response(),
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let Some(storage) = state.manager.storage().cloned() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || {
+        storage.write(&directory, &query.filename, &body, limit, quota)
+    })
+    .await
+    {
+        Ok(Ok(file)) => {
+            state.invalidator.invalidate();
+            axum::Json(file).into_response()
+        }
+        Ok(Err(Error::PluginBadRequest(_))) => StatusCode::BAD_REQUEST.into_response(),
+        Ok(Err(error)) => {
+            error!(%error, "authenticated plugin upload failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(error) => {
+            error!(%error, "authenticated plugin upload task failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn authenticated_download(
+    State(state): State<FileRouteState>,
+    Path((plugin_id, directory_id)): Path<(String, String)>,
+    Query(query): Query<StoragePathQuery>,
+    details: AuthDetails<Role>,
+) -> Response {
+    let directory =
+        match authorized_storage_directory(&state.manager, &plugin_id, &directory_id, &details) {
+            Ok(directory) => directory,
+            Err(status) => return status.into_response(),
+        };
+    let Some(storage) = state.manager.storage().cloned() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match stream_stored_file(storage, directory, query.path).await {
+        Ok(response) => response,
+        Err(Error::PluginNotFound) => StatusCode::NOT_FOUND.into_response(),
+        Err(Error::PluginBadRequest(_)) => StatusCode::BAD_REQUEST.into_response(),
+        Err(error) => {
+            error!(%error, "authenticated plugin download failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn authenticated_delete(
+    State(state): State<FileRouteState>,
+    Path((plugin_id, directory_id)): Path<(String, String)>,
+    Query(query): Query<StoragePathQuery>,
+    details: AuthDetails<Role>,
+) -> Response {
+    let directory =
+        match authorized_storage_directory(&state.manager, &plugin_id, &directory_id, &details) {
+            Ok(directory) => directory,
+            Err(status) => return status.into_response(),
+        };
+    let Some(storage) = state.manager.storage().cloned() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || storage.delete(&directory, &query.path)).await {
+        Ok(Ok(())) => {
+            state.invalidator.invalidate();
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(Err(Error::PluginNotFound)) => StatusCode::NOT_FOUND.into_response(),
+        Ok(Err(Error::PluginBadRequest(_))) => StatusCode::BAD_REQUEST.into_response(),
+        Ok(Err(error)) => {
+            error!(%error, "authenticated plugin deletion failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(error) => {
+            error!(%error, "authenticated plugin deletion task failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+fn authorized_storage_directory(
+    manager: &PluginManager,
+    plugin_id: &str,
+    directory_id: &str,
+    details: &AuthDetails<Role>,
+) -> Result<nur_plugins::StorageDirectory, StatusCode> {
+    let directory = manager
+        .storage_directory(plugin_id, directory_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    role_names(details)
+        .iter()
+        .any(|role| directory.roles.contains(role))
+        .then_some(directory)
+        .ok_or(StatusCode::FORBIDDEN)
+}
+
+async fn link_download(
+    State(state): State<FileRouteState>,
+    Path((plugin_id, token)): Path<(String, String)>,
+) -> Response {
+    let (link_id, directory, path) = match state.manager.download_link(&plugin_id, &token).await {
+        Ok(link) => link,
+        Err(error) => return file_link_error(error),
+    };
+    let Some(storage) = state.manager.storage().cloned() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let file = match open_stored_file(storage, directory, path).await {
+        Ok(file) => file,
+        Err(Error::PluginNotFound | Error::PluginBadRequest(_)) => {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        Err(error) => {
+            error!(%error, "plugin link download failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+    if let Err(error) = state.manager.consume_download_link(link_id).await {
+        return file_link_error(error);
+    }
+    stored_file_response(file)
+}
+
+async fn stream_stored_file(
+    storage: nur_plugins::PluginStorage,
+    directory: nur_plugins::StorageDirectory,
+    path: String,
+) -> Result<Response, Error> {
+    open_stored_file(storage, directory, path)
+        .await
+        .map(stored_file_response)
+}
+
+async fn open_stored_file(
+    storage: nur_plugins::PluginStorage,
+    directory: nur_plugins::StorageDirectory,
+    path: String,
+) -> Result<tokio::fs::File, Error> {
+    let target = tokio::task::spawn_blocking(move || storage.file_path(&directory, &path))
+        .await
+        .map_err(Error::Join)??;
+    tokio::fs::File::open(target).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Error::PluginNotFound
+        } else {
+            Error::Io(error)
+        }
+    })
+}
+
+fn stored_file_response(file: tokio::fs::File) -> Response {
+    Response::builder()
+        .header("content-type", "application/octet-stream")
+        .header("content-disposition", "attachment")
+        .body(Body::from_stream(ReaderStream::new(file)))
+        .unwrap_or_else(|error| {
+            error!(%error, "failed to build plugin file response");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })
+}
+
+fn file_link_error(error: Error) -> Response {
+    match error {
+        Error::PluginNotFound => StatusCode::NOT_FOUND.into_response(),
+        error => {
+            error!(%error, "plugin file link lookup failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn dispatch(
@@ -424,7 +1067,7 @@ mod tests {
     use super::{
         CachedResponse, PluginCacheInvalidator, cache_entry_weight, cache_key, into_response_parts,
         is_plugin_write_method, plugin_path_params, request_identity, route_cache,
-        validate_cached_request_body,
+        valid_upload_chunk_range, validate_cached_request_body,
     };
 
     #[test]
@@ -446,6 +1089,15 @@ mod tests {
         let identity = request_identity(true, 42, vec!["admin".into()])
             .expect("protected route receives identity");
         assert_eq!(identity.user_id, 42);
+    }
+
+    #[test]
+    fn resumable_upload_ranges_must_match_the_chunk_exactly() {
+        assert!(valid_upload_chunk_range(0, 4, 8, 4));
+        assert!(valid_upload_chunk_range(4, 8, 8, 4));
+        assert!(!valid_upload_chunk_range(4, 4, 8, 0));
+        assert!(!valid_upload_chunk_range(0, 5, 4, 5));
+        assert!(!valid_upload_chunk_range(0, 4, 8, 3));
     }
 
     #[test]

@@ -26,6 +26,12 @@ share one public plugin-mail rate-limit reservation and use the normal CMS valid
 curl -X POST --data 'customer@example.org' http://127.0.0.1:8777/api/plugins/echo/mail
 ```
 
+The protected `POST /api/plugins/echo/upload-link` route accepts a `pdf` or `txt` filename as its
+body and returns a short-lived, single-use public upload URL for the `submissions` directory. Use
+the resumable browser protocol documented in [`docs/plugins.md`](../../../../docs/plugins.md) with
+that URL; the completed file is stored below `STORAGE/plugins/echo/submissions/{year}/{month}` and
+is not inserted into the CMS media library.
+
 `assets/admin.js` also demonstrates an admin web component. It receives the CMS-provided
 authenticated `context.request()` function and calls the plugin's protected `editor` route without
 implementing a separate login or token-refresh flow. Its overview and admin-tools pages demonstrate

@@ -11,6 +11,7 @@ use bindings::{
         configuration,
         database::{self, Statement, Value},
         mail::{self, ContentKind, Message},
+        storage::{self, UploadLinkRequest},
         types::Header,
     },
 };
@@ -62,6 +63,17 @@ impl Guest for EchoPlugin {
                     content_kind: ContentKind::UserInput,
                 })?;
                 format!("merchant and customer mail accepted; link: {confirmation_link}").into_bytes()
+            }
+            "upload-link" => {
+                let filename = String::from_utf8(request.body)
+                    .map_err(|_| PluginError::BadRequest("expected a UTF-8 filename".into()))?;
+                let link = storage::create_upload_link(&UploadLinkRequest {
+                    directory: "submissions".into(),
+                    filename: filename.trim().into(),
+                    max_size: 10 * 1024 * 1024,
+                    expires_seconds: 15 * 60,
+                })?;
+                link.url.into_bytes()
             }
             "root" => b"Hello from a nur-cms root plugin route".to_vec(),
             _ => return Err(PluginError::NotFound),

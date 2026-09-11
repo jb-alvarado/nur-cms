@@ -2059,7 +2059,7 @@ mod tests {
         variant_filename,
     };
 
-    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     fn sample_profile() -> VideoProfile {
         VideoProfile {

@@ -47,6 +47,14 @@ targets = ["contact", "orders"]
 dynamic_recipient_targets = ["orders"]
 trusted_template_targets = ["orders"]
 
+[[storage.directories]]
+id = "documents"
+path = "documents/{year}/{month}"
+extensions = ["pdf", "docx", "odt"]
+visibility = "public"
+upload = "none"
+access = "admin,author"
+
 [assets]
 directory = "assets"
 
@@ -419,8 +427,90 @@ invalid. HTTPS is required except for HTTP on `localhost` and `127.0.0.1`. Readi
 consume a host-call slot. The Wasm process receives no environment variables, so this interface does not expose SMTP credentials,
 database credentials, or other process configuration.
 
-The database and mail imports were added while plugin API version 1 is still under development. Rebuild
-version-1 WebAssembly components against the current WIT package before installing them with this CMS build.
+The database, mail, and storage imports were added while plugin API version 1 is still under development.
+Rebuild version-1 WebAssembly components against the current WIT package before installing them with this
+CMS build.
+
+## Plugin storage
+
+Plugins may write files only to directories declared in `[[storage.directories]]`. Directory IDs are
+stable capabilities passed to the WIT storage API, and every path remains inside a namespace owned by
+the plugin. `{year}` and `{month}` placeholders are expanded when a file is written. `write` returns
+the concrete path; retain that path and pass it to `delete` later.
+
+Directory IDs, paths, and visibility form a persistent storage contract. A plugin update may add
+extensions, but it may not remove a directory, change its path or visibility, or remove a previously
+allowed extension while files may still reference that declaration. Startup rejects such an update
+instead of silently stranding existing files.
+
+Public directories are stored below `STORAGE/plugins/<plugin-id>` and receive an
+`/uploads/plugins/...` URL. Private directories require `NUR_PLUGIN_STORAGE` and never receive a
+public URL. Public and private roots must be separate and non-overlapping.
+
+Every directory must declare `extensions`. Supported passive formats are AVIF, CSV, DOC, DOCX, GIF,
+JPEG, MP3, MP4, ODS, ODT, OGG, PDF, PNG, PPT, PPTX, RTF, TXT, WAV, WebM, WebP, XLS, and XLSX. Active
+same-origin content such as HTML, SVG, XML, and JavaScript is rejected. Extension checks are
+case-insensitive.
+
+`NUR_PLUGIN_STORAGE_WRITE_LIMIT` limits one WIT or authenticated whole-body write.
+`NUR_PLUGIN_STORAGE_QUOTA` limits the combined public and private bytes owned by one plugin.
+Resumable uploads reserve their declared size before accepting chunks. Operations are serialized per
+plugin; deployments with several CMS processes sharing storage should additionally enforce a
+filesystem quota. Filenames are limited to 236 UTF-8 bytes so resumable-upload metadata remains valid
+on filesystems with 255-byte path-component limits.
+
+### Browser uploads and one-time links
+
+Set `upload = "authenticated"` to expose a directory only through authenticated file routes, or
+`upload = "link"` to let the plugin issue a short-lived public upload capability. The `access` roles
+still control authenticated file management and which plugin routes may request a link; possession of
+an issued link is the authorization for that one public upload. Store links only as briefly as needed
+and never log them. `upload = "link"` works for both public and private storage: public describes the
+resulting file's visibility, not whether the capability URL itself can be called.
+
+```rust
+let link = storage::create_upload_link(&UploadLinkRequest {
+    directory: "documents".into(),
+    filename: "application.pdf".into(),
+    max_size: 10 * 1024 * 1024,
+    expires_seconds: 15 * 60,
+})?;
+```
+
+The returned URL supports the same resumable range protocol as the CMS media uploader:
+
+1. Generate one stable, random `batch_id` of 7–128 ASCII letters, digits, `_`, or `-`.
+2. Query `GET <link>?file_name=<name>&size=<bytes>&batch_id=<id>`. The response contains
+   `received_ranges` and `complete`. When the server recovers a file finalized before an interrupted
+   database update, `complete` is true and `file` contains the stored-file result.
+3. Send each range with `POST <link>` as `multipart/form-data` fields `fileName`, `start`, `end`,
+   `size`, `batch_id`, and binary `chunk`. Offsets are byte offsets and `end` is exclusive.
+4. Repeat missing ranges. Intermediate responses contain the updated ranges; the final response is
+   `{ "path": "...", "public_url": "..." }`.
+
+The first valid status or chunk request binds the capability to its `batch_id`. Another batch cannot
+take it over. The token is consumed only after the complete temporary file has been atomically moved
+to its destination. Interrupted uploads can resume for `UPLOAD_TTL_SECONDS`, including after the
+original link expiry once the upload was claimed. Upload sessions and the maximum requested link
+lifetime both default to 48 hours and are configurable with `UPLOAD_TTL_SECONDS` and
+`NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS`. Chunk size is limited by `MAX_CHUNK_SIZE`; total
+size is limited by the link, `MAX_UPLOAD_SIZE`, and the per-plugin storage quota. Public and private
+plugin files are not inserted into the CMS `media` table and receive no image or video processing.
+
+Authenticated admin tooling can manage a directory without a one-time link:
+
+- `POST /api/plugins/<plugin>/files/<directory>?filename=<name>` writes a complete request body.
+- `GET /api/plugins/<plugin>/files/<directory>/download?path=<stored-path>` downloads a file.
+- `DELETE /api/plugins/<plugin>/files/<directory>?path=<stored-path>` deletes a file.
+
+These routes enforce the directory's `access` roles. A plugin normally records returned paths and any
+additional metadata in its own database tables; listing and domain-specific file management remain a
+plugin responsibility.
+
+The CMS does not rely on `Content-Disposition` for this boundary because `/uploads` may be served by
+an upstream web server. That server should preserve `X-Content-Type-Options: nosniff`. The admin UI
+should open only known preview-safe formats inline and treat documents as downloads unless a dedicated
+preview is used.
 
 ## Static assets
 
@@ -445,9 +535,11 @@ well, including responses backed by its plugin-local database.
 
 ## Migrations
 
-Core migrations continue to use SQLx's `_sqlx_migrations`. Plugin migrations are tracked separately
-in `_plugin_migrations` with `(plugin_id, version)` as their primary key, so every plugin has its own
-independent `0001`, `0002`, and later versions.
+Core migrations continue to use SQLx's `_sqlx_migrations`. The plugin runtime owns the separate
+`_plugin_migrations` journal. Its `runtime` scope tracks infrastructure migrations shipped by the
+`nur_plugins` crate, while its `plugin` scope tracks each installed plugin independently by
+`(plugin_id, version)`. Every plugin can therefore have its own `0001`, `0002`, and later versions
+without colliding with runtime or core migrations.
 
 Each plugin gets a PostgreSQL schema derived from its validated ID, for example:
 

@@ -133,10 +133,54 @@ interface configuration {
   public-url: func() -> option<string>;
 }
 
+interface storage {
+  use types.{plugin-error};
+
+  record file {
+    /// Stable path relative to the plugin's public or private namespace.
+    path: string,
+    /// Available only for files in a public storage directory.
+    public-url: option<string>,
+  }
+
+  /// Writes one file into a declared plugin storage directory. The file name
+  /// must not contain a path; directory layout is controlled by the manifest.
+  write: func(directory: string, filename: string, contents: list<u8>) -> result<file, plugin-error>;
+
+  /// Deletes a previously written file using the path returned by `write`.
+  delete: func(directory: string, path: string) -> result<_, plugin-error>;
+
+  record upload-link-request {
+    directory: string,
+    filename: string,
+    max-size: u64,
+    expires-seconds: u32,
+  }
+
+  record download-link-request {
+    directory: string,
+    path: string,
+    expires-seconds: u32,
+  }
+
+  record link {
+    url: string,
+  }
+
+  /// Creates a single-use, resumable browser upload capability for a directory
+  /// declared with `upload = "link"`. The token is consumed only after the host
+  /// has finalized the complete file.
+  create-upload-link: func(request: upload-link-request) -> result<link, plugin-error>;
+
+  /// Creates a single-use download capability for a file in private storage.
+  create-download-link: func(request: download-link-request) -> result<link, plugin-error>;
+}
+
 world cms-plugin {
   import content;
   import configuration;
   import database;
   import mail;
+  import storage;
   export http-handler;
 }

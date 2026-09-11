@@ -2696,7 +2696,9 @@ dependencies = [
  "nur_plugins",
  "protect-axum",
  "real",
+ "serde",
  "tokio",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",
@@ -2749,8 +2751,10 @@ dependencies = [
 name = "nur_plugins"
 version = "0.18.0"
 dependencies = [
+ "chrono",
  "colored",
  "futures-util",
+ "include_dir",
  "nur_core",
  "semver",
  "serde",
@@ -2763,6 +2767,7 @@ dependencies = [
  "tokio",
  "toml_edit 0.25.13+spec-1.1.0",
  "tracing",
+ "uuid",
  "wasmtime",
  "wasmtime-wasi",
 ]

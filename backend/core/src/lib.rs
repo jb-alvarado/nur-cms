@@ -97,7 +97,7 @@ pub static MAX_IMAGE_PIXELS: LazyLock<u64> =
 pub static MAX_ACTIVE_UPLOADS_PER_USER: LazyLock<usize> =
     LazyLock::new(|| env_parse_or("MAX_ACTIVE_UPLOADS_PER_USER", 4));
 pub static UPLOAD_TTL_SECONDS: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("UPLOAD_TTL_SECONDS", 24 * 60 * 60));
+    LazyLock::new(|| env_parse_or("UPLOAD_TTL_SECONDS", 48 * 60 * 60));
 pub static IMAGE_PROCESSING_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| {
     Semaphore::new(env_parse_or("IMAGE_PROCESSING_CONCURRENCY", 2usize).clamp(1, 16))
 });

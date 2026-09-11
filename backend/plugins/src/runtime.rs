@@ -12,6 +12,7 @@ use nur_core::{
     },
     utils::{content_output::render_entry_nodes, public_url::configured_public_url},
 };
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::IpAddr,
@@ -21,13 +22,19 @@ use std::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 use wasmtime::{
     Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
     component::{Component, Linker},
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::{Error, manifest::InstalledPlugin, plugin_timeout};
+use crate::{
+    Error,
+    manifest::InstalledPlugin,
+    plugin_timeout,
+    storage::{PluginStorage, StorageDirectory},
+};
 
 mod database;
 
@@ -44,6 +51,30 @@ pub mod bindings {
 
 const EPOCH_INTERVAL_MS: u64 = 10;
 const MAX_MAIL_CALLS_PER_REQUEST: u8 = 3;
+const MIN_FILE_LINK_EXPIRY_SECONDS: u32 = 60;
+
+fn maximum_file_link_expiry_seconds() -> u32 {
+    std::env::var("NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|hours| (1..=720).contains(hours))
+        .unwrap_or(48)
+        * 60
+        * 60
+}
+
+fn valid_link_expiry(expires_seconds: u32) -> Result<i32, bindings::nur::cms::types::PluginError> {
+    if !(MIN_FILE_LINK_EXPIRY_SECONDS..=maximum_file_link_expiry_seconds())
+        .contains(&expires_seconds)
+    {
+        return Err(bindings::nur::cms::types::PluginError::BadRequest(
+            "invalid file link expiry".into(),
+        ));
+    }
+    i32::try_from(expires_seconds).map_err(|_| {
+        bindings::nur::cms::types::PluginError::BadRequest("invalid file link expiry".into())
+    })
+}
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -58,6 +89,9 @@ pub struct Runtime {
     content_response_body_limit: usize,
     metrics_enabled: bool,
     public_mail_rate_limiter: Arc<Mutex<PublicMailRateLimiter>>,
+    storage: Option<PluginStorage>,
+    storage_write_limit: usize,
+    storage_quota: u64,
 }
 
 #[derive(Clone)]
@@ -66,6 +100,7 @@ pub struct PluginComponent {
     component: Component,
     runtime: Runtime,
     mail_permissions: MailPermissions,
+    storage_directories: Arc<Vec<StorageDirectory>>,
 }
 
 #[derive(Clone, Default)]
@@ -102,6 +137,10 @@ struct HostState {
     public_mail_authorized: Option<bool>,
     mail_calls_remaining: u8,
     mail_permissions: MailPermissions,
+    storage: Option<PluginStorage>,
+    storage_directories: Arc<Vec<StorageDirectory>>,
+    storage_write_limit: usize,
+    storage_quota: u64,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -130,7 +169,7 @@ impl WasiView for HostState {
 impl bindings::nur::cms::types::Host for HostState {}
 
 impl Runtime {
-    pub fn new(pool: sqlx::PgPool) -> Result<Self, Error> {
+    pub fn new(pool: sqlx::PgPool, storage: Option<PluginStorage>) -> Result<Self, Error> {
         let mut config = Config::new();
         config.consume_fuel(true);
         config.epoch_interruption(true);
@@ -188,6 +227,19 @@ impl Runtime {
                     1_000_000,
                 ),
             })),
+            storage,
+            storage_write_limit: env_usize(
+                "NUR_PLUGIN_STORAGE_WRITE_LIMIT",
+                16 * 1024 * 1024,
+                1,
+                256 * 1024 * 1024,
+            ),
+            storage_quota: env_u64(
+                "NUR_PLUGIN_STORAGE_QUOTA",
+                1024 * 1024 * 1024,
+                1024 * 1024,
+                1024 * 1024 * 1024 * 1024,
+            ),
         })
     }
 
@@ -231,6 +283,17 @@ impl Runtime {
                         .collect(),
                 ),
             },
+            storage_directories: Arc::new(
+                plugin
+                    .manifest
+                    .storage
+                    .directories
+                    .iter()
+                    .map(|directory| {
+                        StorageDirectory::from_manifest(&plugin.manifest.plugin.id, directory)
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
         })
     }
 }
@@ -327,6 +390,10 @@ impl PluginComponent {
                 public_mail_authorized: None,
                 mail_calls_remaining: MAX_MAIL_CALLS_PER_REQUEST,
                 mail_permissions: self.mail_permissions.clone(),
+                storage: self.runtime.storage.clone(),
+                storage_directories: Arc::clone(&self.storage_directories),
+                storage_write_limit: self.runtime.storage_write_limit,
+                storage_quota: self.runtime.storage_quota,
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -629,6 +696,106 @@ impl bindings::nur::cms::configuration::Host for HostState {
     }
 }
 
+impl bindings::nur::cms::storage::Host for HostState {
+    fn write(
+        &mut self,
+        directory: String,
+        filename: String,
+        contents: Vec<u8>,
+    ) -> Result<bindings::nur::cms::storage::File, bindings::nur::cms::types::PluginError> {
+        self.consume_host_call()?;
+        let directory = self.storage_directory(&directory)?;
+        let storage = self.storage.as_ref().ok_or_else(|| {
+            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
+        })?;
+        let stored = storage
+            .write(
+                directory,
+                &filename,
+                &contents,
+                self.storage_write_limit,
+                self.storage_quota,
+            )
+            .map_err(|error| self.storage_error(error))?;
+        Ok(bindings::nur::cms::storage::File {
+            path: stored.path,
+            public_url: stored.public_url,
+        })
+    }
+
+    fn delete(
+        &mut self,
+        directory: String,
+        path: String,
+    ) -> Result<(), bindings::nur::cms::types::PluginError> {
+        self.consume_host_call()?;
+        let directory = self.storage_directory(&directory)?;
+        let storage = self.storage.as_ref().ok_or_else(|| {
+            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
+        })?;
+        storage
+            .delete(directory, &path)
+            .map_err(|error| self.storage_error(error))
+    }
+
+    fn create_upload_link(
+        &mut self,
+        request: bindings::nur::cms::storage::UploadLinkRequest,
+    ) -> Result<bindings::nur::cms::storage::Link, bindings::nur::cms::types::PluginError> {
+        self.consume_host_call()?;
+        let directory = self.storage_directory(&request.directory)?;
+        if directory.upload != crate::BrowserUpload::Link {
+            return Err(bindings::nur::cms::types::PluginError::Forbidden);
+        }
+        let storage = self.storage.as_ref().ok_or_else(|| {
+            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
+        })?;
+        storage
+            .validate_upload_request(
+                directory,
+                &request.filename,
+                request.max_size,
+                self.storage_quota,
+            )
+            .map_err(|error| self.storage_error(error))?;
+        let maximum_size = i64::try_from(request.max_size).map_err(|_| {
+            bindings::nur::cms::types::PluginError::BadRequest("invalid upload size".into())
+        })?;
+        let expires_seconds = valid_link_expiry(request.expires_seconds)?;
+        self.create_file_link(
+            "upload",
+            directory,
+            request.filename,
+            Some(maximum_size),
+            expires_seconds,
+        )
+    }
+
+    fn create_download_link(
+        &mut self,
+        request: bindings::nur::cms::storage::DownloadLinkRequest,
+    ) -> Result<bindings::nur::cms::storage::Link, bindings::nur::cms::types::PluginError> {
+        self.consume_host_call()?;
+        let directory = self.storage_directory(&request.directory)?;
+        if directory.visibility != crate::StorageVisibility::Private {
+            return Err(bindings::nur::cms::types::PluginError::Forbidden);
+        }
+        let storage = self.storage.as_ref().ok_or_else(|| {
+            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
+        })?;
+        storage
+            .file_path(directory, &request.path)
+            .map_err(|error| self.storage_error(error))?;
+        self.create_file_link(
+            "download",
+            directory,
+            request.path,
+            None,
+            valid_link_expiry(request.expires_seconds)?,
+        )
+    }
+}
+
 impl bindings::nur::cms::mail::Host for HostState {
     fn send(
         &mut self,
@@ -707,6 +874,77 @@ impl bindings::nur::cms::mail::Host for HostState {
 }
 
 impl HostState {
+    fn create_file_link(
+        &self,
+        purpose: &str,
+        directory: &StorageDirectory,
+        path: String,
+        maximum_size: Option<i64>,
+        expires_seconds: i32,
+    ) -> Result<bindings::nur::cms::storage::Link, bindings::nur::cms::types::PluginError> {
+        let token = Uuid::new_v4().simple().to_string();
+        let token_hash = Sha256::digest(token.as_bytes()).to_vec();
+        let plugin_id = self.plugin_id.clone();
+        let directory_id = directory.id.clone();
+        let purpose = purpose.to_owned();
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(
+                self.host_call_timeout,
+                sqlx::query(
+                    "INSERT INTO public.plugin_file_links \
+                     (plugin_id, directory_id, purpose, token_hash, filename, max_size, expires_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))",
+                )
+                .bind(&plugin_id)
+                .bind(&directory_id)
+                .bind(&purpose)
+                .bind(token_hash)
+                .bind(path)
+                .bind(maximum_size)
+                .bind(expires_seconds)
+                .execute(&self.pool),
+            )
+            .await
+        });
+        match result {
+            Ok(Ok(_)) => Ok(bindings::nur::cms::storage::Link {
+                url: format!("/api/plugins/{plugin_id}/files/{purpose}/{token}"),
+            }),
+            Ok(Err(error)) => {
+                error!(plugin = %self.plugin_id, %error, "plugin file link creation failed");
+                Err(bindings::nur::cms::types::PluginError::Failed(
+                    "file link creation failed".into(),
+                ))
+            }
+            Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
+                "file link creation timed out".into(),
+            )),
+        }
+    }
+    fn storage_directory(
+        &self,
+        id: &str,
+    ) -> Result<&StorageDirectory, bindings::nur::cms::types::PluginError> {
+        self.storage_directories
+            .iter()
+            .find(|directory| directory.id == id)
+            .ok_or(bindings::nur::cms::types::PluginError::Forbidden)
+    }
+
+    fn storage_error(&self, error: Error) -> bindings::nur::cms::types::PluginError {
+        match error {
+            Error::PluginBadRequest(_) => {
+                bindings::nur::cms::types::PluginError::BadRequest("invalid storage request".into())
+            }
+            Error::PluginNotFound => bindings::nur::cms::types::PluginError::NotFound,
+            Error::Manifest(_) | Error::Io(_) => {
+                error!(plugin = %self.plugin_id, %error, "plugin storage operation failed");
+                bindings::nur::cms::types::PluginError::Failed("storage operation failed".into())
+            }
+            _ => bindings::nur::cms::types::PluginError::Failed("storage operation failed".into()),
+        }
+    }
+
     fn plugin_mail_error(&self, error: PluginMailError) -> bindings::nur::cms::types::PluginError {
         match error {
             PluginMailError::UnknownTarget => {
@@ -1192,7 +1430,7 @@ mod tests {
         let module = example_component("echo", "nur_cms_echo_plugin");
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
             .expect("test pool initializes");
-        let runtime = Runtime::new(pool).expect("runtime initializes");
+        let runtime = Runtime::new(pool, None).expect("runtime initializes");
         let component = wasmtime::component::Component::from_file(&runtime.engine, module)
             .expect("example component loads");
         let plugin = PluginComponent {
@@ -1200,6 +1438,7 @@ mod tests {
             component,
             runtime,
             mail_permissions: Default::default(),
+            storage_directories: Arc::new(Vec::new()),
         };
         let response = plugin
             .call(
@@ -1229,7 +1468,7 @@ mod tests {
         let module = example_component("community-site", "nur_cms_community_site_plugin");
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
             .expect("test pool initializes");
-        let runtime = Runtime::new(pool).expect("runtime initializes");
+        let runtime = Runtime::new(pool, None).expect("runtime initializes");
         let component = wasmtime::component::Component::from_file(&runtime.engine, module)
             .expect("example component loads");
         let plugin = PluginComponent {
@@ -1237,6 +1476,7 @@ mod tests {
             component,
             runtime,
             mail_permissions: Default::default(),
+            storage_directories: Arc::new(Vec::new()),
         };
         let result = plugin
             .call(
@@ -1264,7 +1504,7 @@ mod tests {
         let module = example_component("vue-admin", "nur_cms_vue_admin_plugin");
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms")
             .expect("test pool initializes");
-        let runtime = Runtime::new(pool).expect("runtime initializes");
+        let runtime = Runtime::new(pool, None).expect("runtime initializes");
         let component = wasmtime::component::Component::from_file(&runtime.engine, module)
             .expect("Vue admin example component loads");
         let plugin = PluginComponent {
@@ -1272,6 +1512,7 @@ mod tests {
             component,
             runtime,
             mail_permissions: Default::default(),
+            storage_directories: Arc::new(Vec::new()),
         };
         let response = plugin
             .call(
