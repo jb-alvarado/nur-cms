@@ -67,12 +67,19 @@ pub struct StoredFile {
 impl PluginStorage {
     pub fn from_environment() -> Result<Self, Error> {
         let storage = env::var("STORAGE").unwrap_or_else(|_| "./uploads".into());
-        let public_root = PathBuf::from(storage).join("plugins");
         let private_root = env::var("NUR_PLUGIN_STORAGE")
             .ok()
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
+
+        Self::from_roots(PathBuf::from(storage), private_root)
+    }
+
+    fn from_roots(storage: PathBuf, private_root: Option<PathBuf>) -> Result<Self, Error> {
+        fs::create_dir_all(&storage).map_err(Error::Io)?;
+        let upload_root = fs::canonicalize(storage).map_err(Error::Io)?;
+        let public_root = upload_root.join("plugins");
 
         fs::create_dir_all(&public_root).map_err(Error::Io)?;
         let public_root = fs::canonicalize(public_root).map_err(Error::Io)?;
@@ -83,10 +90,13 @@ impl PluginStorage {
             })
             .transpose()?;
         if private_root.as_ref().is_some_and(|private_root| {
-            private_root.starts_with(&public_root) || public_root.starts_with(private_root)
+            private_root.starts_with(&upload_root)
+                || upload_root.starts_with(private_root)
+                || private_root.starts_with(&public_root)
+                || public_root.starts_with(private_root)
         }) {
             return Err(Error::Manifest(
-                "NUR_PLUGIN_STORAGE and STORAGE/plugins must be separate, non-overlapping directories"
+                "NUR_PLUGIN_STORAGE and STORAGE must be separate, non-overlapping directories"
                     .into(),
             ));
         }
@@ -838,6 +848,47 @@ mod tests {
             },
             root,
         )
+    }
+
+    #[test]
+    fn private_storage_must_not_overlap_the_entire_upload_root() {
+        let (_, root) = temporary_storage();
+        let uploads = root.join("uploads");
+        for private in [
+            uploads.clone(),
+            uploads.join("private"),
+            uploads.join("plugins/private"),
+            root.clone(),
+        ] {
+            assert!(PluginStorage::from_roots(uploads.clone(), Some(private)).is_err());
+        }
+        assert!(PluginStorage::from_roots(uploads, Some(root.join("uploads-private"))).is_ok());
+        fs::remove_dir_all(root).expect("test storage is removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_storage_symlinks_cannot_point_into_uploads() {
+        let (_, root) = temporary_storage();
+        let uploads = root.join("uploads");
+        fs::create_dir_all(uploads.join("private")).unwrap();
+        let alias = root.join("private-alias");
+        std::os::unix::fs::symlink(uploads.join("private"), &alias).unwrap();
+        assert!(PluginStorage::from_roots(uploads, Some(alias)).is_err());
+        fs::remove_dir_all(root).expect("test storage is removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_storage_cannot_overlap_a_symlinked_public_plugin_root() {
+        let (_, root) = temporary_storage();
+        let uploads = root.join("uploads");
+        let external = root.join("external");
+        fs::create_dir_all(&uploads).unwrap();
+        fs::create_dir_all(&external).unwrap();
+        std::os::unix::fs::symlink(&external, uploads.join("plugins")).unwrap();
+        assert!(PluginStorage::from_roots(uploads, Some(external.join("private"))).is_err());
+        fs::remove_dir_all(root).expect("test storage is removed");
     }
 
     #[test]

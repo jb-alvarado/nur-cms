@@ -445,7 +445,8 @@ instead of silently stranding existing files.
 
 Public directories are stored below `STORAGE/plugins/<plugin-id>` and receive an
 `/uploads/plugins/...` URL. Private directories require `NUR_PLUGIN_STORAGE` and never receive a
-public URL. Public and private roots must be separate and non-overlapping.
+public URL. The private root must be outside the entire `STORAGE` upload directory; the roots must not
+overlap, including a separately resolved `STORAGE/plugins` symlink target.
 
 Every directory must declare `extensions`. Supported passive formats are AVIF, CSV, DOC, DOCX, GIF,
 JPEG, MP3, MP4, ODS, ODT, OGG, PDF, PNG, PPT, PPTX, RTF, TXT, WAV, WebM, WebP, XLS, and XLSX. Active
