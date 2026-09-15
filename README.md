@@ -6,13 +6,14 @@ A simple and fast (headless) content management system built with Rust and Vue.j
 
 - **Fast & Efficient** - Rust backend with Axum web framework
 - **Content Management** - Easy content editing with Markdown support
-- **Media Management** - Image upload and processing (AVIF, WebP, JPG, PNG)
+- **Media Management** - Resumable image and video uploads, responsive variants, configurable FFmpeg transcoding, and thumbnail management
+- **Extended Markdown** - Comrak rendering with tables, footnotes, task lists, alerts, and additional formatting extensions
 - **Internationalization** - Multi-language support
 - **Modern UI** - Vue 3 + TypeScript frontend with Tailwind CSS and DaisyUI
 - **RESTful API** - Clean API design
-- **Flexible Content Output** - Delivers content in 3 formats: Markdown, HTML, and AST (JSON structure)
+- **Flexible Content Output** - Delivers content as Markdown, rendered HTML, or a structured JSON AST
 - **Public Entry Cache** - Configurable in-memory cache for public entry, list, and facet responses
-- **WebAssembly Plugins** - Sandboxed Wasmtime plugins with API routes and isolated migrations
+- **WebAssembly Plugins** - Sandboxed backend plugins with API routes, trusted admin components, managed storage, host APIs, and isolated migrations
 - **PostgreSQL Database** - Robust data storage with SQLx
 
 For detailed setup instructions and development workflow, see the [Developer Documentation](docs/developer.md).
@@ -28,7 +29,7 @@ See the [configuration reference](docs/configuration.md) for available environme
 including the public entry cache.
 
 See the [plugin documentation](docs/plugins.md) for building Wasmtime extensions with API routes,
-role-based access, plugin-local migrations, and future admin menu metadata.
+role-based access, managed storage, plugin-local migrations, and admin components.
 
 ## Authentication
 
