@@ -3,7 +3,7 @@
 /backend/plugins/examples/*/target/
 .env
 *.sql
-!migrations/*.sql
+!backend/core/migrations/*.sql
 !migrations_dev/*.sql
 !backend/plugins/**/*.sql
 

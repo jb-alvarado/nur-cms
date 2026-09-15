@@ -80,9 +80,18 @@ for the package layout, manifest format, migration behavior, and HTTP interface.
 | `NUR_PLUGIN_MAX_HOST_CALLS`               | `16`              | Maximum number of CMS host-interface calls during one plugin request.                  |
 | `NUR_PLUGIN_REQUEST_BODY_LIMIT`           | `1048576`         | Maximum request body passed to a plugin in bytes.                                      |
 | `NUR_PLUGIN_RESPONSE_BODY_LIMIT`          | `4194304`         | Maximum HTTP response or individual CMS host response accepted from a plugin in bytes. |
+| `NUR_PLUGIN_STORAGE`                      | unset             | Private plugin-storage root; must not overlap the public `STORAGE/plugins` root.       |
+| `NUR_PLUGIN_STORAGE_WRITE_LIMIT`          | `16777216`        | Maximum bytes accepted by one plugin storage write.                                   |
+| `NUR_PLUGIN_STORAGE_QUOTA`                | `1073741824`      | Maximum combined public and private bytes owned by one plugin.                         |
+| `NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS`      | `48`              | Maximum requested lifetime of an upload or download link; range 1–720 hours.          |
 | `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS` | `180`             | Minimum interval between public mail requests for one plugin route and client IP.      |
 | `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`      | `10000`           | Maximum number of active public plugin-mail rate-limit keys retained in memory.        |
 | `NUR_PLUGIN_CACHE_MEMORY_LIMIT`           | `67108864`        | Shared approximate memory budget for all enabled plugin route caches in bytes.         |
+
+Resumable plugin upload links use the global `MAX_UPLOAD_SIZE`, `MAX_CHUNK_SIZE`, and
+`UPLOAD_TTL_SECONDS` settings. `UPLOAD_TTL_SECONDS` defaults to 172800 seconds (48 hours) and applies
+to an upload session after a valid one-time link has been claimed. The link's requested lifetime is
+bounded by `NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS`, which also defaults to 48 hours.
 
 ## Public URL and comment moderation
 

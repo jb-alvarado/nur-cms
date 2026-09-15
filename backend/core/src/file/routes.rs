@@ -78,7 +78,6 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "video/webm",
 ];
 const MAX_FILENAME_LENGTH: usize = 255;
-const MAX_BATCH_ID_LENGTH: usize = 128;
 
 fn validate_mime_type(filename: &str) -> Result<String, NurError> {
     let mime_type = mime_guess::from_path(filename)
@@ -156,10 +155,7 @@ pub(crate) fn web_video_filename(original_filename: &str) -> Result<String, NurE
 }
 
 fn valid_batch_id(batch_id: &str) -> bool {
-    (7..=MAX_BATCH_ID_LENGTH).contains(&batch_id.len())
-        && batch_id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    valid_upload_session_id(batch_id)
 }
 
 #[cfg(test)]

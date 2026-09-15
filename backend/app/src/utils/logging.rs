@@ -85,7 +85,7 @@ pub async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("-")
         .to_string();
-    let r = redact_moderation_token_value(&r);
+    let r = redact_sensitive_link_value(&r);
 
     let a = req
         .headers()
@@ -94,7 +94,7 @@ pub async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
         .unwrap_or("-")
         .to_string();
 
-    let uri = redact_moderation_token(&uri);
+    let uri = redact_sensitive_link(&uri);
     let res = next.run(req).await;
 
     let status = res.status().as_u16();
@@ -121,7 +121,10 @@ pub async fn log_middleware(req: Request<Body>, next: Next) -> Response<Body> {
     res
 }
 
-fn redact_moderation_token(uri: &axum::http::Uri) -> String {
+fn redact_sensitive_link(uri: &axum::http::Uri) -> String {
+    if let Some(prefix) = plugin_file_link_prefix(uri.path()) {
+        return format!("{prefix}[redacted]");
+    }
     const PREFIX: &str = "/api/comments/moderate/";
 
     if let Some(token) = uri.path().strip_prefix(PREFIX)
@@ -133,7 +136,14 @@ fn redact_moderation_token(uri: &axum::http::Uri) -> String {
     uri.to_string()
 }
 
-fn redact_moderation_token_value(value: &str) -> String {
+fn redact_sensitive_link_value(value: &str) -> String {
+    if value
+        .parse::<axum::http::Uri>()
+        .ok()
+        .is_some_and(|uri| plugin_file_link_prefix(uri.path()).is_some())
+    {
+        return "[redacted plugin file link]".to_string();
+    }
     if value.contains("/api/comments/moderate/") {
         "[redacted moderation link]".to_string()
     } else {
@@ -141,11 +151,47 @@ fn redact_moderation_token_value(value: &str) -> String {
     }
 }
 
+fn plugin_file_link_prefix(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("/api/plugins/")?;
+    let (plugin, rest) = rest.split_once('/')?;
+    if plugin.is_empty() {
+        return None;
+    }
+    let token = rest
+        .strip_prefix("files/upload/")
+        .or_else(|| rest.strip_prefix("files/download/"))?;
+    Some(&path[..path.len() - token.len()])
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::Uri;
 
-    use super::{redact_moderation_token, redact_moderation_token_value};
+    use super::{redact_sensitive_link, redact_sensitive_link_value};
+
+    #[test]
+    fn redacts_plugin_file_tokens_from_urls_and_referers() {
+        for action in ["upload", "download"] {
+            let path = format!("/api/plugins/example/files/{action}/secret-token");
+            let uri = format!("{path}?copy=secret-token").parse().unwrap();
+            assert_eq!(
+                redact_sensitive_link(&uri),
+                format!("/api/plugins/example/files/{action}/[redacted]")
+            );
+            for value in [
+                path.clone(),
+                format!("https://cms.example.org{path}?copy=secret-token"),
+            ] {
+                assert_eq!(
+                    redact_sensitive_link_value(&value),
+                    "[redacted plugin file link]"
+                );
+            }
+        }
+        let path = "/api/plugins/example/files/documents/download?path=report.pdf";
+        assert_eq!(redact_sensitive_link(&path.parse().unwrap()), path);
+        assert_eq!(redact_sensitive_link_value(path), path);
+    }
 
     #[test]
     fn redacts_moderation_tokens_from_request_data() {
@@ -153,11 +199,11 @@ mod tests {
             .parse()
             .expect("valid URI");
         assert_eq!(
-            redact_moderation_token(&uri),
+            redact_sensitive_link(&uri),
             "/api/comments/moderate/[redacted]"
         );
         assert_eq!(
-            redact_moderation_token_value(
+            redact_sensitive_link_value(
                 "https://cms.example.org/api/comments/moderate/secret-token"
             ),
             "[redacted moderation link]"

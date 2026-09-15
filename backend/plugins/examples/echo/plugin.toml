@@ -16,6 +16,14 @@ dynamic_recipient_targets = ["contact"]
 [assets]
 directory = "assets"
 
+[[storage.directories]]
+id = "submissions"
+path = "submissions/{year}/{month}"
+extensions = ["pdf", "txt"]
+visibility = "public"
+upload = "link"
+access = "admin,author"
+
 # Optional server-side cache for this plugin's public GET and HEAD routes.
 # Individual routes can opt out with `cache = false`.
 [cache]
@@ -63,6 +71,12 @@ id = "mail"
 method = "POST"
 path = "/api/plugins/echo/mail"
 access = "public"
+
+[[routes]]
+id = "upload-link"
+method = "POST"
+path = "/api/plugins/echo/upload-link"
+access = "admin,author"
 
 [admin]
 entry = "admin.js"

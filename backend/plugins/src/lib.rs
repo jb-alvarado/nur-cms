@@ -1,16 +1,20 @@
 use std::{collections::HashSet, time::Duration};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use sqlx::Row;
 
 mod manifest;
 mod migrations;
 mod runtime;
+mod storage;
 pub mod transport;
 
 use manifest::RouteManifest;
 pub use manifest::{AdminManifest, AdminMenuItem};
 use runtime::{PluginComponent, Runtime, bindings};
+pub use storage::{BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, StoredFile};
 pub use transport::{AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route};
 
 pub const API_VERSION: u32 = 1;
@@ -77,6 +81,11 @@ pub struct PluginManager {
     routes: Vec<RegisteredRoute>,
     assets: Vec<AssetDirectory>,
     metadata: Vec<PluginMetadata>,
+    storage: Option<PluginStorage>,
+    storage_directories: Vec<StorageDirectory>,
+    pool: PgPool,
+    storage_quota: u64,
+    storage_write_limit: usize,
     timeout: Duration,
     request_body_limit: usize,
     response_body_limit: usize,
@@ -88,17 +97,46 @@ impl PluginManager {
         let timeout = plugin_timeout();
         let request_body_limit = request_body_limit();
         let response_body_limit = response_body_limit();
+        let storage_write_limit = storage_write_limit();
         if installed.is_empty() {
             return Ok(Self {
                 routes: Vec::new(),
                 assets: Vec::new(),
                 metadata: Vec::new(),
+                storage: None,
+                storage_directories: Vec::new(),
+                pool: pool.clone(),
+                storage_quota: storage_quota(),
+                storage_write_limit,
                 timeout,
                 request_body_limit,
                 response_body_limit,
             });
         }
-        let runtime = Runtime::new(pool.clone())?;
+        let storage_directories: Vec<_> = installed
+            .iter()
+            .flat_map(|plugin| {
+                let plugin_id = &plugin.manifest.plugin.id;
+                plugin
+                    .manifest
+                    .storage
+                    .directories
+                    .iter()
+                    .map(move |directory| StorageDirectory::from_manifest(plugin_id, directory))
+            })
+            .collect::<Result<_, _>>()?;
+        let storage = (!storage_directories.is_empty())
+            .then(PluginStorage::from_environment)
+            .transpose()?;
+        if let Some(storage) = &storage {
+            storage.cleanup_incomplete_uploads(Duration::from_secs(
+                plugin_upload_session_seconds() as u64,
+            ))?;
+            for directory in &storage_directories {
+                storage.validate_directory(directory)?;
+            }
+        }
+        let runtime = Runtime::new(pool.clone(), storage.clone())?;
         let mut routes = Vec::new();
         let mut assets = Vec::new();
         let mut metadata = Vec::new();
@@ -107,8 +145,8 @@ impl PluginManager {
 
         for plugin in installed {
             migrations::migrate_plugin(pool, &plugin).await?;
-            let component = runtime.load(&plugin)?;
             let plugin_id = plugin.manifest.plugin.id.clone();
+            let component = runtime.load(&plugin)?;
             if let Some(path) = plugin.assets.clone() {
                 assets.push(AssetDirectory {
                     plugin_id: plugin_id.clone(),
@@ -156,10 +194,25 @@ impl PluginManager {
                 });
             }
         }
+        sqlx::query(
+            "DELETE FROM public.plugin_file_links \
+             WHERE (upload_id IS NULL AND expires_at <= now()) \
+                OR consumed_at <= now() - interval '1 day' \
+                OR (upload_id IS NOT NULL AND consumed_at IS NULL \
+                    AND claimed_at <= now() - make_interval(secs => $1))",
+        )
+        .bind(plugin_upload_session_seconds())
+        .execute(pool)
+        .await?;
         Ok(Self {
             routes,
             assets,
             metadata,
+            storage,
+            storage_directories,
+            pool: pool.clone(),
+            storage_quota: storage_quota(),
+            storage_write_limit,
             timeout,
             request_body_limit,
             response_body_limit,
@@ -183,6 +236,171 @@ impl PluginManager {
     }
     pub fn metadata(&self) -> &[PluginMetadata] {
         &self.metadata
+    }
+
+    pub fn storage_directory(
+        &self,
+        plugin_id: &str,
+        directory_id: &str,
+    ) -> Option<StorageDirectory> {
+        self.storage_directories
+            .iter()
+            .find(|directory| directory.plugin_id == plugin_id && directory.id == directory_id)
+            .cloned()
+    }
+
+    pub fn storage(&self) -> Option<&PluginStorage> {
+        self.storage.as_ref()
+    }
+
+    pub fn storage_quota(&self) -> u64 {
+        self.storage_quota
+    }
+
+    pub fn storage_write_limit(&self) -> usize {
+        self.storage_write_limit
+    }
+
+    pub async fn download_link(
+        &self,
+        plugin_id: &str,
+        token: &str,
+    ) -> Result<(i64, StorageDirectory, String), Error> {
+        if !valid_file_token(token) {
+            return Err(Error::PluginNotFound);
+        }
+        let row = sqlx::query(
+            "SELECT id, directory_id, filename FROM public.plugin_file_links \
+             WHERE plugin_id = $1 AND purpose = 'download' AND token_hash = $2 \
+               AND consumed_at IS NULL AND expires_at > now()",
+        )
+        .bind(plugin_id)
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .fetch_optional(&self.pool)
+        .await?;
+        let row = row.ok_or(Error::PluginNotFound)?;
+        let directory_id: String = row.try_get("directory_id")?;
+        let path: String = row.try_get("filename")?;
+        let directory = self
+            .storage_directory(plugin_id, &directory_id)
+            .ok_or(Error::PluginNotFound)?;
+        Ok((row.try_get("id")?, directory, path))
+    }
+
+    pub async fn consume_download_link(&self, link_id: i64) -> Result<(), Error> {
+        let result = sqlx::query(
+            "UPDATE public.plugin_file_links SET consumed_at = now() \
+             WHERE id = $1 AND purpose = 'download' AND consumed_at IS NULL AND expires_at > now()",
+        )
+        .bind(link_id)
+        .execute(&self.pool)
+        .await?;
+        (result.rows_affected() == 1)
+            .then_some(())
+            .ok_or(Error::PluginNotFound)
+    }
+
+    pub async fn reserve_upload_link(
+        &self,
+        plugin_id: &str,
+        token: &str,
+        upload_id: &str,
+        total_size: u64,
+    ) -> Result<(i64, StorageDirectory, String, u64, bool), Error> {
+        if !valid_file_token(token)
+            || upload_id.is_empty()
+            || upload_id.len() > 128
+            || !upload_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            || total_size == 0
+        {
+            return Err(Error::PluginNotFound);
+        }
+        let total_size = i64::try_from(total_size).map_err(|_| Error::PluginNotFound)?;
+        let directory_id: String = sqlx::query_scalar(
+            "SELECT directory_id FROM public.plugin_file_links \
+             WHERE plugin_id = $1 AND purpose = 'upload' AND token_hash = $2",
+        )
+        .bind(plugin_id)
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(Error::PluginNotFound)?;
+        let resolved_directory = self
+            .storage_directory(plugin_id, &directory_id)
+            .filter(|directory| directory.upload == BrowserUpload::Link)
+            .ok_or(Error::PluginNotFound)?
+            .resolved_for_upload();
+        let row = sqlx::query(
+            "UPDATE public.plugin_file_links \
+             SET upload_id = COALESCE(upload_id, $4), claimed_at = COALESCE(claimed_at, now()), \
+                 storage_path = COALESCE(storage_path, $6) \
+             WHERE plugin_id = $1 AND purpose = 'upload' AND token_hash = $2 \
+               AND consumed_at IS NULL \
+               AND ((upload_id IS NULL AND expires_at > now()) \
+                    OR (upload_id = $4 AND claimed_at > now() - make_interval(secs => $5))) \
+               AND (upload_id IS NULL OR upload_id = $4) \
+               AND max_size IS NOT NULL AND max_size >= $3 \
+             RETURNING id, filename, max_size, storage_path, finalizing_at IS NOT NULL AS finalizing",
+        )
+        .bind(plugin_id)
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .bind(total_size)
+        .bind(upload_id)
+        .bind(plugin_upload_session_seconds())
+        .bind(&resolved_directory.path)
+        .fetch_optional(&self.pool)
+        .await?;
+        let row = row.ok_or(Error::PluginNotFound)?;
+        let link_id: i64 = row.try_get("id")?;
+        let filename: String = row.try_get("filename")?;
+        let maximum_size =
+            u64::try_from(row.try_get::<i64, _>("max_size")?).map_err(|_| Error::InvalidValue)?;
+        let mut directory = resolved_directory;
+        directory.path = row.try_get("storage_path")?;
+        Ok((
+            link_id,
+            directory,
+            filename,
+            maximum_size,
+            row.try_get("finalizing")?,
+        ))
+    }
+
+    pub async fn begin_upload_link_finalization(
+        &self,
+        link_id: i64,
+        upload_id: &str,
+    ) -> Result<(), Error> {
+        let result = sqlx::query(
+            "UPDATE public.plugin_file_links SET finalizing_at = COALESCE(finalizing_at, now()) \
+             WHERE id = $1 AND purpose = 'upload' AND upload_id = $2 AND consumed_at IS NULL",
+        )
+        .bind(link_id)
+        .bind(upload_id)
+        .execute(&self.pool)
+        .await?;
+        (result.rows_affected() == 1)
+            .then_some(())
+            .ok_or(Error::PluginNotFound)
+    }
+
+    pub async fn complete_upload_link(&self, link_id: i64, upload_id: &str) -> Result<(), Error> {
+        let result = sqlx::query(
+            "UPDATE public.plugin_file_links SET consumed_at = now() \
+             WHERE id = $1 AND purpose = 'upload' AND upload_id = $2 \
+               AND finalizing_at IS NOT NULL AND consumed_at IS NULL",
+        )
+        .bind(link_id)
+        .bind(upload_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(Error::PluginNotFound)
+        }
     }
 
     pub fn visible_metadata(&self, roles: &[String]) -> Vec<PluginMetadata> {
@@ -459,14 +677,49 @@ fn response_body_limit() -> usize {
     )
 }
 
+fn storage_quota() -> u64 {
+    env_u64(
+        "NUR_PLUGIN_STORAGE_QUOTA",
+        1024 * 1024 * 1024,
+        1024 * 1024,
+        1024 * 1024 * 1024 * 1024,
+    )
+}
+
+fn storage_write_limit() -> usize {
+    env_usize(
+        "NUR_PLUGIN_STORAGE_WRITE_LIMIT",
+        16 * 1024 * 1024,
+        1024,
+        512 * 1024 * 1024,
+    )
+}
+
+fn plugin_upload_session_seconds() -> i32 {
+    std::env::var("UPLOAD_TTL_SECONDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(48 * 60 * 60)
+}
+
+fn valid_file_token(token: &str) -> bool {
+    token.len() == 32 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, time::Duration};
+
+    use sha2::{Digest, Sha256};
 
     use super::{
-        AdminManifest, AdminMenuItem, Error, RouteManifest, bindings, route_shape,
-        validate_response, validate_route, visible_admin,
+        AdminManifest, AdminMenuItem, BrowserUpload, Error, PluginManager, RouteManifest,
+        StorageDirectory, StorageVisibility, bindings, route_shape, validate_response,
+        validate_route, visible_admin,
     };
+
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
     fn route(path: &str) -> RouteManifest {
         RouteManifest {
@@ -579,5 +832,118 @@ mod tests {
             Error::wasmtime(wasmtime::Trap::Interrupt.into()),
             Error::Timeout
         ));
+    }
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    #[ignore = "requires PostgreSQL via DATABASE_URL"]
+    async fn upload_links_are_bound_to_one_session_and_consumed_once(pool: sqlx::PgPool) {
+        sqlx::query(
+            "INSERT INTO public.plugin_registry \
+             (plugin_id, version, api_version, schema_name, manifest_checksum) \
+             VALUES ('example', '0.1.0', 1, 'nur_plugin_example', $1)",
+        )
+        .bind(vec![0_u8])
+        .execute(&pool)
+        .await
+        .expect("plugin registry row can be inserted");
+        let token = "0123456789abcdef0123456789abcdef";
+        sqlx::query(
+            "INSERT INTO public.plugin_file_links \
+             (plugin_id, directory_id, purpose, token_hash, filename, max_size, expires_at) \
+             VALUES ('example', 'documents', 'upload', $1, 'report.pdf', 1024, \
+                     now() + interval '10 minutes')",
+        )
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .execute(&pool)
+        .await
+        .expect("upload link can be inserted");
+        let manager = PluginManager {
+            routes: Vec::new(),
+            assets: Vec::new(),
+            metadata: Vec::new(),
+            storage: None,
+            storage_directories: vec![StorageDirectory {
+                plugin_id: "example".into(),
+                id: "documents".into(),
+                path: "documents/{year}/{month}".into(),
+                extensions: vec!["pdf".into()],
+                visibility: StorageVisibility::Private,
+                upload: BrowserUpload::Link,
+                roles: vec!["admin".into()],
+            }],
+            pool,
+            storage_quota: 1024,
+            storage_write_limit: 1024,
+            timeout: Duration::from_secs(1),
+            request_body_limit: 1024,
+            response_body_limit: 1024,
+        };
+
+        let download_token = "abcdefabcdefabcdefabcdefabcdefab";
+        sqlx::query(
+            "INSERT INTO public.plugin_file_links \
+             (plugin_id, directory_id, purpose, token_hash, filename, expires_at) \
+             VALUES ('example', 'documents', 'download', $1, 'documents/2026/09/report.pdf', \
+                     now() + interval '10 minutes')",
+        )
+        .bind(Sha256::digest(download_token.as_bytes()).to_vec())
+        .execute(&manager.pool)
+        .await
+        .expect("download link can be inserted");
+        let (download_id, _, _) = manager
+            .download_link("example", download_token)
+            .await
+            .expect("looking up a download does not consume it");
+        manager
+            .download_link("example", download_token)
+            .await
+            .expect("the link remains active until the file has been opened");
+        manager
+            .consume_download_link(download_id)
+            .await
+            .expect("an opened download can consume the link");
+        assert!(
+            manager
+                .download_link("example", download_token)
+                .await
+                .is_err()
+        );
+
+        let (link_id, directory, filename, maximum_size, finalizing) = manager
+            .reserve_upload_link("example", token, "session-one", 512)
+            .await
+            .expect("first session can reserve the link");
+        assert_eq!(filename, "report.pdf");
+        assert_eq!(maximum_size, 1024);
+        assert!(!finalizing);
+        assert!(!directory.path.contains("{year}"));
+        assert!(!directory.path.contains("{month}"));
+        assert!(
+            manager
+                .reserve_upload_link("example", token, "session-two", 512)
+                .await
+                .is_err(),
+            "a second session cannot take over the capability"
+        );
+        manager
+            .begin_upload_link_finalization(link_id, "session-one")
+            .await
+            .expect("the owning session can begin finalization");
+        let (_, _, _, _, finalizing) = manager
+            .reserve_upload_link("example", token, "session-one", 512)
+            .await
+            .expect("the finalizing session remains resumable");
+        assert!(finalizing);
+        manager
+            .complete_upload_link(link_id, "session-one")
+            .await
+            .expect("the owning session can consume the link");
+        assert!(
+            manager
+                .reserve_upload_link("example", token, "session-one", 512)
+                .await
+                .is_err(),
+            "a consumed upload capability cannot be reused"
+        );
     }
 }
