@@ -10,12 +10,13 @@ defineOptions({ name: 'AstRender' })
 interface AstNode {
     type?: string
     text?: string
-    html?: string
     value?: string
     code?: boolean
     bold?: boolean
     italic?: boolean
     strikethrough?: boolean
+    alertType?: string
+    class?: string
     level?: number
     url?: string
     alt?: string
@@ -27,6 +28,7 @@ interface AstNode {
     identifier?: string
     label?: string
     ordered?: boolean
+    checked?: boolean
     children?: AstNode[]
 }
 
@@ -35,11 +37,13 @@ const props = withDefaults(
         content?: AstNode[] | AstNode | null
         inline?: boolean
         textOnly?: boolean
+        footnoteScope?: string
     }>(),
     {
         content: null,
         inline: false,
         textOnly: false,
+        footnoteScope: 'content',
     },
 )
 
@@ -83,10 +87,6 @@ function textValue(node: AstNode): string {
     return String(node.text ?? node.value ?? '')
 }
 
-function htmlValue(node: AstNode): string {
-    return String(node.html ?? node.text ?? '')
-}
-
 function linkUrl(node: AstNode): string {
     return String(node.url ?? '')
 }
@@ -112,8 +112,12 @@ function imageAlt(node: AstNode): string {
     return String(node.alt ?? node.title ?? '')
 }
 
+function domIdFragment(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/^-+|-+$/g, '') || 'node'
+}
+
 function footnoteId(node: AstNode): string {
-    return String(node.identifier ?? node.label ?? '')
+    return `${domIdFragment(props.footnoteScope)}-${domIdFragment(String(node.identifier ?? node.label ?? ''))}`
 }
 
 function footnoteLabel(node: AstNode): string {
@@ -135,6 +139,18 @@ function isFootnoteDefinition(node: AstNode): boolean {
 function isThematicBreak(node: AstNode): boolean {
     return node.type === 'thematicBreak' || node.type === 'thematic_break'
 }
+
+function alertClass(node: AstNode): string {
+    switch (node.alertType) {
+        case 'tip':
+            return 'alert-success'
+        case 'warning':
+        case 'caution':
+            return 'alert-warning'
+        default:
+            return 'alert-info'
+    }
+}
 </script>
 
 <template>
@@ -146,20 +162,46 @@ function isThematicBreak(node: AstNode): boolean {
         <template v-else>
             <template v-for="(node, index) in nodes" :key="nodeKey(node, index)">
                 <component :is="headingTag(node.level)" v-if="node.type === 'heading'">
-                    <AstRender :content="children(node)" inline />
+                    <AstRender :content="children(node)" :footnote-scope="footnoteScope" inline />
                 </component>
 
                 <p v-else-if="node.type === 'paragraph'">
-                    <AstRender :content="children(node)" inline />
+                    <AstRender :content="children(node)" :footnote-scope="footnoteScope" inline />
                 </p>
 
-                <blockquote v-else-if="node.type === 'blockquote'">
-                    <AstRender :content="children(node)" />
+                <blockquote v-else-if="node.type === 'blockquote' || node.type === 'multilineBlockquote'">
+                    <AstRender :content="children(node)" :footnote-scope="footnoteScope" />
                 </blockquote>
 
+                <aside v-else-if="node.type === 'alert'" class="alert" :class="alertClass(node)" role="note">
+                    <div>
+                        <strong>{{ node.title }}</strong>
+                        <AstRender :content="children(node)" :footnote-scope="footnoteScope" />
+                    </div>
+                </aside>
+
+                <div v-else-if="node.type === 'blockDirective'" :class="node.class">
+                    <AstRender :content="children(node)" :footnote-scope="footnoteScope" />
+                </div>
+
+                <p v-else-if="node.type === 'subtext'" class="text-sm">
+                    <sub><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline /></sub>
+                </p>
+
                 <component :is="listTag(node)" v-else-if="node.type === 'list'" class="pl-6">
-                    <li v-for="(item, itemIndex) in children(node)" :key="nodeKey(item, itemIndex)">
-                        <AstRender :content="children(item)" />
+                    <li
+                        v-for="(item, itemIndex) in children(node)"
+                        :key="nodeKey(item, itemIndex)"
+                        :class="{ 'flex items-start gap-2': item.checked !== undefined }"
+                    >
+                        <input
+                            v-if="item.checked !== undefined"
+                            type="checkbox"
+                            class="checkbox checkbox-sm mt-1"
+                            :checked="item.checked"
+                            disabled
+                        />
+                        <AstRender :content="children(item)" :footnote-scope="footnoteScope" />
                     </li>
                 </component>
 
@@ -168,7 +210,12 @@ function isThematicBreak(node: AstNode): boolean {
                     :to="linkUrl(node)"
                     class="text-primary underline underline-offset-2"
                 >
-                    <AstRender v-if="children(node).length" :content="children(node)" inline />
+                    <AstRender
+                        v-if="children(node).length"
+                        :content="children(node)"
+                        :footnote-scope="footnoteScope"
+                        inline
+                    />
                     <span v-else>{{ linkUrl(node) }}</span>
                 </RouterLink>
 
@@ -179,7 +226,12 @@ function isThematicBreak(node: AstNode): boolean {
                     :rel="externalRel(node)"
                     class="text-primary underline underline-offset-2"
                 >
-                    <AstRender v-if="children(node).length" :content="children(node)" inline />
+                    <AstRender
+                        v-if="children(node).length"
+                        :content="children(node)"
+                        :footnote-scope="footnoteScope"
+                        inline
+                    />
                     <span v-else>{{ linkUrl(node) }}</span>
                 </a>
 
@@ -201,7 +253,7 @@ function isThematicBreak(node: AstNode): boolean {
                                     :scope="rowIndex === 0 ? 'col' : undefined"
                                     class="border border-base-content/20 p-2 align-top"
                                 >
-                                    <AstRender :content="children(cell)" inline />
+                                    <AstRender :content="children(cell)" :footnote-scope="footnoteScope" inline />
                                 </component>
                             </tr>
                         </tbody>
@@ -227,7 +279,7 @@ function isThematicBreak(node: AstNode): boolean {
                         >[{{ footnoteLabel(node) }}]</a
                     >
                     <div>
-                        <AstRender :content="children(node)" />
+                        <AstRender :content="children(node)" :footnote-scope="footnoteScope" />
                     </div>
                 </div>
 
@@ -238,6 +290,29 @@ function isThematicBreak(node: AstNode): boolean {
                 <pre v-else-if="node.type === 'code' || node.type === 'math'"><code>{{ textValue(node) }}</code></pre>
 
                 <code v-else-if="isText(node) && node.code">{{ textValue(node) }}</code>
+
+                <u v-else-if="node.type === 'underline'"
+                    ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
+                /></u>
+
+                <mark v-else-if="node.type === 'highlight'" class="bg-warning/30 px-0.5"
+                    ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
+                /></mark>
+
+                <ins v-else-if="node.type === 'insert'"
+                    ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
+                /></ins>
+
+                <sup v-else-if="node.type === 'superscript'"
+                    ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
+                /></sup>
+
+                <span
+                    v-else-if="node.type === 'spoiler'"
+                    class="cursor-pointer rounded bg-base-content px-1 text-transparent hover:text-base-content focus:text-base-content"
+                    tabindex="0"
+                    ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
+                /></span>
 
                 <span
                     v-else-if="isText(node)"
@@ -250,14 +325,12 @@ function isThematicBreak(node: AstNode): boolean {
                     {{ textValue(node) }}
                 </span>
 
-                <component
-                    :is="inline ? 'span' : 'div'"
-                    v-else-if="node.type === 'html'"
-                    class="contents"
-                    v-html="htmlValue(node)"
+                <AstRender
+                    v-else-if="children(node).length"
+                    :content="children(node)"
+                    :footnote-scope="footnoteScope"
+                    :inline="inline"
                 />
-
-                <AstRender v-else-if="children(node).length" :content="children(node)" :inline="inline" />
             </template>
         </template>
     </component>

@@ -1,57 +1,95 @@
 <script setup lang="ts">
-import { marked } from 'marked'
-import markedFootnote from 'marked-footnote'
+import { useElementVisibility } from '@vueuse/core'
+import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { mediaPath } from '@/utils/helper'
+import { renderMarkdownPreview, type MarkdownPreviewInput } from '@/composables/markdownPreview'
 
-const renderer = {
-    image(token: any) {
-        const title = token.title ? ` title="${token.title}"` : ''
-        const alt = token.text ? ` alt="${token.text}"` : ''
-        return `<img src="${token.href}"${alt}${title} class="w-40 not-prose">`
-    },
-
-    paragraph(token: any) {
-        const t = token.tokens
-
-        if (t.length === 1 && t[0].type === 'image') {
-            const token = t[0]
-            const title = token.title ? ` title="${token.title}"` : ''
-            const alt = token.text ? ` alt="${token.text}"` : ''
-            return `<div class="mx-auto">
-                        <img src="${token.href}"${alt}${title}>
-                    </div>`
-        }
-
-        const innerTokens: any[] = []
-        let html = ''
-
-        t.forEach((tok: any, i: number) => {
-            if (tok.type === 'image') {
-                const floatClass = i === 0 ? 'float-left mr-4 mb-2' : 'float-right ml-4 mb-2'
-                const title = tok.title ? ` title="${tok.title}"` : ''
-                const alt = tok.text ? ` alt="${tok.text}"` : ''
-                html += `<img src="${tok.href}"${alt}${title} class="w-60 not-prose ${floatClass}">`
-            } else {
-                innerTokens.push(tok)
-            }
-        })
-
-        const inner = (this as any).parser.parseInline(innerTokens)
-        return `${html}<p>${inner}</p>`
-    },
-}
-
-marked.use({ renderer }).use(markedFootnote({ footnoteDivider: true, keepLabels: true, description: '' }))
-
-defineProps({
+const props = defineProps({
     nodes: {
         type: Array as () => NodeSerializer[],
         default: () => [],
     },
 })
+
+const previewRoot = ref<HTMLElement | null>(null)
+const previewIsVisible = useElementVisibility(previewRoot)
+const htmlByIndex = reactive(new Map<number, string>())
+const renderedSignatures = new Map<number, string>()
+let debounceTimer: ReturnType<typeof setTimeout> | undefined
+let previewController: AbortController | undefined
+
+function isTextNode(node: NodeSerializer): node is ContentNodeSerializer {
+    return !('blocks' in node) && 'text' in node
+}
+
+async function updatePreview() {
+    if (!previewIsVisible.value) return
+
+    const changed: MarkdownPreviewInput[] = []
+    const requestedSignatures = new Map<number, string>()
+    const activeIndexes = new Set<number>()
+
+    props.nodes.forEach((node, index) => {
+        if (!isTextNode(node)) return
+
+        activeIndexes.add(index)
+        const markdown = node.text ?? ''
+        const signature = JSON.stringify([markdown, node.embeds ?? []])
+        if (renderedSignatures.get(index) === signature) return
+
+        changed.push({ key: String(index), markdown, media: node.embeds ?? [] })
+        requestedSignatures.set(index, signature)
+    })
+
+    for (const index of htmlByIndex.keys()) {
+        if (!activeIndexes.has(index)) {
+            htmlByIndex.delete(index)
+            renderedSignatures.delete(index)
+        }
+    }
+
+    if (changed.length === 0) return
+
+    previewController?.abort()
+    const controller = new AbortController()
+    previewController = controller
+
+    try {
+        const response = await renderMarkdownPreview(changed, controller.signal)
+        if (controller.signal.aborted) return
+
+        for (const node of response.nodes) {
+            const index = Number.parseInt(node.key, 10)
+            const signature = requestedSignatures.get(index)
+            if (!Number.isInteger(index) || signature === undefined) continue
+
+            htmlByIndex.set(index, node.html)
+            renderedSignatures.set(index, signature)
+        }
+    } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            console.error('Markdown preview failed', error)
+        }
+    }
+}
+
+function schedulePreview() {
+    if (debounceTimer !== undefined) clearTimeout(debounceTimer)
+    previewController?.abort()
+    if (!previewIsVisible.value) return
+
+    debounceTimer = setTimeout(updatePreview, 400)
+}
+
+watch([() => props.nodes, previewIsVisible], schedulePreview, { deep: true, immediate: true })
+
+onBeforeUnmount(() => {
+    if (debounceTimer !== undefined) clearTimeout(debounceTimer)
+    previewController?.abort()
+})
 </script>
 <template>
-    <div class="overflow-auto h-full">
+    <div ref="previewRoot" class="overflow-auto h-full">
         <template v-for="(node, i) in nodes" :key="i">
             <div v-if="'blocks' in node" class="rounded flex flex-col gap-2 mt-2 border border-base-content/30">
                 <div
@@ -87,7 +125,7 @@ defineProps({
             </div>
             <div
                 v-else-if="'text' in node"
-                v-html="marked(node.text ?? '')"
+                v-html="htmlByIndex.get(i) ?? ''"
                 class="prose max-w-full overflow-auto bg-base-200 p-4 rounded border border-base-content/25"
                 :class="{ 'mt-2': i > 0 }"
             />

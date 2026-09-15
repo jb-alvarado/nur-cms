@@ -6,7 +6,7 @@ use crate::{
     utils::{
         ast_serialize::{to_structure_root, truncate_structure_root},
         errors::NurError,
-        markdown::render_gfm_html,
+        markdown::render_gfm_html_scoped,
     },
 };
 
@@ -22,7 +22,8 @@ pub fn render_entry_nodes(
         return Ok(());
     }
 
-    for entry in entries {
+    for (entry_index, entry) in entries.iter_mut().enumerate() {
+        let mut node_index = 0usize;
         for node_wrapper in &mut entry.nodes {
             let nodes: Vec<&mut ContentNodeSerializer> = match node_wrapper {
                 NodeSerializer::Single(node) => vec![node.as_mut()],
@@ -30,6 +31,11 @@ pub fn render_entry_nodes(
             };
 
             for node in nodes {
+                let footnote_scope = node
+                    .id
+                    .map(|id| format!("node-{id}"))
+                    .unwrap_or_else(|| format!("entry-{entry_index}-node-{node_index}"));
+                node_index += 1;
                 let text = node.text.take().unwrap_or_default();
                 node.text = None;
                 if text.is_empty() {
@@ -48,10 +54,11 @@ pub fn render_entry_nodes(
                         node.ast = Some(body);
                     }
                     OutputType::HTML => {
-                        node.html = Some(render_gfm_html(
+                        node.html = Some(render_gfm_html_scoped(
                             &text,
                             &node.embeds,
                             max_image_variant_width,
+                            Some(&footnote_scope),
                         )?);
                     }
                     OutputType::Markdown => {}
@@ -135,5 +142,46 @@ mod tests {
             panic!("single node expected");
         };
         assert!(node.embeds.is_empty());
+    }
+
+    #[test]
+    fn namespaces_footnote_ids_for_separately_rendered_nodes() {
+        let mut entries = vec![ContentEntrySerializer {
+            nodes: vec![
+                NodeSerializer::Single(Box::new(ContentNodeSerializer {
+                    id: Some(41),
+                    text: Some("First^[Note]".into()),
+                    ..ContentNodeSerializer::default()
+                })),
+                NodeSerializer::Single(Box::new(ContentNodeSerializer {
+                    id: Some(42),
+                    text: Some("Second^[Note]".into()),
+                    ..ContentNodeSerializer::default()
+                })),
+            ],
+            ..ContentEntrySerializer::default()
+        }];
+
+        render_entry_nodes(&mut entries, &OutputType::HTML, None, false, None)
+            .expect("HTML rendering succeeds");
+
+        let NodeSerializer::Single(first) = &entries[0].nodes[0] else {
+            panic!("single node expected");
+        };
+        let NodeSerializer::Single(second) = &entries[0].nodes[1] else {
+            panic!("single node expected");
+        };
+        assert!(
+            first
+                .html
+                .as_deref()
+                .is_some_and(|html| html.contains("id=\"fn-node-41-__inline_1\""))
+        );
+        assert!(
+            second
+                .html
+                .as_deref()
+                .is_some_and(|html| html.contains("id=\"fn-node-42-__inline_1\""))
+        );
     }
 }

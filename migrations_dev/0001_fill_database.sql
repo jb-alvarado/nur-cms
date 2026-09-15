@@ -313,7 +313,7 @@ VALUES
     (
         1,
         1,
-        E'# Hallo Welt\nDies ist mein erster Artikel in **Markdown**.\n\nUnd wir haben einen _zweiten_ Absatz!\n\nUnd ein eingebettetes Bild: ![Cover](/uploads/2025/11/cover.jpg)\n\nAber auch ein Block-Bild:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHier einige HTML-Tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHier haben wir <i>inline</i> HTML.',
+        E'Dies ist mein erster Artikel in **Markdown** mit _kursivem Text_, ~~veraltetem Inhalt~~ und `Inline-Code`.\n\n## Erweiterungen\n\n__Unterstrichen__, ==hervorgehoben==, ++eingefügt++, x^2^ und ||ein Spoiler||.\n\n- [x] Markdown aktivieren\n- [ ] Eigenen Inhalt ergänzen\n\n| Funktion | Status |\n| --- | --- |\n| Tabellen | Verfügbar |\n| Aufgaben | Verfügbar |\n\nEin Satz mit einer Fußnote.[^quelle] Ein weiterer Satz mit einer Inline-Fußnote^[Diese Notiz steht direkt im Text.].\n\n[^quelle]: Diese Fußnote wird am Ende des Dokuments ausgegeben.\n\n-# Dieser ergänzende Hinweis wird als Untertext dargestellt.\n\n>>>\nDieses mehrzeilige Zitat kann mehrere Absätze enthalten.\n\nAuch dieser Absatz gehört zum Zitat.\n>>>\n\n> [!TIP]\n> Verwende die Markdown-Hilfe im Editor für weitere Beispiele.\n\n:::notice\nDieser Block verwendet eine Block-Direktive.\n:::\n\nWeitere Informationen gibt es unter https://commonmark.org.\n\n## Bilder\n\nEin eingebettetes Bild: ![Cover](/uploads/2025/11/cover.jpg)\n\nUnd ein weiteres Bild als eigener Block:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHier sind einige externe Bilder:\n\n![Schwarzer Hund](https://picsum.photos/id/237/200/300)\n\n![Landschaft](https://picsum.photos/id/29/200/300)\n\n![Küste](https://picsum.photos/id/19/200/300)',
         NULL,
         NULL,
         NULL
@@ -321,7 +321,7 @@ VALUES
     (
         2,
         1,
-        E'# Hello World\nThis is my first article in **Markdown**.\n\nAnd we have a _second_ paragraph!\n\nAnd a inline picture: ![Cover](/uploads/2025/11/cover.jpg)\n\nBut also a block picture:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHere some html tags:\n\n<div class="flex justify-center"><div class="grid">\n\n<img src="https://picsum.photos/id/237/200/300" alt="image1" />\n\n<img src="https://picsum.photos/id/29/200/300" alt="image2" />\n\n<img src="https://picsum.photos/id/19/200/300" alt="image3" />\n\n</div></div>\n\nHere we have <i>inline</i> html.',
+        E'This is my first article in **Markdown** with _italic text_, ~~outdated content~~, and `inline code`.\n\n## Extensions\n\n__Underlined__, ==highlighted==, ++inserted++, x^2^, and ||a spoiler||.\n\n- [x] Enable Markdown\n- [ ] Add your own content\n\n| Feature | Status |\n| --- | --- |\n| Tables | Available |\n| Tasks | Available |\n\nA sentence with a footnote.[^source] Another sentence with an inline footnote^[This note is defined directly in the text.].\n\n[^source]: This footnote is rendered at the end of the document.\n\n-# This additional note is rendered as subtext.\n\n>>>\nThis multiline quote can contain several paragraphs.\n\nThis paragraph is part of the quote as well.\n>>>\n\n> [!TIP]\n> Use the Markdown help in the editor for more examples.\n\n:::notice\nThis block uses a block directive.\n:::\n\nLearn more at https://commonmark.org.\n\n## Images\n\nAn embedded image: ![Cover](/uploads/2025/11/cover.jpg)\n\nAnd another image as its own block:\n\n![Cover Block](/uploads/2025/11/block.jpg)\n\nHere are some external images:\n\n![Black dog](https://picsum.photos/id/237/200/300)\n\n![Landscape](https://picsum.photos/id/29/200/300)\n\n![Coast](https://picsum.photos/id/19/200/300)',
         NULL,
         NULL,
         NULL
@@ -330,7 +330,7 @@ VALUES
     (
         4,
         1,
-        E'# Deuxième billet\nCeci est du **Markdown** pour le deuxième billet.',
+        E'Ceci est du **Markdown** pour le deuxième billet.',
         NULL,
         NULL,
         NULL
@@ -338,7 +338,7 @@ VALUES
     (
         5,
         1,
-        E'# Third Post\nMore content with _italic_ and **bold**.',
+        E'More content with _italic_ and **bold**.',
         NULL,
         NULL,
         NULL
@@ -346,28 +346,28 @@ VALUES
     (
         6,
         1,
-        E'# Privacy Policy\nThis page explains our privacy practices.',
+        E'This page explains our privacy practices.',
         NULL,
         NULL,
         NULL
     ),
-    (7, 1, E'# Nutzungsbedingungen\nAlle rechtlichen Hinweise.', NULL, NULL, NULL),
-    (8, 1, E'# FAQ\nNous répondons aux questions fréquentes.', NULL, NULL, NULL),
-    (9, 1, E'# Equipo\nDetalles sobre los miembros del equipo.', NULL, NULL, NULL),
-    (10, 1, E'# Contact\nInformation to reach us.', NULL, NULL, NULL),
+    (7, 1, E'Alle rechtlichen Hinweise.', NULL, NULL, NULL),
+    (8, 1, E'Nous répondons aux questions fréquentes.', NULL, NULL, NULL),
+    (9, 1, E'Detalles sobre los miembros del equipo.', NULL, NULL, NULL),
+    (10, 1, E'Information to reach us.', NULL, NULL, NULL),
     (
         11,
         1,
-        E'# Rust Meetup #1\nJoin us for our first Rust meetup.',
+        E'Join us for our first Rust meetup.',
         NULL,
         NULL,
         NULL
     ),
-    (12, 1, E'# Rust Meetup #2\nDétails du second meetup.', NULL, NULL, NULL),
+    (12, 1, E'Détails du second meetup.', NULL, NULL, NULL),
     (
         13,
         1,
-        E'# Open Source Konferenz\nDetails zur jährlichen Konferenz.',
+        E'Details zur jährlichen Konferenz.',
         NULL,
         NULL,
         NULL
@@ -375,7 +375,7 @@ VALUES
     (
         14,
         1,
-        E'# Taller de Desarrollo Web\nAprende desarrollo web con ejercicios prácticos.',
+        E'Aprende desarrollo web con ejercicios prácticos.',
         NULL,
         NULL,
         NULL
@@ -383,7 +383,7 @@ VALUES
     (
         15,
         1,
-        E'# AI Seminar\nDiscussing AI trends and technologies.',
+        E'Discussing AI trends and technologies.',
         NULL,
         NULL,
         NULL

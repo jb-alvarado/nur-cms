@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { marked } from 'marked'
 
 import { fetchArticle } from '@/api/content'
 import AstRender from '@/components/AstRender.vue'
@@ -11,9 +10,7 @@ import type { MediaSerializer } from '../../../frontend/src/types/serialized'
 interface ArticleDetailNode {
     id?: number | null
     order_index?: number | null
-    text?: string | null
     ast?: unknown
-    html?: string | null
     data?: unknown
     media?: MediaSerializer | null
     blocks?: ArticleDetailNode[]
@@ -70,14 +67,6 @@ async function loadArticle() {
     }
 }
 
-function markdownToHtml(value: string): string {
-    return marked.parse(value, { async: false }) as string
-}
-
-function nodeHasRenderableContent(node: ArticleDetailNode): boolean {
-    return Boolean(node.ast || node.html || node.text || node.media || node.data)
-}
-
 function nodeKey(node: ArticleDetailNode, index: number): string {
     return String(node.id ?? node.order_index ?? `node-${index}`)
 }
@@ -130,9 +119,11 @@ onMounted(loadArticle)
 
             <div class="prose prose-lg max-w-none">
                 <template v-for="(node, index) in nodes" :key="nodeKey(node, index)">
-                    <AstRender v-if="node.ast" :content="node.ast" />
-                    <div v-else-if="node.html" v-html="node.html" />
-                    <div v-else-if="node.text" v-html="markdownToHtml(node.text)" />
+                    <AstRender
+                        v-if="node.ast"
+                        :content="node.ast"
+                        :footnote-scope="nodeKey(node, index)"
+                    />
                     <img
                         v-else-if="node.media"
                         :src="mediaPath(node.media, 1280)"
@@ -140,7 +131,6 @@ onMounted(loadArticle)
                         class="rounded-lg"
                     />
                     <pre v-else-if="node.data"><code>{{ JSON.stringify(node.data, null, 2) }}</code></pre>
-                    <template v-else-if="nodeHasRenderableContent(node)" />
                 </template>
             </div>
         </article>

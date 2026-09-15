@@ -27,8 +27,6 @@
     "dayjs": "^1.11.23",
     "es-toolkit": "^1.52.0",
     "jwt-decode": "^4.0.0",
-    "marked": "^18.0.12",
-    "marked-footnote": "^1.4.0",
     "pinia": "^4.0.3",
     "sortablejs": "^1.15.7",
     "tailwindcss": "^4.3.3",

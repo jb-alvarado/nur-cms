@@ -240,9 +240,10 @@ query parameters as the public `GET /api/content/entries` endpoint. `output` sel
 `html` for node text. The host always enforces `status=published`; plugins cannot use this import to read
 drafts or private content.
 
-The built-in `html` output escapes raw HTML contained in Markdown. A plugin that deliberately supports raw
-HTML should request `markdown` or `ast`, then choose and configure its own renderer and sanitizer. This keeps
-the trust and allow-list policy in the application that ultimately embeds the result.
+The built-in `html` output escapes raw HTML contained in Markdown. Plugins must not restore escaped tags or
+insert raw `ast` HTML nodes directly into a page. Those AST nodes exist temporarily for backward compatibility
+and will be removed in a future release for security. Store new content as Markdown and use the built-in
+`html` output when a plugin needs rendered markup.
 
 Host calls share the plugin request timeout, have a per-request call limit, and cannot return more bytes than
 `NUR_PLUGIN_RESPONSE_BODY_LIMIT`. The return value is otherwise the normal JSON entry-list response.

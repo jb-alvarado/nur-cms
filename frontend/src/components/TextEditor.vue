@@ -169,7 +169,7 @@ function italic() {
 }
 
 function underline() {
-    insertMarkdown('<u>', '</u>')
+    insertMarkdown('__', '__')
 }
 
 function strikethrough() {

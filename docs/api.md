@@ -297,6 +297,11 @@ Markdown text. The actual response field depends on `output_type`:
 - `html`: `html`
 - `ast`: `ast`
 
+Raw HTML in stored Markdown is escaped by `html` output. For backward compatibility, `ast` currently retains
+raw HTML in nodes with `type: "html"`. These nodes are deprecated and will be removed in a future release for
+security. Clients must treat their values as untrusted text and must not pass them to `innerHTML`, `v-html`, or
+an equivalent API without a suitable HTML sanitizer. New content should use Markdown syntax instead.
+
 Videos use the standard Markdown image syntax, for example
 `![Short clip](/uploads/clip.mp4)`. URLs ending in `mp4`, `m4v`, `mov`,
 `webm`, `ogv`, or `ogg` are returned as `video` nodes in AST output and

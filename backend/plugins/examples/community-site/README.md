@@ -10,11 +10,9 @@ project-specific migration or data. It renders three public pages from published
 
 The plugin uses the `nur:cms/content` import. The host accepts the familiar public entry-list query string and
 always enforces `status=published`, so a plugin cannot render drafts accidentally.
-The example selects the safe `html` content output mode, which renders GitHub-Flavored Markdown and escapes
-embedded raw HTML. For demonstration purposes it restores only a narrow allowlist used by the example content:
-`div` with a restricted `class`, `i`, and `img` with an HTTPS source and `alt` text. Other escaped HTML remains
-escaped. A plugin that deliberately supports broader raw HTML should request `markdown` or `ast` and use a
-properly configured HTML sanitizer. That policy remains the plugin author's responsibility.
+The example selects the safe `html` content output mode, which renders GitHub-Flavored Markdown and keeps raw
+HTML escaped. Content should use Markdown syntax and the supported extensions. The plugin does not restore or
+interpret embedded raw HTML.
 
 ## Build and run
 

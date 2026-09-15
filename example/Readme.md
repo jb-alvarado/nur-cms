@@ -7,7 +7,7 @@ This is a small public Vue frontend for NUR CMS. It demonstrates how to read pub
 - Listing published `article` entries from `/api/content/entries`
 - Fetching one article from `/api/content/entries/{type}/{slug}`
 - Using the real query parameters used by the backend: `fields`, `type`, `locale`, `limit`, `offset`, `ordering`
-- Rendering content nodes when the backend returns AST, HTML, or Markdown
+- Rendering content nodes from the backend's structured AST output
 - Displaying media and generated image variants from `/uploads`
 
 ## Prerequisites
@@ -67,7 +67,7 @@ The example list request is equivalent to:
 GET /api/content/entries
   ?type=article
   &locale=en
-  &fields=id,title,slug,media,created_at,category.name,category.slug,tags,node.text
+  &fields=id,title,slug,media,created_at,category.name,category.slug,tags,node.ast
   &limit=6
   &offset=0
   &ordering=-created_at
@@ -91,14 +91,12 @@ Single article request:
 ```text
 GET /api/content/entries/article/my-slug
   ?locale=en
-  &fields=id,title,slug,media,created_at,category.name,category.slug,tags,author.first_name,author.last_name,node.id,node.order_index,node.text,node.media,node.data
+  &fields=id,title,slug,media,created_at,category.name,category.slug,tags,author.first_name,author.last_name,node.id,node.order_index,node.ast,node.media,node.data
 ```
 
-`output_type` can only be overridden by authenticated admin/author requests. Public requests use the backend configuration. The example therefore handles all supported node outputs:
-
-- `node.ast`
-- `node.html`
-- `node.text`
+`output_type` can only be overridden by authenticated admin/author requests. Public requests use the backend
+configuration. This example requests and renders `node.ast`; it does not interpret raw Markdown or HTML in the
+browser. Configure the backend's public output type as `ast` when using this example.
 
 ## Project structure
 

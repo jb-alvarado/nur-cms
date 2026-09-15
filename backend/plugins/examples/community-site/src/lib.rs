@@ -39,7 +39,7 @@ fn render_entry(
     slug: &str,
     output: content::OutputType,
 ) -> Result<Markup, PluginError> {
-    let query = format!("type={content_type}&slug={slug}&fields=title,node.text&limit=1");
+    let query = format!("type={content_type}&slug={slug}&fields=title,node.html&limit=1");
     let entry = entries(&query, output)?.into_iter().next();
 
     let title = entry
@@ -56,7 +56,7 @@ fn render_entry(
         article {
             h1 { (title) }
             @if let Some(content) = content {
-                (PreEscaped(without_leading_h1(&content)))
+                (PreEscaped(content))
             } @else {
                 p { "The requested published CMS entry does not exist." }
             }
@@ -66,7 +66,7 @@ fn render_entry(
 
 fn render_events() -> Result<Markup, PluginError> {
     let events = entries(
-        "type=event&fields=title,slug,meta,node.text&ordering=start_time+ASC&limit=24",
+        "type=event&fields=title,slug,meta,node.html&ordering=start_time+ASC&limit=24",
         content::OutputType::Html,
     )?;
     if events.is_empty() {
@@ -103,7 +103,7 @@ fn render_event_list_item(event: &Value) -> Markup {
         .get("slug")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let summary = without_leading_h1(&entry_html(event));
+    let summary = entry_html(event);
 
     html! {
         li {
@@ -160,20 +160,6 @@ fn entry_html(entry: &Value) -> String {
         .join("\n\n")
 }
 
-/// Entries commonly use their title as the first Markdown heading. List views
-/// already render that title as a linked heading, so omit only this leading h1.
-fn without_leading_h1(html: &str) -> String {
-    let trimmed = html.trim_start();
-    let Some(heading) = trimmed.strip_prefix("<h1>") else {
-        return html.to_string();
-    };
-    let Some(end) = heading.find("</h1>") else {
-        return html.to_string();
-    };
-
-    heading[end + "</h1>".len()..].trim_start().to_string()
-}
-
 fn node_html(node: &Value) -> Vec<String> {
     if let Some(blocks) = node.get("blocks").and_then(Value::as_array) {
         return blocks.iter().flat_map(node_html).collect();
@@ -181,155 +167,8 @@ fn node_html(node: &Value) -> Vec<String> {
     node.get("html")
         .and_then(Value::as_str)
         .filter(|html| !html.trim().is_empty())
-        .map(|html| vec![restore_allowed_raw_html(html)])
+        .map(|html| vec![html.to_string()])
         .unwrap_or_default()
-}
-
-/// The CMS HTML output escapes raw Markdown HTML by design. This example
-/// deliberately restores a small, attribute-restricted subset used by its
-/// trusted demo content instead of accepting arbitrary tags.
-fn restore_allowed_raw_html(html: &str) -> String {
-    // Validate the value of a "class" attribute.
-    fn valid_class(value: &str) -> bool {
-        !value.is_empty()
-            && value.len() <= 256
-            && value
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b' ' | b'-'))
-    }
-
-    // Validate an image source URL.
-    // Only HTTPS URLs and a limited set of safe characters are allowed.
-    fn valid_src(value: &str) -> bool {
-        value.len() <= 2048
-            && value.starts_with("https://")
-            && value.bytes().all(|b| {
-                b.is_ascii_alphanumeric()
-                    || matches!(b, b':' | b'/' | b'.' | b'?' | b'=' | b'_' | b'%' | b'-')
-            })
-    }
-
-    // Validate the image alt text.
-    fn valid_alt(value: &str) -> bool {
-        value.len() <= 256
-            && !value
-                .bytes()
-                .any(|b| matches!(b, b'"' | b'&' | b'<' | b'>'))
-    }
-
-    // Preallocate roughly enough space for the result.
-    let mut out = String::with_capacity(html.len());
-    let mut rest = html;
-
-    'scan: while !rest.is_empty() {
-        // Restore </div>.
-        if let Some(next) = rest.strip_prefix("&lt;/div&gt;") {
-            out.push_str("</div>");
-            rest = next;
-            continue;
-        }
-
-        // Restore <i>.
-        if let Some(next) = rest.strip_prefix("&lt;i&gt;") {
-            out.push_str("<i>");
-            rest = next;
-            continue;
-        }
-
-        // Restore </i>.
-        if let Some(next) = rest.strip_prefix("&lt;/i&gt;") {
-            out.push_str("</i>");
-            rest = next;
-            continue;
-        }
-
-        // Restore a plain <div>.
-        if let Some(next) = rest.strip_prefix("&lt;div&gt;") {
-            out.push_str("<div>");
-            rest = next;
-            continue;
-        }
-
-        // `markdown` escapes attribute quotes in raw HTML as `&quot;`. Accept
-        // that actual renderer output as well as literal quotes for callers
-        // that provide already-escaped HTML themselves.
-        for (prefix, suffix) in [
-            (r#"&lt;div class=&quot;"#, "&quot;&gt;"),
-            (r#"&lt;div class=""#, r#""&gt;"#),
-        ] {
-            if let Some(after_prefix) = rest.strip_prefix(prefix)
-                && let Some(end) = after_prefix.find(suffix)
-            {
-                let class = &after_prefix[..end];
-                if valid_class(class) {
-                    out.push_str(r#"<div class=""#);
-                    out.push_str(class);
-                    out.push_str(r#"">"#);
-                    rest = &after_prefix[end + suffix.len()..];
-                    continue 'scan;
-                }
-            }
-        }
-
-        // Restore an image only if both attributes match the restrictive
-        // allowlist. Attribute delimiters can be either escaped `&quot;` values
-        // (the CMS renderer output) or literal quotes.
-        for (prefix, separator, quote) in [
-            (r#"&lt;img src=&quot;"#, "&quot; alt=&quot;", "&quot;"),
-            (r#"&lt;img src=""#, r#"" alt=""#, r#"""#),
-        ] {
-            let Some(after_prefix) = rest.strip_prefix(prefix) else {
-                continue;
-            };
-            let Some(src_end) = after_prefix.find(separator) else {
-                continue;
-            };
-            let src = &after_prefix[..src_end];
-            let after_src = &after_prefix[src_end + separator.len()..];
-            if !valid_src(src) {
-                continue;
-            }
-            let Some(alt_end) = after_src.find(quote) else {
-                continue;
-            };
-            let alt = &after_src[..alt_end];
-            let after_alt = &after_src[alt_end + quote.len()..];
-            if !valid_alt(alt) {
-                continue;
-            }
-
-            // Allow whitespace before the optional self-closing slash.
-            let whitespace_len = after_alt
-                .bytes()
-                .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
-                .count();
-            let ending = &after_alt[whitespace_len..];
-            let consumed = if ending.starts_with("/&gt;") {
-                Some(whitespace_len + "/&gt;".len())
-            } else if ending.starts_with("&gt;") {
-                Some(whitespace_len + "&gt;".len())
-            } else {
-                None
-            };
-            if let Some(consumed) = consumed {
-                out.push_str(r#"<img src=""#);
-                out.push_str(src);
-                out.push_str(r#"" alt=""#);
-                out.push_str(alt);
-                out.push_str(r#"" />"#);
-                rest = &after_alt[consumed..];
-                continue 'scan;
-            }
-        }
-
-        // No allowed HTML pattern matched.
-        // Copy the next Unicode character unchanged.
-        let ch = rest.chars().next().unwrap();
-        out.push(ch);
-        rest = &rest[ch.len_utf8()..];
-    }
-
-    out
 }
 
 fn valid_slug(slug: &str) -> bool {
@@ -382,36 +221,8 @@ bindings::export!(CommunitySite with_types_in bindings);
 mod tests {
     use maud::html;
 
-    use super::{page, render_event_list_item, restore_allowed_raw_html};
+    use super::{node_html, page, render_event_list_item};
     use serde_json::json;
-
-    #[test]
-    fn restores_the_allowed_demo_html_only() {
-        let html = r#"&lt;div class=&quot;flex justify-center&quot;&gt;&lt;div class=&quot;grid&quot;&gt;
-
-&lt;img src=&quot;https://picsum.photos/id/237/200/300&quot; alt=&quot;image1&quot; /&gt;
-
-&lt;img src=&quot;https://picsum.photos/id/29/200/300&quot; alt=&quot;image2&quot; /&gt;
-
-&lt;img src=&quot;https://picsum.photos/id/19/200/300&quot; alt=&quot;image3&quot; /&gt;
-
-&lt;/div&gt;&lt;/div&gt; Here is &lt;i&gt;inline&lt;/i&gt; HTML. &lt;script&gt;alert(1)&lt;/script&gt;"#;
-        let restored = restore_allowed_raw_html(html);
-
-        assert!(restored.contains(r#"<div class="flex justify-center">"#));
-        assert!(restored.contains(r#"<div class="grid">"#));
-        assert!(
-            restored.contains(r#"<img src="https://picsum.photos/id/237/200/300" alt="image1" />"#)
-        );
-        assert!(
-            restored.contains(r#"<img src="https://picsum.photos/id/29/200/300" alt="image2" />"#)
-        );
-        assert!(
-            restored.contains(r#"<img src="https://picsum.photos/id/19/200/300" alt="image3" />"#)
-        );
-        assert!(restored.contains("Here is <i>inline</i> HTML."));
-        assert!(restored.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
-    }
 
     #[test]
     fn page_escapes_text_and_keeps_structured_markup() {
@@ -420,6 +231,16 @@ mod tests {
         assert!(rendered.starts_with("<!DOCTYPE html>"));
         assert!(rendered.contains("<title>Unsafe &lt;title&gt;</title>"));
         assert!(rendered.contains("<main><p>Safe content</p></main>"));
+    }
+
+    #[test]
+    fn keeps_raw_markdown_html_escaped() {
+        let nodes = node_html(&json!({
+            "html": "<p>&lt;i&gt;Raw HTML&lt;/i&gt;</p>"
+        }));
+
+        assert_eq!(nodes, vec!["<p>&lt;i&gt;Raw HTML&lt;/i&gt;</p>"]);
+        assert!(!nodes[0].contains("<i>"));
     }
 
     #[test]

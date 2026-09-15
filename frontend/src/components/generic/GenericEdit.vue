@@ -26,6 +26,7 @@ import GenericBlock from './GenericBlock.vue'
 import GenericModal from './GenericModal.vue'
 import BlockModal from '@/components/BlockModal.vue'
 import MarkdownPreview from '@/components/MarkdownPreview.vue'
+import MarkdownHelpModal from '@/components/generic/MarkdownHelpModal.vue'
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
 import TextEditor from '@/components/TextEditor.vue'
 
@@ -45,6 +46,7 @@ const defaultStatus =
 const deleteModal = ref()
 const mediaModal = ref()
 const blockModal = ref()
+const markdownHelpModal = ref<InstanceType<typeof MarkdownHelpModal>>()
 const editorEndRef = ref<HTMLElement | null>(null)
 const mediaTarget = ref<{ type: 'main' | 'node' | 'block'; nodeIndex?: number; blockIndex?: number }>({
     type: 'main',
@@ -795,6 +797,15 @@ async function insertEntryAuthor(entry: number, author: number) {
     <div class="flex flex-col h-full">
         <div class="flex">
             <h1 class="grow text-xl lg:text-2xl lin">{{ content?.title ?? '' }}</h1>
+            <button
+                type="button"
+                class="btn btn-sm text-base"
+                :title="$t('markdownHelp.open')"
+                :aria-label="$t('markdownHelp.open')"
+                @click="markdownHelpModal?.showModal()"
+            >
+                <i class="bi bi-question-circle" />
+            </button>
             <button class="btn btn-sm text-base" @click="router.back()">
                 <i class="bi bi-chevron-left" />
             </button>
@@ -1216,6 +1227,7 @@ async function insertEntryAuthor(entry: number, author: number) {
             <GenericModal ref="deleteModal" :title="$t('dialog.deleteTitle')" :ok-action="deleteContent">
                 <p>{{ $t('article.deleteConfirm', { type: store.routeType }) }}</p>
             </GenericModal>
+            <MarkdownHelpModal ref="markdownHelpModal" />
             <MediaBrowser ref="mediaModal" :update="addMedia" :media-types="mediaTypeFilter" />
             <BlockModal
                 ref="blockModal"

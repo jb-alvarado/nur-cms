@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { fetchArticles } from '@/api/content'
-import { extractAstText, formatDate, mediaPath, stripHtml } from '@/utils/helper'
+import { extractAstText, formatDate, mediaPath } from '@/utils/helper'
 import type { MediaSerializer } from '../../../frontend/src/types/serialized'
 
 interface ArticleListNode {
-    text?: string | null
-    html?: string | null
     ast?: unknown
     blocks?: ArticleListNode[]
 }
@@ -62,8 +60,7 @@ function articleNodes(entry: ArticleListEntry): ArticleListNode[] {
 
 function articleExcerpt(entry: ArticleListEntry, maxLength = 180): string {
     const text = articleNodes(entry)
-        .map((node) => node.text ?? node.html ?? extractAstText(node.ast))
-        .map((value) => stripHtml(value))
+        .map((node) => extractAstText(node.ast))
         .filter(Boolean)
         .join(' ')
         .replace(/\s+/g, ' ')

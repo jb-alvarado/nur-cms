@@ -1,9 +1,4 @@
-import type {
-    ContentEntrySerializer,
-    ContentNodeSerializer,
-    MediaSerializer,
-    NodeSerializer,
-} from '../../../frontend/src/types/serialized'
+import type { MediaSerializer } from '../../../frontend/src/types/serialized'
 
 interface AstLikeNode {
     type?: string
@@ -50,18 +45,6 @@ export function astMediaPath(node: AstLikeNode, preferredWidth = 640): string {
     )
 }
 
-export function flattenEntryNodes(entry?: ContentEntrySerializer | null): ContentNodeSerializer[] {
-    if (!entry?.nodes) return []
-
-    return entry.nodes.flatMap((node: NodeSerializer) => {
-        if (node && typeof node === 'object' && 'blocks' in node && Array.isArray(node.blocks)) {
-            return node.blocks
-        }
-
-        return [node as ContentNodeSerializer]
-    })
-}
-
 export function extractAstText(content: unknown): string {
     if (Array.isArray(content)) {
         return content.map(extractAstText).filter(Boolean).join(' ')
@@ -70,30 +53,10 @@ export function extractAstText(content: unknown): string {
     if (!content || typeof content !== 'object') return ''
 
     const node = content as AstLikeNode
-    const selfText = node.text ?? node.alt ?? ''
+    const selfText = node.type === 'html' ? '' : (node.text ?? node.alt ?? '')
     const childText = node.children?.map(extractAstText).filter(Boolean).join(' ') ?? ''
 
     return [selfText, childText].filter(Boolean).join(' ')
-}
-
-export function stripHtml(value: string): string {
-    return value
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-}
-
-export function entryExcerpt(entry: ContentEntrySerializer, maxLength = 180): string {
-    const text = flattenEntryNodes(entry)
-        .map((node) => node.text ?? node.html ?? extractAstText(node.ast))
-        .map((value) => stripHtml(value))
-        .filter(Boolean)
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-
-    if (text.length <= maxLength) return text
-    return `${text.slice(0, maxLength).replace(/\s+\S*$/, '')}…`
 }
 
 export function formatDate(value?: string | null): string {

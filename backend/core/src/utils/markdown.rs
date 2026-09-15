@@ -557,9 +557,19 @@ pub fn gfm_options() -> Options<'static> {
     let mut options = Options::default();
     options.extension.autolink = true;
     options.extension.footnotes = true;
+    options.extension.inline_footnotes = true;
     options.extension.strikethrough = true;
+    options.extension.underline = true;
+    options.extension.highlight = true;
+    options.extension.insert = true;
     options.extension.table = true;
     options.extension.tasklist = true;
+    options.extension.block_directive = true;
+    options.extension.superscript = true;
+    options.extension.subtext = true;
+    options.extension.multiline_block_quotes = true;
+    options.extension.spoiler = true;
+    options.extension.alerts = true;
     options.render.escape = true;
     options
 }
@@ -567,6 +577,41 @@ pub fn gfm_options() -> Options<'static> {
 /// Parses Markdown with the CMS' common GFM configuration.
 pub fn parse_gfm<'a>(arena: &'a Arena<'a>, markdown: &str) -> Node<'a> {
     parse_document(arena, markdown, &gfm_options())
+}
+
+fn safe_html_id_fragment(value: &str) -> String {
+    let value = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let value = value.trim_matches('-');
+    if value.is_empty() {
+        "node".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn namespace_footnotes(root: Node<'_>, scope: &str) {
+    let scope = safe_html_id_fragment(scope);
+    for node in root.descendants() {
+        let mut data = node.data.borrow_mut();
+        match &mut data.value {
+            NodeValue::FootnoteReference(reference) => {
+                reference.name = format!("{scope}-{}", reference.name);
+            }
+            NodeValue::FootnoteDefinition(definition) => {
+                definition.name = format!("{scope}-{}", definition.name);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Renders GitHub-Flavored Markdown to safe HTML. Linked CMS media is emitted
@@ -578,9 +623,21 @@ pub fn render_gfm_html(
     media: &[MediaSerializer],
     max_image_variant_width: Option<i32>,
 ) -> Result<String, NurError> {
+    render_gfm_html_scoped(markdown, media, max_image_variant_width, None)
+}
+
+pub(crate) fn render_gfm_html_scoped(
+    markdown: &str,
+    media: &[MediaSerializer],
+    max_image_variant_width: Option<i32>,
+    footnote_scope: Option<&str>,
+) -> Result<String, NurError> {
     let arena = Arena::new();
     let options = gfm_options();
-    let root = parse_document(&arena, markdown, &options);
+    let root = parse_gfm(&arena, markdown);
+    if let Some(scope) = footnote_scope {
+        namespace_footnotes(root, scope);
+    }
     let mut html = String::with_capacity(markdown.len());
     ResponsiveMediaHtmlFormatter::format_document(
         root,
@@ -654,6 +711,28 @@ mod tests {
         assert!(html.contains(
             "&lt;img src=&quot;https://example.test/image.jpg&quot; alt=&quot;Example&quot; /&gt;"
         ));
+    }
+
+    #[test]
+    fn renders_all_enabled_comrak_extensions_as_html() {
+        let html = render_gfm_html(
+            "__underlined__ ==highlighted== ++inserted++ x^2^ ||spoiler|| Inline^[note]\n\n-# subtext\n\n>>>\nquote\n>>>\n\n> [!WARNING]\n> Alert\n\n:::notice\nDirective\n:::",
+            &[],
+            None,
+        )
+        .expect("extension rendering succeeds");
+
+        assert!(html.contains("<u>underlined</u>"));
+        assert!(html.contains("<mark>highlighted</mark>"));
+        assert!(html.contains("<ins>inserted</ins>"));
+        assert!(html.contains("x<sup>2</sup>"));
+        assert!(html.contains("<span class=\"spoiler\">spoiler</span>"));
+        assert!(html.contains("id=\"fn-__inline_1\""));
+        assert!(html.contains("<p><sub>subtext</sub></p>"));
+        assert!(html.contains("<blockquote>\n<p>quote</p>\n</blockquote>"));
+        assert!(html.contains("<div class=\"markdown-alert markdown-alert-warning\">"));
+        assert!(html.contains("<p class=\"markdown-alert-title\">Warning</p>"));
+        assert!(html.contains("<div class=\"notice\">\n<p>Directive</p>\n</div>"));
     }
 
     #[test]

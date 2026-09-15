@@ -163,6 +163,7 @@ fn node_type_name(node: &NodeValue) -> &'static str {
     match node {
         NodeValue::Document => "root",
         NodeValue::BlockQuote => "blockquote",
+        NodeValue::MultilineBlockQuote(_) => "multilineBlockquote",
         NodeValue::FootnoteDefinition(_) => "footnoteDefinition",
         NodeValue::Paragraph => "paragraph",
         NodeValue::Heading(_) => "heading",
@@ -179,6 +180,14 @@ fn node_type_name(node: &NodeValue) -> &'static str {
         NodeValue::Strong => "strong",
         NodeValue::Emph => "emphasis",
         NodeValue::Strikethrough => "delete",
+        NodeValue::Underline => "underline",
+        NodeValue::Highlight => "highlight",
+        NodeValue::Insert => "insert",
+        NodeValue::Superscript => "superscript",
+        NodeValue::SpoileredText => "spoiler",
+        NodeValue::Subtext => "subtext",
+        NodeValue::Alert(_) => "alert",
+        NodeValue::BlockDirective(_) => "blockDirective",
         NodeValue::Code(_) => "inlineCode",
         NodeValue::CodeBlock(_) => "code",
         NodeValue::Table(_) => "table",
@@ -187,6 +196,16 @@ fn node_type_name(node: &NodeValue) -> &'static str {
         NodeValue::TableCell => "tableCell",
         NodeValue::Item(_) | NodeValue::TaskItem(_) => "listItem",
         _ => "unknown",
+    }
+}
+
+fn alert_type_name(alert_type: comrak::nodes::AlertType) -> &'static str {
+    match alert_type {
+        comrak::nodes::AlertType::Note => "note",
+        comrak::nodes::AlertType::Tip => "tip",
+        comrak::nodes::AlertType::Important => "important",
+        comrak::nodes::AlertType::Warning => "warning",
+        comrak::nodes::AlertType::Caution => "caution",
     }
 }
 
@@ -342,6 +361,38 @@ fn to_structure_ast<'a>(
                 "children": ast.children().map(|child| to_structure_ast(child, source, media)).collect::<Vec<_>>(),
                 "identifier": name.clone(),
                 "label": name,
+            })
+        }
+        NodeValue::TaskItem(task) => {
+            let checked = task.symbol.is_some();
+            drop(data);
+            json!({
+                "type": "listItem",
+                "checked": checked,
+                "children": ast.children().map(|child| to_structure_ast(child, source, media)).collect::<Vec<_>>(),
+            })
+        }
+        NodeValue::Alert(alert) => {
+            let alert_type = alert_type_name(alert.alert_type);
+            let title = alert
+                .title
+                .clone()
+                .unwrap_or_else(|| alert.alert_type.default_title().to_string());
+            drop(data);
+            json!({
+                "type": "alert",
+                "alertType": alert_type,
+                "title": title,
+                "children": ast.children().map(|child| to_structure_ast(child, source, media)).collect::<Vec<_>>(),
+            })
+        }
+        NodeValue::BlockDirective(directive) => {
+            let class = directive.info.clone();
+            drop(data);
+            json!({
+                "type": "blockDirective",
+                "class": class,
+                "children": ast.children().map(|child| to_structure_ast(child, source, media)).collect::<Vec<_>>(),
             })
         }
         _ => {
@@ -758,6 +809,50 @@ mod tests {
         assert_eq!(ast[1]["children"][0]["text"], "hard");
         assert_eq!(ast[1]["children"][1], json!({ "type": "break" }));
         assert_eq!(ast[1]["children"][2]["text"], "break");
+    }
+
+    #[test]
+    fn preserves_enabled_extension_nodes_in_the_structure_ast() {
+        let mut media = Vec::new();
+        let ast = to_structure_root(
+            "__underlined__ ==highlighted== ++inserted++ x^2^ ||spoiler||\n\n-# subtext\n\n>>>\nquote\n>>>\n\n> [!WARNING]\n> Alert\n\n:::notice\nDirective\n:::",
+            &mut media,
+        );
+
+        assert_eq!(ast[0]["children"][0]["type"], "underline");
+        assert_eq!(ast[0]["children"][2]["type"], "highlight");
+        assert_eq!(ast[0]["children"][4]["type"], "insert");
+        assert_eq!(ast[0]["children"][6]["type"], "superscript");
+        assert_eq!(ast[0]["children"][8]["type"], "spoiler");
+        assert_eq!(ast[1]["type"], "subtext");
+        assert_eq!(ast[2]["type"], "multilineBlockquote");
+        assert_eq!(ast[3]["type"], "alert");
+        assert_eq!(ast[3]["alertType"], "warning");
+        assert_eq!(ast[3]["title"], "Warning");
+        assert_eq!(ast[4]["type"], "blockDirective");
+        assert_eq!(ast[4]["class"], "notice");
+    }
+
+    #[test]
+    fn preserves_inline_footnotes_in_the_structure_ast() {
+        let mut media = Vec::new();
+        let ast = to_structure_root("Text^[Inline note]", &mut media);
+
+        assert_eq!(ast[0]["children"][1]["type"], "footnote_reference");
+        assert_eq!(ast[0]["children"][1]["identifier"], "__inline_1");
+        assert_eq!(ast[1]["type"], "footnote_definition");
+        assert_eq!(ast[1]["identifier"], "__inline_1");
+        assert_eq!(ast[1]["children"][0]["children"][0]["text"], "Inline note");
+    }
+
+    #[test]
+    fn preserves_task_list_state_in_the_structure_ast() {
+        let mut media = Vec::new();
+        let ast = to_structure_root("- [x] Done\n- [ ] Open", &mut media);
+
+        assert_eq!(ast[0]["children"][0]["type"], "listItem");
+        assert_eq!(ast[0]["children"][0]["checked"], true);
+        assert_eq!(ast[0]["children"][1]["checked"], false);
     }
 
     #[test]

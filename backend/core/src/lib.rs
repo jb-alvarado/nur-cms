@@ -222,6 +222,10 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
                 .saturating_add(64 * 1024),
         ));
 
+    let markdown_routes = Router::new()
+        .route("/preview", post(markdown_preview))
+        .layer(DefaultBodyLimit::max(1024 * 1024));
+
     let auth_user_routes = Router::new()
         .route("/", get(auth_user_select).post(auth_user_insert))
         .route("/{id}", delete(auth_user_delete).put(auth_user_update));
@@ -305,6 +309,7 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .nest("/configuration", config_routes)
         .nest("/contact", contact_routes)
         .nest("/locales", locale_routes)
+        .nest("/markdown", markdown_routes)
         .nest("/comments", comment_routes)
         .nest("/content", content_routes)
         .nest("/media", media_routes)
