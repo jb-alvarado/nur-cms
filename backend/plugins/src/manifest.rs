@@ -107,10 +107,20 @@ pub struct RouteManifest {
     pub id: String,
     pub method: String,
     pub path: String,
+    #[serde(default)]
+    pub scope: RouteScope,
     #[serde(default = "public_access")]
     pub access: String,
     #[serde(default)]
     pub cache: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum RouteScope {
+    #[default]
+    Plugin,
+    Root,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -533,21 +543,6 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
         }
         route.cache_enabled(manifest.cache.is_some())?;
     }
-    if manifest.assets.is_some()
-        && manifest.routes.iter().any(|route| {
-            let assets_path = format!("/plugins/{}/assets", plugin.id);
-            route.path == assets_path
-                || route
-                    .path
-                    .strip_prefix(&assets_path)
-                    .is_some_and(|suffix| suffix.starts_with('/'))
-        })
-    {
-        return Err(Error::Manifest(format!(
-            "plugin '{}' declares a route inside its reserved asset path",
-            plugin.id
-        )));
-    }
     if let Some(admin) = &manifest.admin {
         admin.roles(&plugin.id)?;
         let unique_styles: HashSet<_> = admin.styles.iter().collect();
@@ -583,12 +578,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
                 )));
             }
         }
-        if admin.menu.len() > 32
-            || admin
-                .menu
-                .iter()
-                .any(|item| !valid_admin_menu_item(item, &plugin.id))
-        {
+        if admin.menu.len() > 32 || admin.menu.iter().any(|item| !valid_admin_menu_item(item)) {
             return Err(Error::Manifest(format!(
                 "plugin '{}' has invalid admin menu metadata",
                 plugin.id
@@ -791,8 +781,7 @@ fn valid_custom_element_name(name: &str) -> bool {
         )
 }
 
-fn valid_admin_menu_item(item: &AdminMenuItem, plugin_id: &str) -> bool {
-    let namespace = format!("/admin/plugins/{plugin_id}");
+fn valid_admin_menu_item(item: &AdminMenuItem) -> bool {
     !item.label.is_empty()
         && item.label.len() <= 80
         && !item.label.chars().any(char::is_control)
@@ -807,11 +796,16 @@ fn valid_admin_menu_item(item: &AdminMenuItem, plugin_id: &str) -> bool {
                 && !label.chars().any(char::is_control)
         })
         && item.path.len() <= 512
-        && (item.path == namespace
-            || item
-                .path
-                .strip_prefix(&namespace)
-                .is_some_and(|suffix| suffix.starts_with('/')))
+        && item.path.starts_with('/')
+        && !["/admin/plugins", "/admin/p"].iter().any(|prefix| {
+            item.path == *prefix
+                || item
+                    .path
+                    .strip_prefix(prefix)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+        && !item.path.contains(['?', '#'])
+        && !item.path.chars().any(char::is_control)
         && !item.path.contains("//")
         && !item
             .path
@@ -925,7 +919,7 @@ mod tests {
 
     use super::{
         AdminManifest, AdminMenuItem, CacheManifest, MailManifest, Manifest, RouteManifest,
-        StorageDirectoryManifest, StorageManifest, StorageUpload, StorageVisibility,
+        RouteScope, StorageDirectoryManifest, StorageManifest, StorageUpload, StorageVisibility,
         contained_path, schema_name, valid_admin_entry, valid_admin_menu_item, valid_admin_style,
         valid_custom_element_name, valid_plugin_id, valid_plugin_name, valid_route_id,
         validate_asset_tree, validate_mail_permissions, validate_manifest, validate_storage,
@@ -947,7 +941,8 @@ mod tests {
         RouteManifest {
             id: "test".into(),
             method: "GET".into(),
-            path: "/api/plugins/test".into(),
+            path: "/".into(),
+            scope: RouteScope::Plugin,
             access: access.into(),
             cache: None,
         }
@@ -994,20 +989,24 @@ mod tests {
     }
 
     #[test]
-    fn admin_menu_stays_inside_plugin_namespace() {
+    fn admin_menu_uses_safe_relative_paths() {
         let mut item = AdminMenuItem {
             label: "Example".into(),
             labels: BTreeMap::new(),
-            path: "/admin/plugins/example/settings".into(),
+            path: "/settings".into(),
             icon: Some("bi-puzzle".into()),
             access: None,
         };
-        assert!(valid_admin_menu_item(&item, "example"));
+        assert!(valid_admin_menu_item(&item));
 
-        item.path = "/configuration".into();
-        assert!(!valid_admin_menu_item(&item, "example"));
-        item.path = "/admin/plugins/example/../other".into();
-        assert!(!valid_admin_menu_item(&item, "example"));
+        item.path = "/admin/plugins/example/settings".into();
+        assert!(!valid_admin_menu_item(&item));
+        item.path = "/admin/p/example/settings".into();
+        assert!(!valid_admin_menu_item(&item));
+        item.path = "configuration".into();
+        assert!(!valid_admin_menu_item(&item));
+        item.path = "/settings/../other".into();
+        assert!(!valid_admin_menu_item(&item));
     }
 
     #[test]
@@ -1020,7 +1019,7 @@ mod tests {
             menu: vec![AdminMenuItem {
                 label: "Products".into(),
                 labels: BTreeMap::from([("de".into(), "Produkte".into())]),
-                path: "/admin/plugins/example/products".into(),
+                path: "/products".into(),
                 icon: None,
                 access: None,
             }],

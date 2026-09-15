@@ -840,7 +840,7 @@ continues to deliver only to the fixed recipients.
 Enabled Wasmtime plugins and their optional admin-panel metadata are listed at:
 
 ```http
-GET /api/plugins
+GET /api/p
 Authorization: Bearer <access-token>
 ```
 
@@ -862,7 +862,7 @@ their optional `access` declarations:
                 {
                     "label": "Items",
                     "labels": { "de": "Einträge", "en": "Items" },
-                    "path": "/admin/plugins/example/items",
+                    "path": "/admin/p/example/items",
                     "icon": "bi-puzzle",
                     "access": "admin,author"
                 }
@@ -872,7 +872,7 @@ their optional `access` declarations:
 ]
 ```
 
-Plugin-defined endpoints normally live below `/api/plugins/{plugin-id}`. Their methods, request
+Plugin-defined endpoints normally live below `/api/p/{plugin-id}`. Their methods, request
 and response formats, and access roles are declared by the individual plugin. A route can be
 public, restricted to one role such as `author`, or shared by multiple roles such as
 `admin,author`. Explicit non-reserved root routes may also be enabled by the server administrator.
@@ -881,22 +881,22 @@ Plugins with declared storage directories can additionally use CMS-managed file 
 roles from the manifest authorize the authenticated routes:
 
 ```text
-POST   /api/plugins/{plugin}/files/{directory}?filename={filename}
-GET    /api/plugins/{plugin}/files/{directory}/download?path={stored-path}
-DELETE /api/plugins/{plugin}/files/{directory}?path={stored-path}
+POST   /api/p/{plugin}/files/{directory}?filename={filename}
+GET    /api/p/{plugin}/files/{directory}/download?path={stored-path}
+DELETE /api/p/{plugin}/files/{directory}?path={stored-path}
 ```
 
 A plugin may issue a bearer-style, one-time upload URL for a directory configured with
 `upload = "link"`. That public URL accepts a resumable status request and multipart chunks:
 
 ```text
-GET  /api/plugins/{plugin}/files/upload/{token}?file_name={filename}&size={bytes}&batch_id={id}
-POST /api/plugins/{plugin}/files/upload/{token}
+GET  /api/p/{plugin}/files/upload/{token}?file_name={filename}&size={bytes}&batch_id={id}
+POST /api/p/{plugin}/files/upload/{token}
 ```
 
 The POST fields and response format are documented under [Plugin storage](plugins.md#browser-uploads-and-one-time-links).
 The token is consumed only when the complete file has been finalized. A one-time private download
-URL uses `GET /api/plugins/{plugin}/files/download/{token}`.
+URL uses `GET /api/p/{plugin}/files/download/{token}`.
 
 See [Plugins](plugins.md) for the manifest, runtime, security, and migration model.
 

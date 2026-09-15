@@ -1,6 +1,6 @@
 import type { PluginAdminLocation } from '@/types/plugins'
 
-const ADMIN_PREFIX = '/admin/plugins'
+const ADMIN_PREFIX = '/admin/p'
 const URL_ORIGIN = 'https://nur-cms.invalid'
 
 export type Subscription<T> = {
@@ -15,6 +15,26 @@ export function pluginAdminPath(pluginId: string): string {
 
 export function pluginViewKey(pluginId: string): string {
     return `plugin:${pluginId}`
+}
+
+export function resolvePluginApiRequest(pluginId: string, path: string): string {
+    const namespace = `/api/p/${encodeURIComponent(pluginId)}`
+    const absolute = path === namespace || path.startsWith(`${namespace}/`) || path.startsWith('/api/p/')
+    const relative = path.startsWith('/') && !path.startsWith('//')
+    const target = absolute ? path : relative ? `${namespace}${path === '/' ? '' : path}` : ''
+    const url = new URL(target, URL_ORIGIN)
+
+    if (
+        !target ||
+        url.origin !== URL_ORIGIN ||
+        url.username ||
+        url.password ||
+        url.hash ||
+        (url.pathname !== namespace && !url.pathname.startsWith(`${namespace}/`))
+    ) {
+        throw new Error('plugin request must stay inside its API namespace')
+    }
+    return `${url.pathname}${url.search}`
 }
 
 export function pluginAdminLocation(pluginId: string, fullPath: string): PluginAdminLocation {
@@ -34,8 +54,14 @@ export function resolvePluginAdminNavigation(pluginId: string, currentFullPath: 
     const namespace = pluginAdminPath(pluginId)
     const root = new URL(`${namespace}/`, URL_ORIGIN)
     const current = new URL(currentFullPath, URL_ORIGIN)
-    const base = path.startsWith('?') || path.startsWith('#') ? current : path.startsWith('/') ? URL_ORIGIN : root
-    const target = path ? new URL(path, base) : root
+    const base = path.startsWith('?') || path.startsWith('#') ? current : root
+    const resolvedPath =
+        path.startsWith(namespace) || path.startsWith('/admin/')
+            ? path
+            : path.startsWith('/')
+              ? `${namespace}${path}`
+              : path
+    const target = resolvedPath ? new URL(resolvedPath, base) : root
 
     if (
         target.origin !== URL_ORIGIN ||

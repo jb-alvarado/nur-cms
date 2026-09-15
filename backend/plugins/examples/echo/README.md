@@ -14,22 +14,22 @@ NUR_PLUGINS=echo NUR_PLUGIN_ALLOW_ROOT_ROUTES=1 NUR_PLUGIN_ALLOW_ADMIN_COMPONENT
 ```
 
 The plugin demonstrates public and protected routes, a root-level route, admin menu metadata,
-and a plugin-local migration. The protected `POST /api/plugins/echo/database` endpoint inserts
-and reads `echo_messages`; `POST /api/plugins/echo/rollback` demonstrates an atomic rollback.
-`POST /api/plugins/echo/mail` reads `configuration.public-url()`, creates an absolute confirmation
+and a plugin-local migration. The protected `POST /api/p/echo/database` endpoint inserts
+and reads `echo_messages`; `POST /api/p/echo/rollback` demonstrates an atomic rollback.
+`POST /api/p/echo/mail` reads `configuration.public-url()`, creates an absolute confirmation
 link, and sends two messages through the configured `contact` CMS mail target: one to its fixed
 merchant recipients and one exclusively to the customer address supplied as the plain request body.
 Set `NUR_PUBLIC_URL` and enable `allow_dynamic_recipient` on that target before testing it. Both calls
 share one public plugin-mail rate-limit reservation and use the normal CMS validation:
 
 ```sh
-curl -X POST --data 'customer@example.org' http://127.0.0.1:8777/api/plugins/echo/mail
+curl -X POST --data 'customer@example.org' http://127.0.0.1:8777/api/p/echo/mail
 ```
 
-The protected `POST /api/plugins/echo/upload-link` route accepts a `pdf` or `txt` filename as its
+The protected `POST /api/p/echo/upload-link` route accepts a `pdf` or `txt` filename as its
 body and returns a short-lived, single-use public upload URL for the `submissions` directory. Use
 the resumable browser protocol documented in [`docs/plugins.md`](../../../../docs/plugins.md) with
-that URL; the completed file is stored below `STORAGE/plugins/echo/submissions/{year}/{month}` and
+that URL; the completed file is stored below `STORAGE/p/echo/submissions/{year}/{month}` and
 is not inserted into the CMS media library.
 
 `assets/admin.js` also demonstrates an admin web component. It receives the CMS-provided

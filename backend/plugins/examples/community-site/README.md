@@ -22,7 +22,7 @@ cargo build --manifest-path backend/plugins/examples/community-site/Cargo.toml -
 NUR_PLUGINS=community-site NUR_PLUGIN_ALLOW_ROOT_ROUTES=1 cargo run -p nur-cms
 ```
 
-The `assets` directory is served by the host under `/plugins/community-site/assets/`. The manifest enables a
+The `assets` directory is served by the host under `/p/community-site/assets/`. The manifest enables a
 five-minute cache for the public pages; successful CMS API writes invalidate it immediately.
 
 Only one enabled plugin should own `/`. To mount a site below another public path, change the route paths and

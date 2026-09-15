@@ -174,7 +174,7 @@ export const useIndex = defineStore('index', {
                 return
             }
 
-            const request = authFetch<PluginMetadata[]>('/api/plugins')
+            const request = authFetch<PluginMetadata[]>('/api/p')
             pluginRequest = request
             try {
                 const plugins = await request

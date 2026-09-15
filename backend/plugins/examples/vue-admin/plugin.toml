@@ -12,7 +12,7 @@ directory = "admin/dist"
 [[routes]]
 id = "ping"
 method = "GET"
-path = "/api/plugins/vue-admin/ping"
+path = "/ping"
 access = "admin,author"
 
 [admin]
@@ -23,5 +23,5 @@ access = "admin,author"
 [[admin.menu]]
 label = "Vue example"
 labels = { de = "Vue-Beispiel", en = "Vue example" }
-path = "/admin/plugins/vue-admin/overview"
+path = "/overview"
 icon = "bi-box"

@@ -180,8 +180,7 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
     let invalidator = PluginCacheInvalidator {
         caches: Arc::new(caches.values().cloned().collect()),
     };
-    let mut router =
-        Router::new().route("/api/plugins", get(index).with_state(Arc::clone(&manager)));
+    let mut router = Router::new().route("/api/p", get(index).with_state(Arc::clone(&manager)));
     if manager.storage().is_some() {
         let file_state = FileRouteState {
             manager: Arc::clone(&manager),
@@ -189,7 +188,7 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
         };
         let link_upload_router = Router::new()
             .route(
-                "/api/plugins/{plugin}/files/upload/{token}",
+                "/api/p/{plugin}/files/upload/{token}",
                 get(link_upload_status).post(link_upload_chunk),
             )
             .layer(DefaultBodyLimit::max(
@@ -199,16 +198,13 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
             ));
         let file_router = Router::new()
             .merge(link_upload_router)
+            .route("/api/p/{plugin}/files/download/{token}", get(link_download))
             .route(
-                "/api/plugins/{plugin}/files/download/{token}",
-                get(link_download),
-            )
-            .route(
-                "/api/plugins/{plugin}/files/{directory}",
+                "/api/p/{plugin}/files/{directory}",
                 post(authenticated_upload).delete(authenticated_delete),
             )
             .route(
-                "/api/plugins/{plugin}/files/{directory}/download",
+                "/api/p/{plugin}/files/{directory}/download",
                 get(authenticated_download),
             )
             .with_state(file_state);
@@ -219,7 +215,7 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
     }
     for asset in manager.assets() {
         router = router.nest_service(
-            &format!("/plugins/{}/assets", asset.plugin_id),
+            &format!("/p/{}/assets", asset.plugin_id),
             ServeDir::new(&asset.path),
         );
     }

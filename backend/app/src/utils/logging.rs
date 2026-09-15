@@ -152,7 +152,7 @@ fn redact_sensitive_link_value(value: &str) -> String {
 }
 
 fn plugin_file_link_prefix(path: &str) -> Option<&str> {
-    let rest = path.strip_prefix("/api/plugins/")?;
+    let rest = path.strip_prefix("/api/p/")?;
     let (plugin, rest) = rest.split_once('/')?;
     if plugin.is_empty() {
         return None;
@@ -172,11 +172,11 @@ mod tests {
     #[test]
     fn redacts_plugin_file_tokens_from_urls_and_referers() {
         for action in ["upload", "download"] {
-            let path = format!("/api/plugins/example/files/{action}/secret-token");
+            let path = format!("/api/p/example/files/{action}/secret-token");
             let uri = format!("{path}?copy=secret-token").parse().unwrap();
             assert_eq!(
                 redact_sensitive_link(&uri),
-                format!("/api/plugins/example/files/{action}/[redacted]")
+                format!("/api/p/example/files/{action}/[redacted]")
             );
             for value in [
                 path.clone(),
@@ -188,7 +188,7 @@ mod tests {
                 );
             }
         }
-        let path = "/api/plugins/example/files/documents/download?path=report.pdf";
+        let path = "/api/p/example/files/documents/download?path=report.pdf";
         assert_eq!(redact_sensitive_link(&path.parse().unwrap()), path);
         assert_eq!(redact_sensitive_link_value(path), path);
     }

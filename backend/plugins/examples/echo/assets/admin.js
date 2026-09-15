@@ -118,7 +118,7 @@ class NurCmsEcho extends HTMLElement {
         result.textContent = 'Loading…'
         if (button instanceof HTMLButtonElement) button.disabled = true
         try {
-            const response = await this.context.request('/api/plugins/echo/editor')
+            const response = await this.context.request('/editor')
             const body = await response.text()
             if (!response.ok) {
                 throw new Error(body || `Request failed with status ${response.status}.`)

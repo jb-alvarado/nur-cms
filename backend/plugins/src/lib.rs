@@ -11,8 +11,8 @@ mod runtime;
 mod storage;
 pub mod transport;
 
-use manifest::RouteManifest;
 pub use manifest::{AdminManifest, AdminMenuItem};
+use manifest::{RouteManifest, RouteScope};
 use runtime::{PluginComponent, Runtime, bindings};
 pub use storage::{BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, StoredFile};
 pub use transport::{AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route};
@@ -162,19 +162,23 @@ impl PluginManager {
                     .clone()
                     .unwrap_or_else(|| plugin_id.clone()),
                 version: plugin.manifest.plugin.version.clone(),
-                admin: plugin.manifest.admin.clone(),
+                admin: plugin
+                    .manifest
+                    .admin
+                    .clone()
+                    .map(|admin| resolve_admin_manifest(&plugin_id, admin)),
             });
             let cache = plugin.manifest.cache.as_ref().map(|cache| CachePolicy {
                 ttl: Duration::from_secs(cache.ttl_seconds),
                 max_entries: cache.max_entries,
             });
             for route in &plugin.manifest.routes {
-                validate_route(&plugin_id, route, allow_root)?;
-                let key = (route.method.to_ascii_uppercase(), route_shape(&route.path)?);
+                let path = resolve_route_path(&plugin_id, route, allow_root)?;
+                let key = (route.method.to_ascii_uppercase(), route_shape(&path)?);
                 if !registered.insert(key) {
                     return Err(Error::Manifest(format!(
                         "duplicate plugin route {} {}",
-                        route.method, route.path
+                        route.method, path
                     )));
                 }
                 let roles = route.roles()?;
@@ -184,7 +188,7 @@ impl PluginManager {
                     plugin_id.clone(),
                     route.id.clone(),
                     route.method.to_ascii_uppercase(),
-                    route.path.clone(),
+                    path,
                     roles,
                     cache_enabled.then_some(cache).flatten(),
                 );
@@ -547,7 +551,11 @@ fn validate_response(
     Ok(())
 }
 
-fn validate_route(plugin_id: &str, route: &RouteManifest, allow_root: bool) -> Result<(), Error> {
+fn resolve_route_path(
+    plugin_id: &str,
+    route: &RouteManifest,
+    allow_root: bool,
+) -> Result<String, Error> {
     if !route.path.starts_with('/')
         || route.path.contains("//")
         || route.path.contains("..")
@@ -558,15 +566,33 @@ fn validate_route(plugin_id: &str, route: &RouteManifest, allow_root: bool) -> R
             route.path
         )));
     }
-    route_shape(&route.path)?;
-    let namespace = format!("/api/plugins/{plugin_id}");
-    let namespaced = route.path == namespace
-        || route
-            .path
-            .strip_prefix(&namespace)
-            .is_some_and(|suffix| suffix.starts_with('/'));
-    if namespaced {
-        return Ok(());
+    if route.scope == RouteScope::Plugin {
+        if route.path.starts_with("/files/") {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' route '{}' uses the reserved plugin file API path",
+                route.path
+            )));
+        }
+        if ["/api/plugins", "/api/p"].iter().any(|prefix| {
+            route.path == *prefix
+                || route
+                    .path
+                    .strip_prefix(prefix)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        }) {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' route '{}' must use a path relative to its API namespace",
+                route.path
+            )));
+        }
+        let namespace = format!("/api/p/{plugin_id}");
+        let path = if route.path == "/" {
+            namespace
+        } else {
+            format!("{namespace}{}", route.path)
+        };
+        route_shape(&path)?;
+        return Ok(path);
     }
     if !allow_root {
         return Err(Error::Manifest(format!(
@@ -574,22 +600,36 @@ fn validate_route(plugin_id: &str, route: &RouteManifest, allow_root: bool) -> R
             route.path
         )));
     }
-    if ["/auth", "/api", "/admin", "/sse", "/uploads"]
-        .iter()
-        .any(|prefix| {
-            route.path == *prefix
-                || route
-                    .path
-                    .strip_prefix(prefix)
-                    .is_some_and(|suffix| suffix.starts_with('/'))
-        })
-    {
+    if [
+        "/auth", "/api", "/admin", "/sse", "/uploads", "/p", "/files",
+    ]
+    .iter()
+    .any(|prefix| {
+        route.path == *prefix
+            || route
+                .path
+                .strip_prefix(prefix)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    }) {
         return Err(Error::Manifest(format!(
             "plugin '{plugin_id}' route '{}' uses a reserved prefix",
             route.path
         )));
     }
-    Ok(())
+    route_shape(&route.path)?;
+    Ok(route.path.clone())
+}
+
+fn resolve_admin_manifest(plugin_id: &str, mut admin: AdminManifest) -> AdminManifest {
+    let namespace = format!("/admin/p/{plugin_id}");
+    for item in &mut admin.menu {
+        item.path = if item.path == "/" {
+            namespace.clone()
+        } else {
+            format!("{namespace}{}", item.path)
+        };
+    }
+    admin
 }
 
 fn route_shape(path: &str) -> Result<String, Error> {
@@ -715,9 +755,10 @@ mod tests {
 
     use super::{
         AdminManifest, AdminMenuItem, BrowserUpload, Error, PluginManager, RouteManifest,
-        StorageDirectory, StorageVisibility, bindings, route_shape, validate_response,
-        validate_route, visible_admin,
+        StorageDirectory, StorageVisibility, bindings, resolve_admin_manifest, resolve_route_path,
+        route_shape, validate_response, visible_admin,
     };
+    use crate::manifest::RouteScope;
 
     const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
@@ -726,23 +767,51 @@ mod tests {
             id: "route".into(),
             method: "GET".into(),
             path: path.into(),
+            scope: RouteScope::Plugin,
             access: "public".into(),
             cache: None,
         }
     }
 
     #[test]
-    fn routes_require_their_own_namespace_without_root_permission() {
-        assert!(validate_route("example", &route("/api/plugins/example/items"), false).is_ok());
-        assert!(validate_route("example", &route("/api/plugins/other/items"), false).is_err());
+    fn plugin_routes_are_resolved_inside_their_namespace() {
+        assert_eq!(
+            resolve_route_path("example", &route("/items"), false).unwrap(),
+            "/api/p/example/items"
+        );
+        assert_eq!(
+            resolve_route_path("example", &route("/"), false).unwrap(),
+            "/api/p/example"
+        );
+        assert!(
+            resolve_route_path("example", &route("/api/plugins/example/items"), false).is_err()
+        );
+        assert!(resolve_route_path("example", &route("/api/p/example/items"), false).is_err());
+        assert_eq!(
+            resolve_route_path("example", &route("/files"), false).unwrap(),
+            "/api/p/example/files"
+        );
+        assert!(resolve_route_path("example", &route("/files/upload/{token}"), false).is_err());
+        assert!(resolve_route_path("example", &route("/files-example"), false).is_ok());
     }
 
     #[test]
     fn root_routes_require_permission_and_cannot_use_reserved_prefixes() {
-        assert!(validate_route("example", &route("/feed.xml"), false).is_err());
-        assert!(validate_route("example", &route("/feed.xml"), true).is_ok());
-        assert!(validate_route("example", &route("/admin/plugin"), true).is_err());
-        assert!(validate_route("example", &route("/api/other"), true).is_err());
+        let mut route = route("/feed.xml");
+        route.scope = RouteScope::Root;
+        assert!(resolve_route_path("example", &route, false).is_err());
+        assert_eq!(
+            resolve_route_path("example", &route, true).unwrap(),
+            "/feed.xml"
+        );
+        route.path = "/admin/plugin".into();
+        assert!(resolve_route_path("example", &route, true).is_err());
+        route.path = "/api/other".into();
+        assert!(resolve_route_path("example", &route, true).is_err());
+        route.path = "/p/example/assets".into();
+        assert!(resolve_route_path("example", &route, true).is_err());
+        route.path = "/files".into();
+        assert!(resolve_route_path("example", &route, true).is_err());
     }
 
     #[test]
@@ -797,14 +866,14 @@ mod tests {
                 AdminMenuItem {
                     label: "Statistics".into(),
                     labels: BTreeMap::new(),
-                    path: "/admin/plugins/example/statistics".into(),
+                    path: "/admin/p/example/statistics".into(),
                     icon: None,
                     access: Some("admin,stat".into()),
                 },
                 AdminMenuItem {
                     label: "Products".into(),
                     labels: BTreeMap::new(),
-                    path: "/admin/plugins/example/products".into(),
+                    path: "/admin/p/example/products".into(),
                     icon: None,
                     access: Some("admin".into()),
                 },
@@ -814,16 +883,36 @@ mod tests {
         let visible = visible_admin(Some(admin.clone()), "example", &["stat".into()])
             .expect("stat role can load the admin component");
         assert_eq!(visible.menu.len(), 1);
-        assert_eq!(visible.menu[0].path, "/admin/plugins/example/statistics");
+        assert_eq!(visible.menu[0].path, "/admin/p/example/statistics");
         assert!(visible_admin(Some(admin), "example", &["author".into()]).is_none());
     }
 
     #[test]
     fn manifest_routes_keep_the_existing_public_default() {
         let route: RouteManifest =
-            toml_edit::de::from_str("id = 'test'\nmethod = 'GET'\npath = '/api/plugins/test'\n")
+            toml_edit::de::from_str("id = 'test'\nmethod = 'GET'\npath = '/'\n")
                 .expect("route manifest parses");
+        assert_eq!(route.scope, RouteScope::Plugin);
         assert!(route.roles().expect("roles parse").is_empty());
+    }
+
+    #[test]
+    fn admin_menu_paths_are_resolved_for_metadata() {
+        let admin = AdminManifest {
+            entry: Some("admin.js".into()),
+            element: Some("example-admin".into()),
+            access: "admin".into(),
+            styles: Vec::new(),
+            menu: vec![AdminMenuItem {
+                label: "Overview".into(),
+                labels: BTreeMap::new(),
+                path: "/overview".into(),
+                icon: None,
+                access: None,
+            }],
+        };
+        let resolved = resolve_admin_manifest("example", admin);
+        assert_eq!(resolved.menu[0].path, "/admin/p/example/overview");
     }
 
     #[test]

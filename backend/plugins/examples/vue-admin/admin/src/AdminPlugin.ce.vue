@@ -22,7 +22,7 @@ async function testRequest() {
     succeeded.value = undefined
     result.value = 'Loading…'
     try {
-        const response = await props.context.request('/api/plugins/vue-admin/ping')
+        const response = await props.context.request('/ping')
         const message = await response.text()
         if (!response.ok) {
             throw new Error(message || `Request failed with status ${response.status}.`)

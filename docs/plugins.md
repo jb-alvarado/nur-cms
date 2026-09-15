@@ -65,19 +65,19 @@ max_entries = 128
 [[routes]]
 id = "list"
 method = "GET"
-path = "/api/plugins/example/items"
+path = "/items"
 access = "public"
 
 [[routes]]
 id = "write"
 method = "POST"
-path = "/api/plugins/example/items"
+path = "/items"
 access = "admin,author"
 
 [[routes]]
 id = "author-preview"
 method = "GET"
-path = "/api/plugins/example/preview"
+path = "/preview"
 access = "author"
 
 [admin]
@@ -89,14 +89,14 @@ styles = ["admin.css"]
 [[admin.menu]]
 label = "Items"
 labels = { de = "Einträge", en = "Items" }
-path = "/admin/plugins/example/items"
+path = "/items"
 icon = "bi-puzzle"
 access = "admin,author"
 
 [[admin.menu]]
 label = "Statistics"
 labels = { de = "Statistiken", en = "Statistics" }
-path = "/admin/plugins/example/statistics"
+path = "/statistics"
 icon = "bi-bar-chart-line"
 access = "admin"
 ```
@@ -112,14 +112,33 @@ be unique within a plugin, and method/path combinations must be unique across al
 
 ## Routes
 
-The default namespace is `/api/plugins/<plugin-id>`. Routes elsewhere, including `/`, require
-`NUR_PLUGIN_ALLOW_ROOT_ROUTES=1`. Plugins can never register routes below these reserved prefixes:
+Manifest route paths are relative to `/api/p/<plugin-id>` and start with `/`; for example, `/items`
+is served as `/api/p/example/items`. The relative path `/` maps to the plugin namespace itself.
+Do not include `/api/p/<plugin-id>` in the manifest path; old absolute `/api/plugins/...` paths are rejected.
+Paths below relative `/files/` are reserved for CMS-managed plugin storage routes; the exact
+plugin-local path `/files` remains available.
+
+Set `scope = "root"` on a route that must retain its path unchanged:
+
+```toml
+[[routes]]
+id = "event"
+method = "GET"
+path = "/events/{slug}"
+scope = "root"
+access = "public"
+```
+
+Root-scoped routes additionally require `NUR_PLUGIN_ALLOW_ROOT_ROUTES=1`. Plugins can never register
+root routes below these reserved prefixes:
 
 - `/auth`
-- `/api` except their own `/api/plugins/<plugin-id>` namespace
+- `/api`
 - `/admin`
 - `/sse`
 - `/uploads`
+- `/p`
+- `/files`
 
 Wildcard catch-all routes are rejected. Plugin routes pass through the normal nur-cms client-IP,
 logging, authorization, and rate-limit middleware.
@@ -132,7 +151,7 @@ Query parameters are not route parameters and remain available as the raw query 
 The host performs authorization before invoking WebAssembly. Plugins never receive JWTs, cookies,
 database credentials, or unrestricted request headers.
 
-`GET /api/plugins` returns enabled plugin metadata to authenticated users. Admin metadata is included
+`GET /api/p` returns enabled plugin metadata to authenticated users. Admin metadata is included
 only when the current user's role is listed in the component's `access` declaration. Its `menu` contains
 only the entries available to that role.
 
@@ -153,7 +172,8 @@ admin router also refuses direct navigation to a path outside the user's visible
 detail paths such as `/items/42` are allowed below an accessible `/items` menu path. Plugin API routes remain
 the authoritative security boundary.
 
-The CMS loads the module once when an admin route below `/admin/plugins/<plugin-id>` is visited, creates the
+Admin menu paths in the manifest are relative and start with `/`; `/items` is exposed as
+`/admin/p/<plugin-id>/items`. The CMS loads the module once when such an admin route is visited, creates the
 declared element, and supplies this `context` property before connecting it:
 
 ```js
@@ -172,7 +192,7 @@ class ExamplePlugin extends HTMLElement {
     }
 
     async load() {
-        const response = await this.context.request('/api/plugins/example/items')
+        const response = await this.context.request('/items')
         const data = await response.json()
         // Render with DOM APIs, a framework, or a custom-element library.
     }
@@ -216,13 +236,14 @@ type PluginAdminContext = {
 }
 ```
 
-`context.request(path, init)` uses the CMS access-token and refresh flow, but only permits requests inside
-that plugin's `/api/plugins/<plugin-id>` namespace. No token, cookie, or complete user record is exposed.
+`context.request(path, init)` resolves paths such as `/items` inside the plugin's
+`/api/p/<plugin-id>` namespace and uses the CMS access-token and refresh flow. Absolute paths already inside
+that namespace are also accepted. No token, cookie, or complete user record is exposed.
 `roles()` and `hasRole()` expose only role names for presentation decisions.
 
 `location()` describes the current admin URL without requiring `window.location`; `relativePath` is relative
-to `/admin/plugins/<plugin-id>`. `navigate()` accepts namespace-local relative paths, absolute paths inside
-that namespace, and query/hash-only changes. External and foreign CMS paths are rejected. The custom element
+to `/admin/p/<plugin-id>`. `navigate()` accepts namespace-local paths with or without a leading slash,
+absolute paths inside that namespace, and query/hash-only changes. External and foreign CMS paths are rejected. The custom element
 stays connected while paths, queries, hashes, browser history, locale, or theme change. Subscribe to the
 corresponding callbacks and invoke their returned cleanup functions when the element disconnects. Switching
 to another plugin removes the old element and all host-side listeners.
@@ -444,10 +465,10 @@ extensions, but it may not remove a directory, change its path or visibility, or
 allowed extension while files may still reference that declaration. Startup rejects such an update
 instead of silently stranding existing files.
 
-Public directories are stored below `STORAGE/plugins/<plugin-id>` and receive an
-`/uploads/plugins/...` URL. Private directories require `NUR_PLUGIN_STORAGE` and never receive a
+Public directories are stored below `STORAGE/p/<plugin-id>` and receive an
+`/uploads/p/...` URL. Private directories require `NUR_PLUGIN_STORAGE` and never receive a
 public URL. The private root must be outside the entire `STORAGE` upload directory; the roots must not
-overlap, including a separately resolved `STORAGE/plugins` symlink target.
+overlap, including a separately resolved `STORAGE/p` symlink target.
 
 Every directory must declare `extensions`. Supported passive formats are AVIF, CSV, DOC, DOCX, GIF,
 JPEG, MP3, MP4, ODS, ODT, OGG, PDF, PNG, PPT, PPTX, RTF, TXT, WAV, WebM, WebP, XLS, and XLSX. Active
@@ -501,9 +522,9 @@ plugin files are not inserted into the CMS `media` table and receive no image or
 
 Authenticated admin tooling can manage a directory without a one-time link:
 
-- `POST /api/plugins/<plugin>/files/<directory>?filename=<name>` writes a complete request body.
-- `GET /api/plugins/<plugin>/files/<directory>/download?path=<stored-path>` downloads a file.
-- `DELETE /api/plugins/<plugin>/files/<directory>?path=<stored-path>` deletes a file.
+- `POST /api/p/<plugin>/files/<directory>?filename=<name>` writes a complete request body.
+- `GET /api/p/<plugin>/files/<directory>/download?path=<stored-path>` downloads a file.
+- `DELETE /api/p/<plugin>/files/<directory>?path=<stored-path>` deletes a file.
 
 These routes enforce the directory's `access` roles. A plugin normally records returned paths and any
 additional metadata in its own database tables; listing and domain-specific file management remain a
@@ -516,7 +537,7 @@ preview is used.
 
 ## Static assets
 
-Files below the manifest's asset directory are served at `/plugins/<plugin-id>/assets/`. This namespace is
+Files below the manifest's asset directory are served at `/p/<plugin-id>/assets/`. This namespace is
 reserved and cannot also be used by a plugin route. Assets are treated as public files and are validated at
 startup to prevent links outside the plugin package.
 

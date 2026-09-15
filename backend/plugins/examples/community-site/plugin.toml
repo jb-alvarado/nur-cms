@@ -19,22 +19,26 @@ max_entries = 128
 id = "home"
 method = "GET"
 path = "/"
+scope = "root"
 access = "public"
 
 [[routes]]
 id = "privacy"
 method = "GET"
 path = "/privacy"
+scope = "root"
 access = "public"
 
 [[routes]]
 id = "events"
 method = "GET"
 path = "/events"
+scope = "root"
 access = "public"
 
 [[routes]]
 id = "event"
 method = "GET"
 path = "/events/{slug}"
+scope = "root"
 access = "public"

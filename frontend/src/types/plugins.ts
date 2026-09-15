@@ -61,7 +61,7 @@ export function pluginAllowsPath(plugin: PluginMetadata, role: Role, path: strin
     const admin = plugin.admin
     if (!admin || !pluginAllowsRole(plugin, role)) return false
 
-    const namespace = `/admin/plugins/${plugin.id}`
+    const namespace = `/admin/p/${plugin.id}`
     if (path === namespace || path === `${namespace}/`) return true
 
     return admin.menu.some((item) => {

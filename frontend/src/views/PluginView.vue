@@ -22,6 +22,7 @@ import {
 import {
     createSubscription,
     pluginAdminLocation,
+    resolvePluginApiRequest,
     resolvePluginAdminNavigation,
     type Subscription,
 } from '@/utils/pluginAdmin'
@@ -59,7 +60,7 @@ function pluginFromRoute(): PluginMetadata | undefined {
 
 function assetUrl(plugin: PluginMetadata, asset: string): string {
     const encodedAsset = asset.split('/').map(encodeURIComponent).join('/')
-    return `/plugins/${encodeURIComponent(plugin.id)}/assets/${encodedAsset}`
+    return `/p/${encodeURIComponent(plugin.id)}/assets/${encodedAsset}`
 }
 
 function loadPluginStyle(url: string) {
@@ -96,7 +97,6 @@ function loadPluginModule(url: string): Promise<void> {
 }
 
 function contextFor(plugin: PluginMetadata, listeners: PluginSubscriptions): PluginAdminContext {
-    const prefix = `/api/plugins/${plugin.id}`
     const roles = () => Object.freeze([roleName(auth.role)])
 
     return {
@@ -110,16 +110,13 @@ function contextFor(plugin: PluginMetadata, listeners: PluginSubscriptions): Plu
         onLocaleChange: listeners.locale.subscribe,
         onThemeChange: listeners.theme.subscribe,
         request: async (path, init) => {
-            const url = new URL(path, window.location.origin)
-            if (
-                url.origin !== window.location.origin ||
-                url.username ||
-                url.password ||
-                (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`))
-            ) {
+            let url: string
+            try {
+                url = resolvePluginApiRequest(plugin.id, path)
+            } catch {
                 throw new Error(t('plugin.requestNamespace'))
             }
-            return authFetchRaw(`${url.pathname}${url.search}`, init)
+            return authFetchRaw(url, init)
         },
         navigate: async (path = '') => {
             let target: string

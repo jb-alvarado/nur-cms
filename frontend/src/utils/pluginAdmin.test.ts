@@ -1,31 +1,55 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createSubscription, pluginAdminLocation, pluginViewKey, resolvePluginAdminNavigation } from './pluginAdmin'
+import {
+    createSubscription,
+    pluginAdminLocation,
+    pluginViewKey,
+    resolvePluginAdminNavigation,
+    resolvePluginApiRequest,
+} from './pluginAdmin'
+
+describe('plugin API requests', () => {
+    it('resolves namespace-relative paths and keeps queries', () => {
+        expect(resolvePluginApiRequest('example', '/')).toBe('/api/p/example')
+        expect(resolvePluginApiRequest('example', '/items?page=2')).toBe('/api/p/example/items?page=2')
+        expect(resolvePluginApiRequest('example', '/api/p/example/items')).toBe('/api/p/example/items')
+    })
+
+    it('rejects foreign, external, malformed, and fragment paths', () => {
+        expect(() => resolvePluginApiRequest('example', '/api/p/other/items')).toThrow()
+        expect(() => resolvePluginApiRequest('example', 'https://example.org')).toThrow()
+        expect(() => resolvePluginApiRequest('example', '//example.org/items')).toThrow()
+        expect(() => resolvePluginApiRequest('example', '/items#secret')).toThrow()
+    })
+})
 
 describe('plugin admin navigation', () => {
     it('resolves relative routes, query-only navigation, and hashes', () => {
-        expect(resolvePluginAdminNavigation('example', '/admin/plugins/example', 'products/12')).toBe(
-            '/admin/plugins/example/products/12',
+        expect(resolvePluginAdminNavigation('example', '/admin/p/example', 'products/12')).toBe(
+            '/admin/p/example/products/12',
         )
-        expect(resolvePluginAdminNavigation('example', '/admin/plugins/example/orders?page=1', '?page=2')).toBe(
-            '/admin/plugins/example/orders?page=2',
+        expect(resolvePluginAdminNavigation('example', '/admin/p/example', '/products/12')).toBe(
+            '/admin/p/example/products/12',
         )
-        expect(resolvePluginAdminNavigation('example', '/admin/plugins/example/orders', '#details')).toBe(
-            '/admin/plugins/example/orders#details',
+        expect(resolvePluginAdminNavigation('example', '/admin/p/example/orders?page=1', '?page=2')).toBe(
+            '/admin/p/example/orders?page=2',
+        )
+        expect(resolvePluginAdminNavigation('example', '/admin/p/example/orders', '#details')).toBe(
+            '/admin/p/example/orders#details',
         )
     })
 
     it('rejects external and foreign admin paths', () => {
-        expect(() => resolvePluginAdminNavigation('example', '/admin/plugins/example', 'https://example.org')).toThrow()
+        expect(() => resolvePluginAdminNavigation('example', '/admin/p/example', 'https://example.org')).toThrow()
         expect(() =>
-            resolvePluginAdminNavigation('example', '/admin/plugins/example', '/admin/plugins/other'),
+            resolvePluginAdminNavigation('example', '/admin/p/example', '/admin/p/other'),
         ).toThrow()
-        expect(() => resolvePluginAdminNavigation('example', '/admin/plugins/example', '../../configuration')).toThrow()
+        expect(() => resolvePluginAdminNavigation('example', '/admin/p/example', '../../configuration')).toThrow()
     })
 
     it('provides path components relative to the plugin namespace', () => {
-        expect(pluginAdminLocation('example', '/admin/plugins/example/products/12?tab=stock#price')).toEqual({
-            path: '/admin/plugins/example/products/12',
+        expect(pluginAdminLocation('example', '/admin/p/example/products/12?tab=stock#price')).toEqual({
+            path: '/admin/p/example/products/12',
             relativePath: '/products/12',
             search: '?tab=stock',
             hash: '#price',
@@ -43,8 +67,8 @@ describe('plugin context subscriptions', () => {
         const subscription = createSubscription(vi.fn())
         const listener = vi.fn()
         subscription.subscribe(listener)
-        const products = pluginAdminLocation('example', '/admin/plugins/example/products')
-        const orders = pluginAdminLocation('example', '/admin/plugins/example/orders?page=2')
+        const products = pluginAdminLocation('example', '/admin/p/example/products')
+        const orders = pluginAdminLocation('example', '/admin/p/example/orders?page=2')
 
         subscription.emit(products)
         subscription.emit(orders)

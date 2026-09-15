@@ -187,7 +187,7 @@ fn page(title: &str, content: Markup) -> String {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (title) }
-                link rel="stylesheet" href="/plugins/community-site/assets/site.css";
+                link rel="stylesheet" href="/p/community-site/assets/site.css";
             }
             body {
                 header {

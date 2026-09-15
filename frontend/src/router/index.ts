@@ -106,7 +106,7 @@ const router = createRouter({
             meta: { showMenu: true },
         },
         {
-            path: '/admin/plugins/:pluginId/:pathMatch(.*)*',
+            path: '/admin/p/:pluginId/:pathMatch(.*)*',
             name: 'plugin admin',
             component: () => import('../views/PluginView.vue'),
             meta: { showMenu: true },
@@ -162,7 +162,7 @@ router.beforeEach(async (to, from) => {
 
     if (auth.isLogin) {
         await store.selectCmsConfiguration()
-        if (to.path.startsWith('/admin/plugins/')) {
+        if (to.path.startsWith('/admin/p/')) {
             await store.selectPlugins()
             const pluginId = typeof to.params.pluginId === 'string' ? to.params.pluginId : ''
             const plugin = store.plugins.find(

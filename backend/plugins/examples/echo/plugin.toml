@@ -33,49 +33,50 @@ max_entries = 64
 [[routes]]
 id = "echo"
 method = "POST"
-path = "/api/plugins/echo"
+path = "/"
 access = "public"
 
 [[routes]]
 id = "author"
 method = "GET"
-path = "/api/plugins/echo/author"
+path = "/author"
 access = "author"
 
 [[routes]]
 id = "editor"
 method = "GET"
-path = "/api/plugins/echo/editor"
+path = "/editor"
 access = "admin,author"
 
 [[routes]]
 id = "root"
 method = "GET"
 path = "/plugin-echo"
+scope = "root"
 access = "public"
 
 [[routes]]
 id = "database"
 method = "POST"
-path = "/api/plugins/echo/database"
+path = "/database"
 access = "admin,author"
 
 [[routes]]
 id = "rollback"
 method = "POST"
-path = "/api/plugins/echo/rollback"
+path = "/rollback"
 access = "admin,author"
 
 [[routes]]
 id = "mail"
 method = "POST"
-path = "/api/plugins/echo/mail"
+path = "/mail"
 access = "public"
 
 [[routes]]
 id = "upload-link"
 method = "POST"
-path = "/api/plugins/echo/upload-link"
+path = "/upload-link"
 access = "admin,author"
 
 [admin]
@@ -87,13 +88,13 @@ styles = ["admin.css"]
 [[admin.menu]]
 label = "Overview"
 labels = { de = "Übersicht", en = "Overview" }
-path = "/admin/plugins/echo/overview"
+path = "/overview"
 icon = "bi-puzzle"
 access = "admin,author"
 
 [[admin.menu]]
 label = "Admin tools"
 labels = { de = "Admin-Werkzeuge", en = "Admin tools" }
-path = "/admin/plugins/echo/admin-tools"
+path = "/admin-tools"
 icon = "bi-tools"
 access = "admin"

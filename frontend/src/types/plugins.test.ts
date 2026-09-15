@@ -12,19 +12,19 @@ const menu: PluginAdminMenuItem[] = [
     {
         label: 'Statistics',
         labels: { de: 'Statistiken', en: 'Statistics' },
-        path: '/admin/plugins/example/statistics',
+        path: '/admin/p/example/statistics',
         access: 'admin,stat',
     },
     {
         label: 'Products',
         labels: { de: 'Produkte' },
-        path: '/admin/plugins/example/products',
+        path: '/admin/p/example/products',
         access: 'admin',
     },
     {
         label: 'Shared',
         labels: {},
-        path: '/admin/plugins/example/shared',
+        path: '/admin/p/example/shared',
     },
 ]
 
@@ -47,16 +47,16 @@ describe('plugin admin permissions', () => {
     })
 
     it('rejects direct paths outside the visible role-specific menu', () => {
-        expect(pluginAllowsPath(plugin, { custom: 'stat' }, '/admin/plugins/example/statistics/2026')).toBe(true)
-        expect(pluginAllowsPath(plugin, { custom: 'stat' }, '/admin/plugins/example/products')).toBe(false)
-        expect(pluginAllowsPath(plugin, { custom: 'stat' }, '/admin/plugins/example/product')).toBe(false)
+        expect(pluginAllowsPath(plugin, { custom: 'stat' }, '/admin/p/example/statistics/2026')).toBe(true)
+        expect(pluginAllowsPath(plugin, { custom: 'stat' }, '/admin/p/example/products')).toBe(false)
+        expect(pluginAllowsPath(plugin, { custom: 'stat' }, '/admin/p/example/product')).toBe(false)
     })
 
     it('accepts details below an accessible menu path with a trailing slash', () => {
         const trailing = structuredClone(plugin)
-        trailing.admin!.menu[0].path = '/admin/plugins/example/statistics/'
+        trailing.admin!.menu[0].path = '/admin/p/example/statistics/'
 
-        expect(pluginAllowsPath(trailing, { custom: 'stat' }, '/admin/plugins/example/statistics/2026')).toBe(true)
+        expect(pluginAllowsPath(trailing, { custom: 'stat' }, '/admin/p/example/statistics/2026')).toBe(true)
     })
 })
 

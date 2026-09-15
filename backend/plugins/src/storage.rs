@@ -79,8 +79,7 @@ impl PluginStorage {
     fn from_roots(storage: PathBuf, private_root: Option<PathBuf>) -> Result<Self, Error> {
         fs::create_dir_all(&storage).map_err(Error::Io)?;
         let upload_root = fs::canonicalize(storage).map_err(Error::Io)?;
-        let public_root = upload_root.join("plugins");
-
+        let public_root = upload_root.join("p");
         fs::create_dir_all(&public_root).map_err(Error::Io)?;
         let public_root = fs::canonicalize(public_root).map_err(Error::Io)?;
         let private_root = private_root
@@ -414,7 +413,7 @@ impl PluginStorage {
             path: relative.clone(),
             public_url: (directory.visibility == StorageVisibility::Public).then(|| {
                 format!(
-                    "/uploads/plugins/{}/{}",
+                    "/uploads/p/{}/{}",
                     directory.plugin_id,
                     percent_encode_path(&relative)
                 )
@@ -857,7 +856,7 @@ mod tests {
         for private in [
             uploads.clone(),
             uploads.join("private"),
-            uploads.join("plugins/private"),
+            uploads.join("p/private"),
             root.clone(),
         ] {
             assert!(PluginStorage::from_roots(uploads.clone(), Some(private)).is_err());
@@ -886,7 +885,7 @@ mod tests {
         let external = root.join("external");
         fs::create_dir_all(&uploads).unwrap();
         fs::create_dir_all(&external).unwrap();
-        std::os::unix::fs::symlink(&external, uploads.join("plugins")).unwrap();
+        std::os::unix::fs::symlink(&external, uploads.join("p")).unwrap();
         assert!(PluginStorage::from_roots(uploads, Some(external.join("private"))).is_err());
         fs::remove_dir_all(root).expect("test storage is removed");
     }

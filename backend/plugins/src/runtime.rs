@@ -908,7 +908,7 @@ impl HostState {
         });
         match result {
             Ok(Ok(_)) => Ok(bindings::nur::cms::storage::Link {
-                url: format!("/api/plugins/{plugin_id}/files/{purpose}/{token}"),
+                url: format!("/api/p/{plugin_id}/files/{purpose}/{token}"),
             }),
             Ok(Err(error)) => {
                 error!(plugin = %self.plugin_id, %error, "plugin file link creation failed");
@@ -1519,7 +1519,7 @@ mod tests {
                 bindings::nur::cms::types::Request {
                     route_id: "ping".into(),
                     method: "GET".into(),
-                    path: "/api/plugins/vue-admin/ping".into(),
+                    path: "/api/p/vue-admin/ping".into(),
                     path_params: Vec::new(),
                     query: None,
                     headers: Vec::new(),
