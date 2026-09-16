@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "nur-cms"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "axum",
  "build-print",
@@ -2696,9 +2696,11 @@ dependencies = [
  "nur_plugins",
  "protect-axum",
  "real",
+ "sd-notify",
  "serde",
  "tokio",
  "tokio-util",
+ "toml_edit 0.25.13+spec-1.1.0",
  "tower",
  "tower-http",
  "tracing",
@@ -2707,7 +2709,7 @@ dependencies = [
 
 [[package]]
 name = "nur_core"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "argon2",
  "async-stream",
@@ -2721,6 +2723,7 @@ dependencies = [
  "html_parser",
  "image",
  "inquire",
+ "ipnet",
  "jsonwebtoken",
  "lazy-limit",
  "lettre",
@@ -2741,6 +2744,7 @@ dependencies = [
  "strum",
  "strum_macros",
  "tokio",
+ "toml_edit 0.25.13+spec-1.1.0",
  "tracing",
  "ts-rs",
  "uuid",
@@ -2749,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "nur_plugins"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "chrono",
  "colored",
@@ -3667,6 +3671,15 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "sd-notify"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e4ef7359e694bfaf1dd27a30f9d760b54c00dfae9f19bd0c05a39bc9128fe76"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "sec1"

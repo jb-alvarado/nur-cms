@@ -1,17 +1,17 @@
 [Unit]
-Description=Rust based headless CMS
+Description=Rust based headless CMS instance %i
 After=network.target remote-fs.target
 
 [Service]
 Type=notify
 NotifyAccess=main
-WorkingDirectory=/var/lib/nur-cms/nur-cms
-ExecStart=/usr/bin/nur-cms --config /etc/nur-cms/nur-cms.toml
+WorkingDirectory=/var/lib/nur-cms/%i
+ExecStart=/usr/bin/nur-cms --config /etc/nur-cms/%i.toml
 Restart=always
 StartLimitInterval=20
 RestartSec=1
 KillMode=mixed
-User=nur-cms
+User=%i
 
 [Install]
 WantedBy=multi-user.target

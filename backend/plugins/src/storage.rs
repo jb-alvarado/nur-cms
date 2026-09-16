@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    env, fs,
+    fs,
     fs::OpenOptions,
     io::Write,
     path::{Component, Path, PathBuf},
@@ -65,15 +65,12 @@ pub struct StoredFile {
 }
 
 impl PluginStorage {
-    pub fn from_environment() -> Result<Self, Error> {
-        let storage = env::var("STORAGE").unwrap_or_else(|_| "./uploads".into());
-        let private_root = env::var("NUR_PLUGIN_STORAGE")
-            .ok()
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
-
-        Self::from_roots(PathBuf::from(storage), private_root)
+    pub fn from_config() -> Result<Self, Error> {
+        let config = nur_core::config::settings();
+        Self::from_roots(
+            config.uploads.directory.clone(),
+            config.plugins.storage.private_directory.clone(),
+        )
     }
 
     fn from_roots(storage: PathBuf, private_root: Option<PathBuf>) -> Result<Self, Error> {
@@ -95,7 +92,7 @@ impl PluginStorage {
                 || public_root.starts_with(private_root)
         }) {
             return Err(Error::Manifest(
-                "NUR_PLUGIN_STORAGE and STORAGE must be separate, non-overlapping directories"
+                "plugins.storage.private_directory and uploads.directory must be separate, non-overlapping directories"
                     .into(),
             ));
         }
@@ -123,7 +120,7 @@ impl PluginStorage {
         }
         if directory.visibility == StorageVisibility::Private && self.private_root.is_none() {
             return Err(Error::Manifest(format!(
-                "plugin '{}' declares private storage '{}', but NUR_PLUGIN_STORAGE is not configured",
+                "plugin '{}' declares private storage '{}', but plugins.storage.private_directory is not configured",
                 directory.plugin_id, directory.id
             )));
         }
@@ -442,10 +439,9 @@ impl PluginStorage {
     fn storage_root(&self, directory: &StorageDirectory) -> Result<&Path, Error> {
         Ok(match directory.visibility {
             StorageVisibility::Public => &self.public_root,
-            StorageVisibility::Private => self
-                .private_root
-                .as_ref()
-                .ok_or_else(|| Error::Manifest("NUR_PLUGIN_STORAGE is not configured".into()))?,
+            StorageVisibility::Private => self.private_root.as_ref().ok_or_else(|| {
+                Error::Manifest("plugins.storage.private_directory is not configured".into())
+            })?,
         })
     }
 

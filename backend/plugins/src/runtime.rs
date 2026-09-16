@@ -16,7 +16,6 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     net::IpAddr,
-    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -54,11 +53,10 @@ const MAX_MAIL_CALLS_PER_REQUEST: u8 = 3;
 const MIN_FILE_LINK_EXPIRY_SECONDS: u32 = 60;
 
 fn maximum_file_link_expiry_seconds() -> u32 {
-    std::env::var("NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|hours| (1..=720).contains(hours))
-        .unwrap_or(48)
+    nur_core::config::settings()
+        .plugins
+        .storage
+        .file_links_max_age_hours
         * 60
         * 60
 }
@@ -187,68 +185,52 @@ impl Runtime {
 
         Ok(Self {
             engine,
-            fuel: env_u64("NUR_PLUGIN_FUEL", 1_000_000, 10_000, 100_000_000),
-            memory_limit: env_usize(
-                "NUR_PLUGIN_MEMORY_LIMIT",
-                64 * 1024 * 1024,
-                1024 * 1024,
-                512 * 1024 * 1024,
-            ),
+            fuel: nur_core::config::settings().plugins.runtime.fuel,
+            memory_limit: nur_core::config::mb(
+                nur_core::config::settings().plugins.runtime.memory_limit_mb,
+            ) as usize,
             timeout: plugin_timeout(),
-            semaphore: Arc::new(Semaphore::new(env_usize(
-                "NUR_PLUGIN_MAX_CONCURRENCY",
-                8,
-                1,
-                64,
-            ))),
+            semaphore: Arc::new(Semaphore::new(
+                nur_core::config::settings().plugins.runtime.max_concurrency,
+            )),
             pool,
             tokio_handle: tokio::runtime::Handle::current(),
-            max_host_calls: env_usize("NUR_PLUGIN_MAX_HOST_CALLS", 16, 1, 128),
-            content_response_body_limit: env_usize(
-                "NUR_PLUGIN_RESPONSE_BODY_LIMIT",
-                4 * 1024 * 1024,
-                1024,
-                64 * 1024 * 1024,
-            ),
-            metrics_enabled: env_bool("NUR_PLUGIN_METRICS", false),
+            max_host_calls: nur_core::config::settings().plugins.runtime.max_host_calls,
+            content_response_body_limit: nur_core::config::mb(
+                nur_core::config::settings()
+                    .plugins
+                    .runtime
+                    .response_body_limit_mb,
+            ) as usize,
+            metrics_enabled: nur_core::config::settings().plugins.runtime.metrics_enabled,
             public_mail_rate_limiter: Arc::new(Mutex::new(PublicMailRateLimiter {
                 sent: HashMap::new(),
                 expirations: VecDeque::new(),
-                window: Duration::from_secs(env_u64(
-                    "NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS",
-                    180,
-                    1,
-                    86_400,
-                )),
-                max_clients: env_usize(
-                    "NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS",
-                    10_000,
-                    128,
-                    1_000_000,
+                window: Duration::from_secs(
+                    nur_core::config::settings()
+                        .plugins
+                        .public_mail
+                        .interval_minutes
+                        * 60,
                 ),
+                max_clients: nur_core::config::settings().plugins.public_mail.max_clients,
             })),
             storage,
-            storage_write_limit: env_usize(
-                "NUR_PLUGIN_STORAGE_WRITE_LIMIT",
-                16 * 1024 * 1024,
-                1,
-                256 * 1024 * 1024,
-            ),
-            storage_quota: env_u64(
-                "NUR_PLUGIN_STORAGE_QUOTA",
-                1024 * 1024 * 1024,
-                1024 * 1024,
-                1024 * 1024 * 1024 * 1024,
+            storage_write_limit: nur_core::config::mb(
+                nur_core::config::settings().plugins.storage.write_limit_mb,
+            ) as usize,
+            storage_quota: nur_core::config::mb(
+                nur_core::config::settings().plugins.storage.quota_mb,
             ),
         })
     }
 
     pub fn load(&self, plugin: &InstalledPlugin) -> Result<PluginComponent, Error> {
-        let module_limit = env_u64(
-            "NUR_PLUGIN_MODULE_SIZE_LIMIT",
-            64 * 1024 * 1024,
-            1024,
-            512 * 1024 * 1024,
+        let module_limit = nur_core::config::mb(
+            nur_core::config::settings()
+                .plugins
+                .runtime
+                .module_size_limit_mb,
         );
         if std::fs::metadata(&plugin.module).map_err(Error::Io)?.len() > module_limit {
             return Err(Error::Plugin(format!(
@@ -299,25 +281,19 @@ impl Runtime {
 }
 
 fn configure_compilation_cache(config: &mut Config) -> Result<(), Error> {
-    if std::env::var("NUR_PLUGIN_COMPILATION_CACHE").as_deref() == Ok("0") {
+    let settings = &nur_core::config::settings().plugins.compilation_cache;
+    if !settings.enabled {
         info!("plugin compilation cache is disabled");
         return Ok(());
     }
 
-    let directory = std::env::var_os("NUR_PLUGIN_COMPILATION_CACHE_DIR")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
+    let directory = settings.directory.clone();
     let explicitly_configured = directory.is_some();
     let mut cache_config = CacheConfig::new();
     if let Some(directory) = directory {
         cache_config.with_directory(directory);
     }
-    cache_config.with_files_total_size_soft_limit(env_u64(
-        "NUR_PLUGIN_COMPILATION_CACHE_SIZE",
-        512 * 1024 * 1024,
-        16 * 1024 * 1024,
-        16 * 1024 * 1024 * 1024,
-    ));
+    cache_config.with_files_total_size_soft_limit(nur_core::config::mb(settings.max_size_mb));
 
     match Cache::new(cache_config) {
         Ok(cache) => {
@@ -1148,33 +1124,6 @@ fn allow_public_mail_for_client(
 
 fn database_error(message: impl Into<String>) -> bindings::nur::cms::types::PluginError {
     bindings::nur::cms::types::PluginError::Failed(message.into())
-}
-
-fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| (minimum..=maximum).contains(value))
-        .unwrap_or(default)
-}
-
-fn env_bool(key: &str, default: bool) -> bool {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| match value.as_str() {
-            "1" | "true" | "yes" | "on" => Some(true),
-            "0" | "false" | "no" | "off" => Some(false),
-            _ => None,
-        })
-        .unwrap_or(default)
-}
-
-fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| (minimum..=maximum).contains(value))
-        .unwrap_or(default)
 }
 
 #[cfg(test)]

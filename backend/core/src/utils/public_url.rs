@@ -3,8 +3,7 @@ use axum::http::Uri;
 /// Returns the configured canonical public CMS URL after applying the same
 /// origin checks used for externally visible links.
 pub fn configured_public_url() -> Option<String> {
-    let value = std::env::var("NUR_PUBLIC_URL").ok();
-    public_url_from_value(value.as_deref())
+    public_url_from_value(crate::config::settings().server.public_url.as_deref())
 }
 
 fn public_url_from_value(value: Option<&str>) -> Option<String> {

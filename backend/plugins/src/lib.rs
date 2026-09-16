@@ -126,7 +126,7 @@ impl PluginManager {
             })
             .collect::<Result<_, _>>()?;
         let storage = (!storage_directories.is_empty())
-            .then(PluginStorage::from_environment)
+            .then(PluginStorage::from_config)
             .transpose()?;
         if let Some(storage) = &storage {
             storage.cleanup_incomplete_uploads(Duration::from_secs(
@@ -141,7 +141,7 @@ impl PluginManager {
         let mut assets = Vec::new();
         let mut metadata = Vec::new();
         let mut registered = HashSet::new();
-        let allow_root = std::env::var("NUR_PLUGIN_ALLOW_ROOT_ROUTES").as_deref() == Ok("1");
+        let allow_root = nur_core::config::settings().plugins.allow_root_routes;
 
         for plugin in installed {
             migrations::migrate_plugin(pool, &plugin).await?;
@@ -596,7 +596,7 @@ fn resolve_route_path(
     }
     if !allow_root {
         return Err(Error::Manifest(format!(
-            "plugin '{plugin_id}' root route '{}' requires NUR_PLUGIN_ALLOW_ROOT_ROUTES=1",
+            "plugin '{plugin_id}' root route '{}' requires plugins.allow_root_routes = true",
             route.path
         )));
     }
@@ -683,64 +683,37 @@ fn route_shape(path: &str) -> Result<String, Error> {
     Ok(shape.join("/"))
 }
 
-fn env_usize(key: &str, default: usize, minimum: usize, maximum: usize) -> usize {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| (minimum..=maximum).contains(value))
-        .unwrap_or(default)
-}
-fn env_u64(key: &str, default: u64, minimum: u64, maximum: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| (minimum..=maximum).contains(value))
-        .unwrap_or(default)
-}
 pub(crate) fn plugin_timeout() -> Duration {
-    Duration::from_millis(env_u64("NUR_PLUGIN_TIMEOUT_MS", 5_000, 100, 60_000))
+    Duration::from_secs(nur_core::config::settings().plugins.runtime.timeout_seconds)
 }
 fn request_body_limit() -> usize {
-    env_usize(
-        "NUR_PLUGIN_REQUEST_BODY_LIMIT",
-        1024 * 1024,
-        1024,
-        16 * 1024 * 1024,
-    )
+    nur_core::config::mb(
+        nur_core::config::settings()
+            .plugins
+            .runtime
+            .request_body_limit_mb,
+    ) as usize
 }
 fn response_body_limit() -> usize {
-    env_usize(
-        "NUR_PLUGIN_RESPONSE_BODY_LIMIT",
-        4 * 1024 * 1024,
-        1024,
-        64 * 1024 * 1024,
-    )
+    nur_core::config::mb(
+        nur_core::config::settings()
+            .plugins
+            .runtime
+            .response_body_limit_mb,
+    ) as usize
 }
 
 fn storage_quota() -> u64 {
-    env_u64(
-        "NUR_PLUGIN_STORAGE_QUOTA",
-        1024 * 1024 * 1024,
-        1024 * 1024,
-        1024 * 1024 * 1024 * 1024,
-    )
+    nur_core::config::mb(nur_core::config::settings().plugins.storage.quota_mb)
 }
 
 fn storage_write_limit() -> usize {
-    env_usize(
-        "NUR_PLUGIN_STORAGE_WRITE_LIMIT",
-        16 * 1024 * 1024,
-        1024,
-        512 * 1024 * 1024,
-    )
+    nur_core::config::mb(nur_core::config::settings().plugins.storage.write_limit_mb) as usize
 }
 
 fn plugin_upload_session_seconds() -> i32 {
-    std::env::var("UPLOAD_TTL_SECONDS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(48 * 60 * 60)
+    i32::try_from(nur_core::config::settings().uploads.session_lifetime_hours * 60 * 60)
+        .unwrap_or(i32::MAX)
 }
 
 fn valid_file_token(token: &str) -> bool {

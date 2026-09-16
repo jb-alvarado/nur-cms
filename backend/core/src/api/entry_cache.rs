@@ -14,7 +14,7 @@ use axum::{
 use moka::sync::Cache;
 use serde::Serialize;
 
-use crate::{env_bounded_i64, utils::errors::NurError};
+use crate::{config::settings, utils::errors::NurError};
 
 /// Process-local cache for public content entry responses.
 ///
@@ -28,16 +28,14 @@ pub struct EntryCache {
 }
 
 impl EntryCache {
-    pub fn from_env() -> Self {
-        let enabled = std::env::var("NUR_ENTRY_CACHE")
-            .map(|value| value == "1")
-            .unwrap_or(true);
-        let capacity = env_bounded_i64("NUR_ENTRY_CACHE_CAPACITY", 512, 16, 100_000) as u64;
-        let time_to_idle = env_bounded_i64("NUR_ENTRY_CACHE_TTI_SECONDS", 1_800, 30, 86_400);
-        let time_to_live =
-            env_bounded_i64("NUR_ENTRY_CACHE_TTL_SECONDS", 86_400, 30, 604_800).max(time_to_idle);
-
-        Self::new(enabled, capacity, time_to_idle as u64, time_to_live as u64)
+    pub fn from_config() -> Self {
+        let config = &settings().entry_cache;
+        Self::new(
+            config.enabled,
+            config.capacity,
+            config.time_to_idle_minutes * 60,
+            config.time_to_live_hours * 60 * 60,
+        )
     }
 
     fn new(enabled: bool, capacity: u64, time_to_idle: u64, time_to_live: u64) -> Self {

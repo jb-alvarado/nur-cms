@@ -2,7 +2,7 @@
 
 nur-cms plugins are WebAssembly components executed by Wasmtime. Plugins can provide HTTP routes,
 run independently versioned database migrations, expose static assets, and advertise future admin-panel
-pages and menu items. A plugin is loaded only when its ID is listed in `NUR_PLUGINS`.
+pages and menu items. A plugin is loaded only when its ID is listed in `plugins.enabled`.
 
 ## Package layout
 
@@ -26,7 +26,7 @@ writable by the nur-cms runtime user or by any account that can upload content t
 
 During development, nur-cms also searches `backend/plugins/examples`. Linux installations additionally
 search `/usr/share/nur-cms/plugins` and `/var/lib/nur-cms/plugins`. Extra roots can be supplied with
-`NUR_PLUGIN_DIR` using the platform path separator.
+`plugins.additional_directories`.
 
 ## Manifest
 
@@ -129,7 +129,7 @@ scope = "root"
 access = "public"
 ```
 
-Root-scoped routes additionally require `NUR_PLUGIN_ALLOW_ROOT_ROUTES=1`. Plugins can never register
+Root-scoped routes additionally require `plugins.allow_root_routes = true`. Plugins can never register
 root routes below these reserved prefixes:
 
 - `/auth`
@@ -162,7 +162,7 @@ An optional `[admin]` section can add pages to the CMS admin interface. `entry` 
 roles, and `styles` is an optional list of CSS files. `access` defaults to `admin,author`. All paths are
 relative to the declared asset directory. `entry` and `element` are required when an admin menu item is
 declared. The element name must be lowercase and contain a hyphen. Set
-`NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1` to explicitly permit browser-side plugin code.
+`plugins.allow_admin_components = true` to explicitly permit browser-side plugin code.
 
 Each `[[admin.menu]]` may have its own `access` declaration. Without one it inherits `[admin].access`;
 an explicit menu access list must be a subset of the component roles and uses the same OR semantics.
@@ -275,7 +275,7 @@ and will be removed in a future release for security. Store new content as Markd
 `html` output when a plugin needs rendered markup.
 
 Host calls share the plugin request timeout, have a per-request call limit, and cannot return more bytes than
-`NUR_PLUGIN_RESPONSE_BODY_LIMIT`. The return value is otherwise the normal JSON entry-list response.
+`plugins.runtime.response_body_limit_mb`. The return value is otherwise the normal JSON entry-list response.
 
 ## Plugin database access
 
@@ -343,7 +343,7 @@ and their migrations are trusted server code: a migration can intentionally crea
 triggers with the application database user's privileges. Only install reviewed plugins, and do not grant the
 CMS database role unnecessary operating-system or PostgreSQL administration privileges.
 
-Database results are streamed and stopped at `NUR_PLUGIN_RESPONSE_BODY_LIMIT` or 10,000 rows, before a full
+Database results are streamed and stopped at `plugins.runtime.response_body_limit_mb` or 10,000 rows, before a full
 oversized result is retained in host memory. The normal plugin host-call limit and timeout apply to each
 `execute` or `transaction` call. Database failures are logged by
 nur-cms but returned to a plugin as generic errors, so connection details and SQL diagnostics do not reach
@@ -415,8 +415,8 @@ mail::send(&Message {
 ```
 
 On a public plugin route, mail is limited independently per plugin route and client IP. The default interval
-is three minutes and can be changed with `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS`; the bounded in-memory
-tracking capacity is configured with `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`. The first mail call in one public
+is three minutes and can be changed with `plugins.public_mail.interval_minutes`; the bounded in-memory
+tracking capacity is configured with `plugins.public_mail.max_clients`. The first mail call in one public
 HTTP request atomically reserves this route/IP window after the first message has passed validation. Up to three
 mail calls may then run in that same request;
 the fourth returns `rate-limited`. A second request for the same plugin route and IP remains blocked until the
@@ -444,7 +444,7 @@ let public_url = configuration::public_url()
 let confirmation_url = format!("{public_url}/orders/42/confirm");
 ```
 
-The host reads `NUR_PUBLIC_URL`, trims whitespace and trailing slashes, and returns `none` when it is absent or
+The host reads `server.public_url`, trims whitespace and trailing slashes, and returns `none` when it is absent or
 invalid. HTTPS is required except for HTTP on `localhost` and `127.0.0.1`. Reading this immutable value does not
 consume a host-call slot. The Wasm process receives no environment variables, so this interface does not expose SMTP credentials,
 database credentials, or other process configuration.
@@ -466,7 +466,7 @@ allowed extension while files may still reference that declaration. Startup reje
 instead of silently stranding existing files.
 
 Public directories are stored below `STORAGE/p/<plugin-id>` and receive an
-`/uploads/p/...` URL. Private directories require `NUR_PLUGIN_STORAGE` and never receive a
+`/uploads/p/...` URL. Private directories require `plugins.storage.private_directory` and never receive a
 public URL. The private root must be outside the entire `STORAGE` upload directory; the roots must not
 overlap, including a separately resolved `STORAGE/p` symlink target.
 
@@ -475,8 +475,8 @@ JPEG, MP3, MP4, ODS, ODT, OGG, PDF, PNG, PPT, PPTX, RTF, TXT, WAV, WebM, WebP, X
 same-origin content such as HTML, SVG, XML, and JavaScript is rejected. Extension checks are
 case-insensitive.
 
-`NUR_PLUGIN_STORAGE_WRITE_LIMIT` limits one WIT or authenticated whole-body write.
-`NUR_PLUGIN_STORAGE_QUOTA` limits the combined public and private bytes owned by one plugin.
+`plugins.storage.write_limit_mb` limits one WIT or authenticated whole-body write.
+`plugins.storage.quota_mb` limits the combined public and private MB owned by one plugin.
 Resumable uploads reserve their declared size before accepting chunks. Operations are serialized per
 plugin; deployments with several CMS processes sharing storage should additionally enforce a
 filesystem quota. Filenames are limited to 236 UTF-8 bytes so resumable-upload metadata remains valid
@@ -513,11 +513,11 @@ The returned URL supports the same resumable range protocol as the CMS media upl
 
 The first valid status or chunk request binds the capability to its `batch_id`. Another batch cannot
 take it over. The token is consumed only after the complete temporary file has been atomically moved
-to its destination. Interrupted uploads can resume for `UPLOAD_TTL_SECONDS`, including after the
+to its destination. Interrupted uploads can resume for `uploads.session_lifetime_hours`, including after the
 original link expiry once the upload was claimed. Upload sessions and the maximum requested link
-lifetime both default to 48 hours and are configurable with `UPLOAD_TTL_SECONDS` and
-`NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS`. Chunk size is limited by `MAX_CHUNK_SIZE`; total
-size is limited by the link, `MAX_UPLOAD_SIZE`, and the per-plugin storage quota. Public and private
+lifetime both default to 48 hours and are configurable with `uploads.session_lifetime_hours` and
+`plugins.storage.file_links_max_age_hours`. Chunk size is limited by `uploads.chunk_size_mb`; total
+size is limited by the link, `uploads.max_size_mb`, and the per-plugin storage quota. Public and private
 plugin files are not inserted into the CMS `media` table and receive no image or video processing.
 
 Authenticated admin tooling can manage a directory without a one-time link:
@@ -544,7 +544,7 @@ startup to prevent links outside the plugin package.
 ## Route cache
 
 Caching is disabled unless a plugin declares `[cache]`. It creates a separate in-memory Moka cache for that
-plugin. `NUR_PLUGIN_CACHE_MEMORY_LIMIT` is a shared approximate byte budget divided equally among all
+plugin. `plugins.runtime.route_cache_limit_mb` is a shared approximate MB budget divided equally among all
 configured plugin caches. Each cache is constrained by both its share of that budget and the manifest's
 `max_entries`. Only public `GET` and `HEAD` routes may be cached. All eligible routes are cached by default;
 set `cache = false` on an individual route to opt out. Cached routes reject request bodies because bodies
@@ -594,10 +594,10 @@ of headers in total.
 Compiled components are cached on disk by default. The cache key includes the component bytes, Wasmtime
 version, target, and relevant compiler configuration, so changed or incompatible components are compiled
 again automatically. The first load still compiles a component; later process starts reuse the cached native
-artifact. Production services and containers should set `NUR_PLUGIN_COMPILATION_CACHE_DIR` to a persistent,
+artifact. Production services and containers should set `plugins.compilation_cache.directory` to a persistent,
 application-owned directory.
 
-See [configuration.md](configuration.md) for all runtime variables and defaults.
+See [configuration.md](configuration.md) for runtime settings and defaults.
 
 ## Examples
 
@@ -615,5 +615,5 @@ cargo build --manifest-path backend/plugins/examples/echo/Cargo.toml --target wa
 Then run nur-cms with:
 
 ```sh
-NUR_PLUGINS=echo NUR_PLUGIN_ALLOW_ROOT_ROUTES=1 NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1 cargo run -p nur-cms
+cargo run -p nur-cms -- --config ./nur-cms.toml
 ```

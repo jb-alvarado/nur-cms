@@ -22,10 +22,10 @@ For detailed setup instructions and development workflow, see the [Developer Doc
 
 The application can be configured via:
 
-- Environment variables (`.env` file)
+- Versioned TOML configuration with per-instance config files
 - Command-line arguments (see `cargo run -- --help`)
 
-See the [configuration reference](docs/configuration.md) for available environment variables,
+See the [configuration reference](docs/configuration.md) for available settings,
 including the public entry cache.
 
 See the [plugin documentation](docs/plugins.md) for building Wasmtime extensions with API routes,

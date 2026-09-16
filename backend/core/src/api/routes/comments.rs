@@ -55,6 +55,7 @@ fn feature_disabled(configuration: &crate::db::models::CmsConfiguration, feature
         .any(|disabled| disabled == feature)
 }
 
+#[cfg(test)]
 const COMMENT_MODERATION_TOKEN_TTL_DAYS: i64 = 14;
 
 async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(), NurError> {
@@ -183,10 +184,12 @@ fn entry_public_url(public_url: &str, entry_type: &str, entry_slug: &str) -> Str
 }
 
 fn comment_moderation_token_ttl_days() -> i64 {
-    let value = std::env::var("NUR_COMMENT_MODERATION_TOKEN_TTL_DAYS").ok();
-    configured_comment_moderation_token_ttl_days(value.as_deref())
+    crate::config::settings()
+        .comments
+        .moderation_token_lifetime_days
 }
 
+#[cfg(test)]
 fn configured_comment_moderation_token_ttl_days(value: Option<&str>) -> i64 {
     value
         .and_then(|value| value.parse().ok())

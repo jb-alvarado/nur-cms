@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    env,
     path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, Instant},
@@ -2028,11 +2027,19 @@ fn processing_root() -> PathBuf {
 }
 
 fn ffmpeg_bin() -> String {
-    env::var("NUR_FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".into())
+    crate::config::settings()
+        .video
+        .ffmpeg
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn ffprobe_bin() -> String {
-    env::var("NUR_FFPROBE_BIN").unwrap_or_else(|_| "ffprobe".into())
+    crate::config::settings()
+        .video
+        .ffprobe
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn truncate_error(error: &str) -> String {

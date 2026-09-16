@@ -993,12 +993,12 @@ fn cache_capacity(count: usize) -> u64 {
     if count == 0 {
         return 0;
     }
-    std::env::var("NUR_PLUGIN_CACHE_MEMORY_LIMIT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| (1024 * 1024..=1024 * 1024 * 1024).contains(value))
-        .unwrap_or(64 * 1024 * 1024)
-        / count as u64
+    nur_core::config::mb(
+        nur_core::config::settings()
+            .plugins
+            .runtime
+            .route_cache_limit_mb,
+    ) / count as u64
 }
 fn route_cache(policy: CachePolicy, capacity: u64) -> RouteCache {
     let minimum_weight = capacity

@@ -322,10 +322,10 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
                 .as_ref()
                 .and_then(|admin| admin.entry.as_ref())
                 .is_some()
-                && env::var("NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS").as_deref() != Ok("1")
+                && !nur_core::config::settings().plugins.allow_admin_components
             {
                 return Err(Error::Manifest(format!(
-                    "plugin '{}' declares browser-side admin code; set NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1 to trust and enable it",
+                    "plugin '{}' declares browser-side admin code; set plugins.allow_admin_components = true to trust and enable it",
                     manifest.plugin.id
                 )));
             }
@@ -883,19 +883,19 @@ pub(crate) fn valid_storage_extension(extension: &str) -> bool {
 }
 
 fn enabled_plugins() -> HashSet<String> {
-    env::var("NUR_PLUGINS")
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(ToOwned::to_owned)
+    nur_core::config::settings()
+        .plugins
+        .enabled
+        .iter()
+        .cloned()
         .collect()
 }
 
 fn plugin_roots() -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = env::var_os("NUR_PLUGIN_DIR")
-        .map(|value| env::split_paths(&value).collect())
-        .unwrap_or_default();
+    let mut roots = nur_core::config::settings()
+        .plugins
+        .additional_directories
+        .clone();
     if cfg!(debug_assertions) {
         roots.push(PathBuf::from("backend/plugins/examples"));
     }

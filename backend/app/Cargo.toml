@@ -37,6 +37,7 @@ tower-http = { version = "0.7", features = ["fs", "set-header", "timeout", "trac
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1"
+toml_edit = { version = "0.25", features = ["serde"] }
 tracing-subscriber = { version = "0.3", features = [
     "ansi",
     "env-filter",
@@ -47,16 +48,19 @@ tracing-subscriber = { version = "0.3", features = [
 [build-dependencies]
 build-print = "1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+sd-notify = "0.5"
+
 # DEBIAN DEB PACKAGE
 [package.metadata.deb]
 name = "nur-cms"
+revision = "2"
 priority = "optional"
 section = "net"
 license-file = ["../../LICENSE", "0"]
 depends = ""
 suggests = "postgresql"
 copyright = "Copyright (c) 2025, Jonathan Baecker. All rights reserved."
-conf-files = ["/home/nur-cms/.env"]
 assets = [
     [
         "target/release/nur-cms",
@@ -64,8 +68,8 @@ assets = [
         "755",
     ],
     [
-        "../../assets/.env.example",
-        "/home/nur-cms/.env",
+        "../../assets/nur-cms.toml",
+        "/usr/share/nur-cms/nur-cms.toml",
         "644",
     ],
 ]
@@ -78,9 +82,9 @@ name = "nur-cms"
 license = "GPL-3.0"
 assets = [
     { source = "../../target/x86_64-unknown-linux-musl/release/nur-cms", dest = "/usr/bin/nur-cms", mode = "755" },
-    { source = "../../assets/nur-cms.service", dest = "/lib/systemd/system/nur-cms.service", mode = "644" },
-    { source = "../../assets/.env.example", dest = "/home/nur-cms/.env", mode = "644", config = true },
-    { source = "../../debian/postinst", dest = "/usr/share/nur-cms/postinst", mode = "755" },
+    { source = "../../assets/nur-cms.service", dest = "/usr/lib/systemd/system/nur-cms.service", mode = "644" },
+    { source = "../../assets/nur-cms@.service", dest = "/usr/lib/systemd/system/nur-cms@.service", mode = "644" },
+    { source = "../../assets/nur-cms.toml", dest = "/usr/share/nur-cms/nur-cms.toml", mode = "644" },
 ]
 auto-req = "no"
-post_install_script = "/usr/share/nur-cms/postinst"
+post_install_script = "../../debian/postinst"

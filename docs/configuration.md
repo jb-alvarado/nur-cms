@@ -1,101 +1,165 @@
-# Configuration reference
+# Configuration
 
-Copy [`assets/.env.example`](../assets/.env.example) to your `.env` file and adjust the values for
-your environment. Command-line options are listed by `cargo run -- --help`.
+nur-cms reads exactly one TOML configuration file. It uses the first existing
+file in this order:
+
+1. the path passed with `--config`
+2. `./nur-cms.toml`
+3. `$XDG_CONFIG_HOME/nur-cms/nur-cms.toml`, or
+   `$HOME/.config/nur-cms/nur-cms.toml`
+4. `/etc/nur-cms/nur-cms.toml`
+
+An explicit `--config` path disables fallback to the other locations. Files are
+not merged. This makes it possible to run several instances, including under
+different users:
+
+```console
+nur-cms --config /etc/nur-cms/site-a.toml
+nur-cms --config /etc/nur-cms/site-b.toml
+```
+
+Packages also install the `nur-cms@.service` systemd template. The instance
+name selects its configuration, working directory, and Unix account. For
+example, `nur-cms@site-a.service` uses:
+
+| Resource | Value |
+| --- | --- |
+| Configuration | `/etc/nur-cms/site-a.toml` |
+| Working directory | `/var/lib/nur-cms/site-a` |
+| User | `site-a` (with its primary group) |
+
+The regular `nur-cms.service` follows the same layout with the working
+directory `/var/lib/nur-cms/nur-cms`. The shared `/var/lib/nur-cms` parent is
+owned by `root`, so one instance cannot create, rename, or remove another
+instance's working directory.
+
+Create these resources before enabling an instance:
+
+```console
+sudo useradd --system --user-group \
+  --home-dir /var/lib/nur-cms/site-a --create-home site-a
+sudo install -o root -g site-a -m 640 \
+  /usr/share/nur-cms/nur-cms.toml /etc/nur-cms/site-a.toml
+sudo systemctl enable --now nur-cms@site-a.service
+```
+
+Give the instance user access to the upload and plugin-storage directories
+configured in its TOML file. Use distinct directories when instances must not
+share files. A systemd drop-in may override `User`, `Group`, or
+`WorkingDirectory` when an existing account or another directory layout is
+preferred.
+
+Create and validate configurations with the built-in commands:
+
+```console
+nur-cms config create ./nur-cms.toml
+nur-cms config check ./nur-cms.toml
+nur-cms config migrate ./nur-cms.toml
+```
+
+`config create` notices a `.env` in the current directory and offers to import
+known legacy settings when run interactively. For scripts, select the source
+explicitly:
+
+```console
+nur-cms config create ./nur-cms.toml --from-env .env
+nur-cms config create ./nur-cms.toml --from-environment
+nur-cms config create ./nur-cms.toml --no-env
+```
+
+Unit conversions during import must be exact. For example, a byte value that
+cannot be represented as a whole MB is rejected. Imported summaries list only
+variable names and never values.
+
+The packaged `/usr/share/nur-cms/nur-cms.toml` is a template. DEB and RPM
+installations copy it to `/etc/nur-cms/nur-cms.toml` only when that file does
+not exist, so package upgrades do not replace the instance configuration. The
+package post-install step runs `config migrate`; migrations create a backup
+before they rewrite an older configuration. Source and container installations
+can run the same command explicitly.
+
+On DEB upgrades, previously running `nur-cms@…` instances are restarted one at
+a time. Each restart waits until the instance has initialized and bound its
+listener. If an instance does not become ready, the upgrade stops restarting
+instances so the remaining processes continue to serve with the previous
+binary until the problem is resolved and the package is configured again.
+
+When upgrading an older package, the installer imports known settings from
+`/home/nur-cms/.env` if the default TOML configuration does not exist yet. The
+legacy file remains untouched and can be removed after the generated TOML has
+been checked.
+
+Only the development bootstrap switches remain environment variables:
+
+```dotenv
+NUR_DEV_AUTO_ADMIN=1
+NUR_DEV_SEED_DATABASE=1
+```
+
+They are intentionally excluded from TOML and from `.env` imports.
+The server loads `.env` from its current directory at startup so these switches
+remain available during local development.
 
 ## Public entry cache
 
-Public content entry, list, and facet responses are cached in memory by default. The cache stores
-the completed JSON response, so it avoids repeated database queries, Markdown rendering, and JSON
-serialization. It is local to one CMS process and applies only to unauthenticated requests.
+Public content entry, list, and facet responses are cached in memory. The cache
+stores completed JSON responses and is local to one CMS process. Successful
+content, media, locale, and configuration changes invalidate it immediately.
 
-Successful content, media, locale, and configuration changes invalidate all cached public entry
-responses immediately.
-
-| Variable                      | Default | Description                                                                   |
-| ----------------------------- | ------- | ----------------------------------------------------------------------------- |
-| `NUR_ENTRY_CACHE`             | `1`     | Set to `0` to disable the cache.                                              |
-| `NUR_ENTRY_CACHE_CAPACITY`    | `512`   | Maximum number of cached responses shared by entry, list, and facet requests. |
-| `NUR_ENTRY_CACHE_TTI_SECONDS` | `1800`  | Expire a response after this many seconds without access.                     |
-| `NUR_ENTRY_CACHE_TTL_SECONDS` | `86400` | Expire a response after this many seconds even if it is accessed.             |
-
-Time-to-idle is refreshed on each cache hit. Time-to-live is an absolute maximum lifetime and is
-not extended by access.
+| TOML key | Default | Description |
+| --- | ---: | --- |
+| `entry_cache.enabled` | `true` | Enables the cache. |
+| `entry_cache.capacity` | `512` | Maximum number of cached responses. |
+| `entry_cache.time_to_idle_minutes` | `30` | Expires an inactive response. |
+| `entry_cache.time_to_live_hours` | `24` | Absolute maximum response lifetime. |
 
 ## Video processing
 
-Video uploads are stored immediately and transcoded by durable background jobs. Install the
-`ffmpeg` package, including `ffprobe`, on every CMS instance that runs workers. FFmpeg 6 or newer is
-recommended. Every enabled profile is checked against the encoders reported by `ffmpeg -encoders`
-before it is used.
+Video uploads are stored immediately and transcoded by durable background jobs.
+Install FFmpeg, including `ffprobe`, on every CMS instance that runs workers.
+FFmpeg 6 or newer is recommended. Enabled profiles are checked against the
+encoders reported by `ffmpeg -encoders`.
 
-| Variable                                | Default      | Description                                                       |
-| --------------------------------------- | ------------ | ----------------------------------------------------------------- |
-| `VIDEO_PROCESSING_CONCURRENCY`          | `1`          | Concurrent video jobs per CMS process; constrained to 1–4.        |
-| `VIDEO_PROCESSING_THREADS`              | `2`          | FFmpeg/filter threads per job; constrained to 1–32.                |
-| `VIDEO_PROCESSING_TIMEOUT_SECONDS`      | `3600`       | Wall-clock timeout for one FFmpeg invocation.                      |
-| `VIDEO_PROCESSING_LEASE_SECONDS`        | `120`        | Renewable database lease held by a worker.                         |
-| `VIDEO_PROCESSING_MAX_ATTEMPTS`         | `3`          | Maximum attempts for transient failures.                           |
-| `VIDEO_PROCESSING_MAX_DURATION_SECONDS` | `28800`      | Maximum accepted source duration (eight hours by default).         |
-| `VIDEO_PROCESSING_MAX_PIXELS`           | `33177600`   | Maximum source width multiplied by height (8K UHD by default).     |
-| `VIDEO_PROCESSING_MAX_OUTPUT_SIZE`      | unset / `0`  | Optional combined publication limit in bytes after encoding.       |
-| `NUR_FFMPEG_BIN`                        | `ffmpeg`     | Optional FFmpeg executable path.                                   |
-| `NUR_FFPROBE_BIN`                       | `ffprobe`    | Optional ffprobe executable path.                                  |
+| TOML key | Default | Description |
+| --- | ---: | --- |
+| `video.processing_concurrency` | `1` | Concurrent jobs per process. |
+| `video.processing_threads` | `2` | FFmpeg and filter threads per job. |
+| `video.processing_timeout_minutes` | `60` | Timeout for one FFmpeg invocation. |
+| `video.lease_seconds` | `120` | Renewable database worker lease. |
+| `video.max_attempts` | `3` | Attempts after transient failures. |
+| `video.max_duration_hours` | `8` | Maximum source duration. |
+| `video.max_pixels` | `33177600` | Maximum source width multiplied by height. |
+| `video.max_output_size_mb` | `0` | Post-encoding publication limit; `0` disables it. |
+| `video.ffmpeg` | `ffmpeg` | FFmpeg executable path. |
+| `video.ffprobe` | `ffprobe` | ffprobe executable path. |
 
-Only temporary files below `uploads/.processing/` are written while a job runs. This directory
-must remain on the same filesystem as the public upload directory and must not be served by a
-reverse proxy. The built-in static-file service blocks it.
+Temporary files are written below `uploads/.processing/`. Keep this directory
+on the same filesystem as the public upload directory and do not serve it with
+a reverse proxy. The output-size check runs after encoding and therefore does
+not limit temporary disk use.
 
-Nur CMS does not inject FFmpeg's `-fs` option or impose an output-size limit by default. The
-optional `VIDEO_PROCESSING_MAX_OUTPUT_SIZE` check runs after each output has been encoded and
-prevents oversized results from being published, but it cannot prevent temporary disk usage while
-FFmpeg is running. Production deployments should therefore size or quota the upload filesystem,
-monitor its free space, and keep worker concurrency appropriate for the available storage.
-
-Resumable upload coordination is process-local. Run a single HTTP instance for `/api/upload` when
-instances share the same upload directory, or route all upload requests consistently to one
-instance. Video processing workers themselves may run on multiple instances because their jobs use
-database leases.
+Resumable upload coordination is process-local. Route all `/api/upload`
+requests consistently to one process when instances share an upload directory.
+Video workers may run on several instances because jobs use database leases.
 
 ## Plugins
 
-Plugins are installed separately and must be explicitly enabled. See the [plugin documentation](plugins.md)
-for the package layout, manifest format, migration behavior, and HTTP interface.
+Plugins are installed separately and must be listed in `plugins.enabled`. See
+the [plugin documentation](plugins.md) for their package and manifest format.
 
-| Variable                                  | Default           | Description                                                                            |
-| ----------------------------------------- | ----------------- | -------------------------------------------------------------------------------------- |
-| `NUR_PLUGINS`                             | empty             | Comma-separated IDs of plugins to enable.                                              |
-| `NUR_PLUGIN_DIR`                          | platform defaults | Additional plugin roots separated by the platform path separator.                      |
-| `NUR_PLUGIN_ALLOW_ROOT_ROUTES`            | `0`               | Set to `1` to permit non-reserved routes outside the plugin API namespace.             |
-| `NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS`       | `0`               | Set to `1` to trust and execute enabled plugins' browser-side admin components.        |
-| `NUR_PLUGIN_FUEL`                         | `1000000`         | Wasmtime fuel available to each request.                                               |
-| `NUR_PLUGIN_METRICS`                      | `false`           | Log per-request plugin initialization and handler timings plus fuel consumption.       |
-| `NUR_PLUGIN_MEMORY_LIMIT`                 | `67108864`        | Maximum linear memory per plugin request in bytes.                                     |
-| `NUR_PLUGIN_MODULE_SIZE_LIMIT`            | `67108864`        | Maximum size of a plugin WebAssembly component in bytes.                               |
-| `NUR_PLUGIN_COMPILATION_CACHE`            | `1`               | Set to `0` to disable the persistent Wasmtime compilation cache.                       |
-| `NUR_PLUGIN_COMPILATION_CACHE_DIR`        | platform default  | Absolute directory used for compiled Wasmtime component artifacts.                     |
-| `NUR_PLUGIN_COMPILATION_CACHE_SIZE`       | `536870912`       | Soft disk-size limit for compiled Wasmtime artifacts in bytes.                         |
-| `NUR_PLUGIN_TIMEOUT_MS`                   | `5000`            | Wall-clock execution limit per plugin request.                                         |
-| `NUR_PLUGIN_MAX_CONCURRENCY`              | `8`               | Maximum number of concurrent plugin executions.                                        |
-| `NUR_PLUGIN_MAX_HOST_CALLS`               | `16`              | Maximum number of CMS host-interface calls during one plugin request.                  |
-| `NUR_PLUGIN_REQUEST_BODY_LIMIT`           | `1048576`         | Maximum request body passed to a plugin in bytes.                                      |
-| `NUR_PLUGIN_RESPONSE_BODY_LIMIT`          | `4194304`         | Maximum HTTP response or individual CMS host response accepted from a plugin in bytes. |
-| `NUR_PLUGIN_STORAGE`                      | unset             | Private plugin-storage root; must not overlap the public `STORAGE/p` root.             |
-| `NUR_PLUGIN_STORAGE_WRITE_LIMIT`          | `16777216`        | Maximum bytes accepted by one plugin storage write.                                   |
-| `NUR_PLUGIN_STORAGE_QUOTA`                | `1073741824`      | Maximum combined public and private bytes owned by one plugin.                         |
-| `NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS`      | `48`              | Maximum requested lifetime of an upload or download link; range 1–720 hours.          |
-| `NUR_PLUGIN_PUBLIC_MAIL_INTERVAL_SECONDS` | `180`             | Minimum interval between public mail requests for one plugin route and client IP.      |
-| `NUR_PLUGIN_PUBLIC_MAIL_MAX_CLIENTS`      | `10000`           | Maximum number of active public plugin-mail rate-limit keys retained in memory.        |
-| `NUR_PLUGIN_CACHE_MEMORY_LIMIT`           | `67108864`        | Shared approximate memory budget for all enabled plugin route caches in bytes.         |
+Runtime limits use seconds and MB in TOML. Private plugin storage must not
+overlap `uploads.directory`. Upload sessions use
+`uploads.session_lifetime_hours`, while requested plugin file-link lifetimes
+are capped by `plugins.storage.file_links_max_age_hours`.
 
-Resumable plugin upload links use the global `MAX_UPLOAD_SIZE`, `MAX_CHUNK_SIZE`, and
-`UPLOAD_TTL_SECONDS` settings. `UPLOAD_TTL_SECONDS` defaults to 172800 seconds (48 hours) and applies
-to an upload session after a valid one-time link has been claimed. The link's requested lifetime is
-bounded by `NUR_PLUGIN_FILE_LINK_MAX_AGE_HOURS`, which also defaults to 48 hours.
+Browser-side plugin code is disabled unless
+`plugins.allow_admin_components = true`. Root-scoped plugin routes are disabled
+unless `plugins.allow_root_routes = true`.
 
 ## Public URL and comment moderation
 
-| Variable                                | Default | Description                                                                                                                                                                          |
-| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `NUR_PUBLIC_URL`                        | unset   | Canonical public URL exposed to plugins and used for comment-notification links. A trailing slash is removed. HTTPS is required except for local HTTP on `localhost` or `127.0.0.1`. |
-| `NUR_COMMENT_MODERATION_TOKEN_TTL_DAYS` | `14`    | Lifetime of one-time comment approval and rejection links, from 1 to 30 days.                                                                                                        |
+`server.public_url` is the canonical URL exposed to plugins and used for
+comment-notification links. HTTPS is required, except for local HTTP on
+`localhost` or `127.0.0.1`. Credentials, queries, and fragments are rejected.
+`comments.moderation_token_lifetime_days` controls the lifetime of one-time
+comment approval and rejection links.

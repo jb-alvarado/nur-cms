@@ -1,0 +1,103 @@
+# Default configuration template for nur-cms.
+# Copy it to an instance-specific location or use `nur-cms config create`.
+
+version = 1
+
+[database]
+url = "postgres://postgres:nuR1234@127.0.0.1/nur_cms"
+max_connections = 50
+
+[server]
+listen = "127.0.0.1:8777"
+# Canonical HTTPS URL used in notifications and exposed to Wasm plugins.
+# Local HTTP is allowed for development.
+# public_url = "https://cms.example.org"
+# Reverse proxies allowed to supply X-Forwarded-For or X-Real-IP.
+trusted_proxy_cidrs = []
+# trusted_proxy_cidrs = ["127.0.0.1/32", "10.0.0.0/8"]
+
+[authentication]
+disable_two_factor = false
+access_token_lifetime_minutes = 15
+refresh_token_lifetime_days = 30
+
+[comments]
+moderation_token_lifetime_days = 14
+
+[uploads]
+directory = "/var/www/nur-cms/uploads"
+max_size_mb = 800
+chunk_size_mb = 10
+max_active_per_user = 4
+session_lifetime_hours = 48
+
+[images]
+max_pixels = 40_000_000
+processing_concurrency = 2
+
+[video]
+# The original upload is retained while variants and thumbnails are generated
+# in private staging below the upload directory.
+processing_concurrency = 1
+processing_threads = 2
+processing_timeout_minutes = 60
+lease_seconds = 120
+max_attempts = 3
+max_duration_hours = 8
+max_pixels = 33_177_600
+# Set to 0 to disable the post-encoding publication limit.
+max_output_size_mb = 0
+# Paths to ffmpeg and ffprobe binaries.
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"
+
+[entry_cache]
+enabled = true
+capacity = 512
+time_to_idle_minutes = 30
+time_to_live_hours = 24
+
+[plugins]
+# Installed plugins remain disabled until listed here.
+enabled = []
+# enabled = ["echo", "community-site"]
+# Additional package roots; built-in installation paths remain available.
+additional_directories = []
+# additional_directories = [
+#     "/usr/share/nur-cms/plugins",
+#     "/var/lib/nur-cms/plugins",
+# ]
+allow_root_routes = false
+# Browser-side plugin code runs with the privileges of the signed-in CMS user.
+allow_admin_components = false
+
+[plugins.runtime]
+fuel = 1_000_000
+memory_limit_mb = 64
+module_size_limit_mb = 64
+timeout_seconds = 5
+max_concurrency = 8
+max_host_calls = 16
+request_body_limit_mb = 1
+response_body_limit_mb = 4
+# Shared in-memory budget for all enabled plugin route caches.
+route_cache_limit_mb = 64
+# Enable collection of plugin runtime metrics.
+metrics_enabled = false
+
+[plugins.compilation_cache]
+enabled = true
+# directory = "/var/cache/nur-cms/wasmtime"
+max_size_mb = 512
+
+[plugins.storage]
+# Private plugin files must be stored outside the public upload directory.
+# private_directory = "/var/lib/nur-cms/plugin-storage"
+write_limit_mb = 16
+quota_mb = 1_024
+file_links_max_age_hours = 48
+
+[plugins.public_mail]
+# Rate limits are applied independently per public plugin route and client IP.
+interval_minutes = 3
+max_clients = 10_000

@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    env,
     sync::{Arc, LazyLock},
     time::Duration,
 };
@@ -18,6 +17,7 @@ use tokio::sync::{RwLock, Semaphore, broadcast::Sender};
 use tracing::{error, warn};
 
 pub mod api;
+pub mod config;
 pub mod db;
 pub mod file;
 pub mod mail;
@@ -52,85 +52,63 @@ impl From<AuthorizationError> for Response {
     }
 }
 
-// Small helper to parse env vars with a typed default.
-fn env_parse_or<T>(key: &str, default: T) -> T
-where
-    T: std::str::FromStr,
-{
-    env::var(key)
-        .ok()
-        .and_then(|v| v.parse::<T>().ok())
-        .unwrap_or(default)
-}
-
-pub(crate) fn env_bounded_i64(key: &str, default: i64, minimum: i64, maximum: i64) -> i64 {
-    env::var(key)
-        .ok()
-        .and_then(|value| value.parse::<i64>().ok())
-        .filter(|value| (minimum..=maximum).contains(value))
-        .unwrap_or(default)
-}
-
-/// Legacy access-token lifetime in days. Prefer `ACCESS_LIFETIME_MINUTES`.
-pub static ACCESS_LIFETIME: LazyLock<i64> = LazyLock::new(|| env_parse_or("ACCESS_LIFETIME", 1));
-/// Access-token lifetime in minutes. The legacy day setting is honored only when explicitly set.
 pub static ACCESS_LIFETIME_MINUTES: LazyLock<i64> = LazyLock::new(|| {
-    if env::var_os("ACCESS_LIFETIME_MINUTES").is_some() {
-        env_bounded_i64("ACCESS_LIFETIME_MINUTES", 15, 5, 1_440)
-    } else if env::var_os("ACCESS_LIFETIME").is_some() {
-        env_bounded_i64("ACCESS_LIFETIME", 1, 1, 30) * 1_440
-    } else {
-        15
-    }
+    config::settings()
+        .authentication
+        .access_token_lifetime_minutes
 });
-pub static REFRESH_LIFETIME: LazyLock<i64> =
-    LazyLock::new(|| env_bounded_i64("REFRESH_LIFETIME", 30, 1, 365));
-pub static STORAGE: LazyLock<String> =
-    LazyLock::new(|| env_parse_or("STORAGE", "./uploads".to_string()));
+pub static REFRESH_LIFETIME: LazyLock<i64> = LazyLock::new(|| {
+    config::settings()
+        .authentication
+        .refresh_token_lifetime_days
+});
+pub static STORAGE: LazyLock<String> = LazyLock::new(|| {
+    config::settings()
+        .uploads
+        .directory
+        .to_string_lossy()
+        .into_owned()
+});
 pub static PUBLIC_UPLOADS: &str = "/uploads";
 pub static MAX_UPLOAD_SIZE: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("MAX_UPLOAD_SIZE", 800 * 1024 * 1024)); // 800MB default
+    LazyLock::new(|| config::mb(config::settings().uploads.max_size_mb));
 pub static MAX_CHUNK_SIZE: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("MAX_CHUNK_SIZE", 10 * 1024 * 1024)); // 10MB default
-pub static MAX_IMAGE_PIXELS: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("MAX_IMAGE_PIXELS", 40_000_000));
+    LazyLock::new(|| config::mb(config::settings().uploads.chunk_size_mb));
+pub static MAX_IMAGE_PIXELS: LazyLock<u64> = LazyLock::new(|| config::settings().images.max_pixels);
 pub static MAX_ACTIVE_UPLOADS_PER_USER: LazyLock<usize> =
-    LazyLock::new(|| env_parse_or("MAX_ACTIVE_UPLOADS_PER_USER", 4));
+    LazyLock::new(|| config::settings().uploads.max_active_per_user);
 pub static UPLOAD_TTL_SECONDS: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("UPLOAD_TTL_SECONDS", 48 * 60 * 60));
-pub static IMAGE_PROCESSING_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| {
-    Semaphore::new(env_parse_or("IMAGE_PROCESSING_CONCURRENCY", 2usize).clamp(1, 16))
-});
+    LazyLock::new(|| config::settings().uploads.session_lifetime_hours * 60 * 60);
+pub static IMAGE_PROCESSING_SEMAPHORE: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(config::settings().images.processing_concurrency));
 pub static VIDEO_PROCESSING_CONCURRENCY: LazyLock<usize> =
-    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_CONCURRENCY", 1usize).clamp(1, 4));
+    LazyLock::new(|| config::settings().video.processing_concurrency);
 pub static VIDEO_PROCESSING_THREADS: LazyLock<usize> =
-    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_THREADS", 2usize).clamp(1, 32));
+    LazyLock::new(|| config::settings().video.processing_threads);
 pub static VIDEO_PROCESSING_TIMEOUT_SECONDS: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_TIMEOUT_SECONDS", 3_600u64).clamp(60, 86_400));
+    LazyLock::new(|| config::settings().video.processing_timeout_minutes * 60);
 pub static VIDEO_PROCESSING_LEASE_SECONDS: LazyLock<u64> =
-    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_LEASE_SECONDS", 120u64).clamp(30, 3_600));
+    LazyLock::new(|| config::settings().video.lease_seconds);
 pub static VIDEO_PROCESSING_MAX_ATTEMPTS: LazyLock<i32> =
-    LazyLock::new(|| env_parse_or("VIDEO_PROCESSING_MAX_ATTEMPTS", 3i32).clamp(1, 10));
-pub static VIDEO_PROCESSING_MAX_DURATION_SECONDS: LazyLock<u64> = LazyLock::new(|| {
-    env_parse_or("VIDEO_PROCESSING_MAX_DURATION_SECONDS", 8 * 60 * 60).clamp(1, 7 * 24 * 60 * 60)
-});
-pub static VIDEO_PROCESSING_MAX_PIXELS: LazyLock<u64> = LazyLock::new(|| {
-    env_parse_or("VIDEO_PROCESSING_MAX_PIXELS", 33_177_600u64).clamp(1, 132_710_400)
-});
+    LazyLock::new(|| config::settings().video.max_attempts);
+pub static VIDEO_PROCESSING_MAX_DURATION_SECONDS: LazyLock<u64> =
+    LazyLock::new(|| config::settings().video.max_duration_hours * 60 * 60);
+pub static VIDEO_PROCESSING_MAX_PIXELS: LazyLock<u64> =
+    LazyLock::new(|| config::settings().video.max_pixels);
 pub static VIDEO_PROCESSING_MAX_OUTPUT_SIZE: LazyLock<Option<u64>> = LazyLock::new(|| {
-    let limit = env_parse_or("VIDEO_PROCESSING_MAX_OUTPUT_SIZE", 0u64);
-    (limit > 0).then_some(limit)
+    let limit = config::settings().video.max_output_size_mb;
+    (limit > 0).then(|| config::mb(limit))
 });
 
 pub static CONFIG: LazyLock<Arc<RwLock<Configuration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Configuration::default())));
 pub static CMS_CONFIG: LazyLock<Arc<RwLock<CmsConfiguration>>> =
     LazyLock::new(|| Arc::new(RwLock::new(CmsConfiguration::default())));
-pub static ENTRY_CACHE: LazyLock<EntryCache> = LazyLock::new(EntryCache::from_env);
+pub static ENTRY_CACHE: LazyLock<EntryCache> = LazyLock::new(EntryCache::from_config);
 
 pub async fn init_db() -> Result<PgPool, NurError> {
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let max_connections = env_parse_or("MAX_CONNECTIONS", 50u32);
+    let database_url = &config::settings().database.url;
+    let max_connections = config::settings().database.max_connections;
 
     let pool = PgPoolOptions::new()
         .min_connections(1)
@@ -138,7 +116,7 @@ pub async fn init_db() -> Result<PgPool, NurError> {
         .acquire_timeout(Duration::from_secs(10))
         .idle_timeout(Some(Duration::from_secs(300)))
         .max_lifetime(Some(Duration::from_secs(3600)))
-        .connect(&database_url)
+        .connect(database_url)
         .await?;
 
     handles::db_migrate(&pool).await?;

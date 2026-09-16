@@ -1,11 +1,59 @@
-#DEBHELPER#
+#!/bin/sh
+set -e
 
 sysUser="nur-cms"
 
-if [ ! $(id -u $sysUser 2>/dev/null || echo -1) -ge 0 ]; then
-    adduser --system --create-home $sysUser > /dev/null || \
-        adduser --system --home "/home/$sysUser" $sysUser
-
-    mkdir -p /var/www/nur-cms/uploads
-    chown ${sysUser}: -R /var/www/nur-cms
+if ! id -u "$sysUser" >/dev/null 2>&1; then
+    adduser --system --home "/var/lib/$sysUser/$sysUser" --group "$sysUser" >/dev/null 2>&1 || \
+        useradd --system --home-dir "/var/lib/$sysUser/$sysUser" --create-home --user-group "$sysUser"
 fi
+sysGroup="$(id -g "$sysUser")"
+
+install -d -o root -g root -m 711 "/var/lib/$sysUser"
+install -d -o "$sysUser" -g "$sysGroup" -m 750 "/var/lib/$sysUser/$sysUser"
+install -d -o "$sysUser" -g "$sysGroup" -m 750 /var/www/nur-cms/uploads
+install -d -o root -g "$sysGroup" -m 711 /etc/nur-cms
+
+hasConfig=false
+for configFile in /etc/nur-cms/*.toml; do
+    if [ -f "$configFile" ]; then
+        hasConfig=true
+        break
+    fi
+done
+
+if [ "$hasConfig" = false ]; then
+    if [ -x /usr/bin/nur-cms ] && [ -f /home/nur-cms/.env ]; then
+        /usr/bin/nur-cms config create /etc/nur-cms/nur-cms.toml \
+            --from-env /home/nur-cms/.env
+        chown root:"$sysGroup" /etc/nur-cms/nur-cms.toml
+        chmod 640 /etc/nur-cms/nur-cms.toml
+    else
+        install -o root -g "$sysGroup" -m 640 \
+            /usr/share/nur-cms/nur-cms.toml /etc/nur-cms/nur-cms.toml
+    fi
+fi
+
+if [ -x /usr/bin/nur-cms ]; then
+    for configFile in /etc/nur-cms/*.toml; do
+        [ -f "$configFile" ] || continue
+        /usr/bin/nur-cms config migrate "$configFile"
+    done
+fi
+
+if [ "$1" = "configure" ] && [ -n "${2:-}" ] && [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null
+    runningInstances="$(
+        systemctl list-units --type=service --state=running --plain --no-legend \
+            'nur-cms@*.service' | awk '{print $1}'
+    )"
+    for instance in $runningInstances; do
+        echo "Restarting $instance after upgrade ..."
+        if ! deb-systemd-invoke restart "$instance"; then
+            echo "Failed to restart $instance; remaining nur-cms instances were not restarted." >&2
+            exit 1
+        fi
+    done
+fi
+
+#DEBHELPER#

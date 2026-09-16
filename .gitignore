@@ -7,6 +7,9 @@
 !migrations_dev/*.sql
 !backend/plugins/**/*.sql
 
+nur-cms.toml
+!assets/nur-cms.toml
+
 uploads/
 !uploads/2025
 

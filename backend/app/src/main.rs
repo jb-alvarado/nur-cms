@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    env,
     net::{IpAddr, SocketAddr},
     sync::{Arc, LazyLock},
 };
@@ -15,7 +14,6 @@ use axum::{
 };
 use clap::Parser;
 use colored::Colorize;
-use dotenvy::{dotenv, from_filename};
 use ipnet::IpNet;
 use lazy_limit::{Duration as LDuration, HttpMethod, RuleConfig, init_rate_limiter};
 use protect_axum::GrantsLayer;
@@ -36,6 +34,7 @@ mod utils;
 
 use nur_core::{
     CMS_CONFIG, CONFIG, STORAGE,
+    config::{self, settings},
     db::handles,
     extract,
     file::video::start_video_workers,
@@ -52,15 +51,17 @@ use nur_plugins::PluginManager;
 
 use plugins::PluginCacheInvalidator;
 use utils::{
+    config_management,
     extend_args::AppArgs,
     logging::{init_tracing, log_middleware},
 };
 
 static TRUSTED_PROXY_CIDRS: LazyLock<Vec<IpNet>> = LazyLock::new(|| {
-    env::var("TRUSTED_PROXY_CIDRS")
-        .unwrap_or_default()
-        .split(',')
-        .filter_map(|cidr| cidr.trim().parse().ok())
+    settings()
+        .server
+        .trusted_proxy_cidrs
+        .iter()
+        .filter_map(|cidr| cidr.parse().ok())
         .collect()
 });
 
@@ -165,25 +166,38 @@ use serve::routes::admin_ui_routes;
 
 #[tokio::main]
 async fn main() -> Result<(), NurError> {
-    match dotenv() {
-        Ok(_) => {}
-        Err(error) if error.not_found() => {
-            if let Err(error) = from_filename("./assets/.env.example")
-                && !error.not_found()
-            {
-                error!("Failed to load fallback environment file: {error}");
-                return Err(NurError::InternalServerError);
-            }
-        }
-        Err(error) => {
-            error!("Failed to load .env: {error}");
-            return Err(NurError::InternalServerError);
-        }
+    let mut args = AppArgs::parse();
+    if let Some(command) = &args.command {
+        config_management::run(command, args.config.as_deref()).map_err(|error| {
+            eprintln!("Configuration error: {error}");
+            NurError::InternalServerError
+        })?;
+        return Ok(());
     }
 
-    let args = AppArgs::parse();
+    if let Err(error) = dotenvy::dotenv()
+        && !error.not_found()
+    {
+        eprintln!("Failed to load .env: {error}");
+        return Err(NurError::InternalServerError);
+    }
+
+    let (runtime_config, config_path) = config::load(args.config.as_deref()).map_err(|error| {
+        eprintln!("Configuration error: {error}");
+        NurError::InternalServerError
+    })?;
+    args.core.listen = args
+        .core
+        .listen
+        .or_else(|| Some(runtime_config.server.listen.clone()));
+    args.core.disable_two_factor |= runtime_config.authentication.disable_two_factor;
+    config::install(runtime_config).map_err(|error| {
+        eprintln!("Configuration error: {error}");
+        NurError::InternalServerError
+    })?;
 
     init_tracing(args.log_level.clone(), args.log_timestamp);
+    debug!(path = %config_path.display(), "loaded configuration");
 
     let pool = init_db().await?;
 
@@ -329,6 +343,12 @@ async fn main() -> Result<(), NurError> {
     } else {
         debug!("listening on bound address (local_addr unavailable)");
     }
+
+    #[cfg(target_os = "linux")]
+    sd_notify::notify(&[sd_notify::NotifyState::Ready]).map_err(|error| {
+        error!(%error, "Failed to notify systemd that the service is ready");
+        NurError::InternalServerError
+    })?;
 
     let server_shutdown = shutdown_tx.clone();
     axum::serve(
