@@ -11,7 +11,7 @@ sysGroup="$(id -g "$sysUser")"
 
 install -d -o root -g root -m 711 "/var/lib/$sysUser"
 install -d -o "$sysUser" -g "$sysGroup" -m 750 "/var/lib/$sysUser/$sysUser"
-install -d -o "$sysUser" -g "$sysGroup" -m 750 /var/www/nur-cms/uploads
+install -d -o "$sysUser" -g "$sysGroup" -m 755 /var/www/nur-cms/uploads
 install -d -o root -g "$sysGroup" -m 711 /etc/nur-cms
 
 hasConfig=false
