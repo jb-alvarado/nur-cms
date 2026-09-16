@@ -54,7 +54,6 @@ sd-notify = "0.5"
 # DEBIAN DEB PACKAGE
 [package.metadata.deb]
 name = "nur-cms"
-revision = "2"
 priority = "optional"
 section = "net"
 license-file = ["../../LICENSE", "0"]
