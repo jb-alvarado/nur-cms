@@ -7,7 +7,7 @@ export type AuthRole = { id?: number, name: Role, total_count?: bigint | null, }
 
 export type AuthUser = { id?: number, email?: string, username?: string, first_name?: string, last_name?: string, password?: string, role_id?: number, created_at?: string | null, updated_at?: string | null, last_login?: string | null, };
 
-export type BrandingConfiguration = { frontend_name: string, logo_url: string | null, logo_alt: string | null, admin_language: string | null, };
+export type BrandingConfiguration = { frontend_name: string, logo_url: string | null, logo_mime_type: string | null, logo_alt: string | null, admin_language: string | null, };
 
 export type CmsConfiguration = { frontend_name: string, logo_media_id: number | null, admin_language: string | null, entry_default_status: string, entry_hidden_fields: Array<string>, hidden_menu_items: Array<string>, disabled_features: Array<string>, };
 

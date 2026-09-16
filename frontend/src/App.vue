@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
 import { normalizeCode } from '@/utils/helper'
+import { faviconLink } from '@/utils/favicon'
 import { pluginViewKey } from '@/utils/pluginAdmin'
 
 import AlertMsg from '@/components/AlertMsg.vue'
@@ -74,6 +75,12 @@ useHead({
         lang: computed(() => locale.value),
         'data-theme': computed(() => (store.darkMode ? 'dark' : 'light')),
     },
+    link: computed(() => [
+        {
+            rel: 'icon',
+            ...faviconLink(store.branding.logo_url, store.branding.logo_mime_type),
+        },
+    ]),
 })
 </script>
 

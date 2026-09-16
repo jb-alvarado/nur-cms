@@ -72,6 +72,7 @@ export const useIndex = defineStore('index', {
         branding: {
             frontend_name: 'NUR CMS',
             logo_url: null,
+            logo_mime_type: null,
             logo_alt: null,
             admin_language: null,
         } as BrandingConfiguration,

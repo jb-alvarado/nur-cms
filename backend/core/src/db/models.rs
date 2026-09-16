@@ -153,6 +153,7 @@ impl Default for CmsConfiguration {
 pub struct BrandingConfiguration {
     pub frontend_name: String,
     pub logo_url: Option<String>,
+    pub logo_mime_type: Option<String>,
     pub logo_alt: Option<String>,
     pub admin_language: Option<String>,
 }
@@ -162,6 +163,7 @@ impl Default for BrandingConfiguration {
         Self {
             frontend_name: "NUR CMS".into(),
             logo_url: None,
+            logo_mime_type: None,
             logo_alt: None,
             admin_language: None,
         }

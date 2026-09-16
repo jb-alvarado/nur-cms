@@ -156,8 +156,9 @@ pub async fn select_branding_configuration(
     pool: &PgPool,
 ) -> Result<BrandingConfiguration, NurError> {
     const QUERY: &str = "SELECT cc.frontend_name, \
-        CASE WHEN m.id IS NULL THEN NULL ELSE RTRIM(m.path, '/') || '/' || m.filename END AS logo_url, \
-        m.alt AS logo_alt, cc.admin_language FROM configuration_cms cc LEFT JOIN media m ON m.id = cc.logo_media_id \
+        CASE WHEN m.id IS NULL THEN NULL ELSE RTRIM(m.path, '/') || '/' || m.filename || '?v=' || m.id END AS logo_url, \
+        m.type AS logo_mime_type, m.alt AS logo_alt, cc.admin_language \
+        FROM configuration_cms cc LEFT JOIN media m ON m.id = cc.logo_media_id \
         AND m.type LIKE 'image/%' AND (m.path = '/uploads' OR m.path LIKE '/uploads/%') \
         WHERE cc.id = 1";
 
