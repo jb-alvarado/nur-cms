@@ -1,21 +1,29 @@
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, io::Error as IoError, time::Duration};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
-use sqlx::Row;
+use sqlx::{Error as SqlxError, PgPool, Row, query, query_scalar};
+use tokio::task::JoinError;
+use wasmtime::{Error as WasmtimeError, Trap};
 
-mod manifest;
-mod migrations;
+use nur_core::config::{mb, settings};
+
+use self::{
+    runtime::{PluginComponent, Runtime, bindings},
+    utils::{
+        manifest::{self, InstalledPlugin, RouteManifest, RouteScope},
+        migrations,
+    },
+};
+
 mod runtime;
-mod storage;
-pub mod transport;
+mod utils;
 
-pub use manifest::{AdminManifest, AdminMenuItem};
-use manifest::{RouteManifest, RouteScope};
-use runtime::{PluginComponent, Runtime, bindings};
-pub use storage::{BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, StoredFile};
-pub use transport::{AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route};
+pub use utils::{
+    manifest::{AdminManifest, AdminMenuItem},
+    storage::{BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, StoredFile},
+    transport::{self, AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route},
+};
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_RESPONSE_HEADERS: usize = 64;
@@ -47,16 +55,16 @@ pub enum Error {
     #[error("invalid plugin value")]
     InvalidValue,
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] IoError),
     #[error(transparent)]
-    Database(#[from] sqlx::Error),
+    Database(#[from] SqlxError),
     #[error(transparent)]
-    Join(#[from] tokio::task::JoinError),
+    Join(#[from] JoinError),
 }
 
 impl Error {
-    fn wasmtime(error: wasmtime::Error) -> Self {
-        if error.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::Interrupt) {
+    fn wasmtime(error: WasmtimeError) -> Self {
+        if error.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
             Self::Timeout
         } else {
             Self::Plugin(error.to_string())
@@ -91,6 +99,12 @@ pub struct PluginManager {
     response_body_limit: usize,
 }
 
+struct LoadedPlugins {
+    routes: Vec<RegisteredRoute>,
+    assets: Vec<AssetDirectory>,
+    metadata: Vec<PluginMetadata>,
+}
+
 impl PluginManager {
     pub async fn load(pool: &PgPool) -> Result<Self, Error> {
         let installed = manifest::discover()?;
@@ -98,6 +112,7 @@ impl PluginManager {
         let request_body_limit = request_body_limit();
         let response_body_limit = response_body_limit();
         let storage_write_limit = storage_write_limit();
+
         if installed.is_empty() {
             return Ok(Self {
                 routes: Vec::new(),
@@ -113,6 +128,7 @@ impl PluginManager {
                 response_body_limit,
             });
         }
+
         let storage_directories: Vec<_> = installed
             .iter()
             .flat_map(|plugin| {
@@ -125,9 +141,11 @@ impl PluginManager {
                     .map(move |directory| StorageDirectory::from_manifest(plugin_id, directory))
             })
             .collect::<Result<_, _>>()?;
+
         let storage = (!storage_directories.is_empty())
             .then(PluginStorage::from_config)
             .transpose()?;
+
         if let Some(storage) = &storage {
             storage.cleanup_incomplete_uploads(Duration::from_secs(
                 plugin_upload_session_seconds() as u64,
@@ -136,69 +154,11 @@ impl PluginManager {
                 storage.validate_directory(directory)?;
             }
         }
-        let runtime = Runtime::new(pool.clone(), storage.clone())?;
-        let mut routes = Vec::new();
-        let mut assets = Vec::new();
-        let mut metadata = Vec::new();
-        let mut registered = HashSet::new();
-        let allow_root = nur_core::config::settings().plugins.allow_root_routes;
 
-        for plugin in installed {
-            migrations::migrate_plugin(pool, &plugin).await?;
-            let plugin_id = plugin.manifest.plugin.id.clone();
-            let component = runtime.load(&plugin)?;
-            if let Some(path) = plugin.assets.clone() {
-                assets.push(AssetDirectory {
-                    plugin_id: plugin_id.clone(),
-                    path,
-                });
-            }
-            metadata.push(PluginMetadata {
-                id: plugin_id.clone(),
-                name: plugin
-                    .manifest
-                    .plugin
-                    .name
-                    .clone()
-                    .unwrap_or_else(|| plugin_id.clone()),
-                version: plugin.manifest.plugin.version.clone(),
-                admin: plugin
-                    .manifest
-                    .admin
-                    .clone()
-                    .map(|admin| resolve_admin_manifest(&plugin_id, admin)),
-            });
-            let cache = plugin.manifest.cache.as_ref().map(|cache| CachePolicy {
-                ttl: Duration::from_secs(cache.ttl_seconds),
-                max_entries: cache.max_entries,
-            });
-            for route in &plugin.manifest.routes {
-                let path = resolve_route_path(&plugin_id, route, allow_root)?;
-                let key = (route.method.to_ascii_uppercase(), route_shape(&path)?);
-                if !registered.insert(key) {
-                    return Err(Error::Manifest(format!(
-                        "duplicate plugin route {} {}",
-                        route.method, path
-                    )));
-                }
-                let roles = route.roles()?;
-                let cache_enabled = route.cache_enabled(cache.is_some())?;
-                let route = Route::new(
-                    routes.len(),
-                    plugin_id.clone(),
-                    route.id.clone(),
-                    route.method.to_ascii_uppercase(),
-                    path,
-                    roles,
-                    cache_enabled.then_some(cache).flatten(),
-                );
-                routes.push(RegisteredRoute {
-                    route,
-                    plugin: component.clone(),
-                });
-            }
-        }
-        sqlx::query(
+        let runtime = Runtime::new(pool.clone(), storage.clone())?;
+        let loaded = load_plugins(pool, installed, &runtime).await?;
+
+        query(
             "DELETE FROM public.plugin_file_links \
              WHERE (upload_id IS NULL AND expires_at <= now()) \
                 OR consumed_at <= now() - interval '1 day' \
@@ -208,10 +168,11 @@ impl PluginManager {
         .bind(plugin_upload_session_seconds())
         .execute(pool)
         .await?;
+
         Ok(Self {
-            routes,
-            assets,
-            metadata,
+            routes: loaded.routes,
+            assets: loaded.assets,
+            metadata: loaded.metadata,
             storage,
             storage_directories,
             pool: pool.clone(),
@@ -229,15 +190,19 @@ impl PluginManager {
             .map(|route| route.route.clone())
             .collect()
     }
+
     pub fn assets(&self) -> &[AssetDirectory] {
         &self.assets
     }
+
     pub fn timeout(&self) -> Duration {
         self.timeout
     }
+
     pub fn request_body_limit(&self) -> usize {
         self.request_body_limit
     }
+
     pub fn metadata(&self) -> &[PluginMetadata] {
         &self.metadata
     }
@@ -273,7 +238,8 @@ impl PluginManager {
         if !valid_file_token(token) {
             return Err(Error::PluginNotFound);
         }
-        let row = sqlx::query(
+
+        let row = query(
             "SELECT id, directory_id, filename FROM public.plugin_file_links \
              WHERE plugin_id = $1 AND purpose = 'download' AND token_hash = $2 \
                AND consumed_at IS NULL AND expires_at > now()",
@@ -282,23 +248,26 @@ impl PluginManager {
         .bind(Sha256::digest(token.as_bytes()).to_vec())
         .fetch_optional(&self.pool)
         .await?;
+
         let row = row.ok_or(Error::PluginNotFound)?;
         let directory_id: String = row.try_get("directory_id")?;
         let path: String = row.try_get("filename")?;
         let directory = self
             .storage_directory(plugin_id, &directory_id)
             .ok_or(Error::PluginNotFound)?;
+
         Ok((row.try_get("id")?, directory, path))
     }
 
     pub async fn consume_download_link(&self, link_id: i64) -> Result<(), Error> {
-        let result = sqlx::query(
+        let result = query(
             "UPDATE public.plugin_file_links SET consumed_at = now() \
              WHERE id = $1 AND purpose = 'download' AND consumed_at IS NULL AND expires_at > now()",
         )
         .bind(link_id)
         .execute(&self.pool)
         .await?;
+
         (result.rows_affected() == 1)
             .then_some(())
             .ok_or(Error::PluginNotFound)
@@ -321,8 +290,10 @@ impl PluginManager {
         {
             return Err(Error::PluginNotFound);
         }
+
         let total_size = i64::try_from(total_size).map_err(|_| Error::PluginNotFound)?;
-        let directory_id: String = sqlx::query_scalar(
+
+        let directory_id: String = query_scalar(
             "SELECT directory_id FROM public.plugin_file_links \
              WHERE plugin_id = $1 AND purpose = 'upload' AND token_hash = $2",
         )
@@ -331,12 +302,14 @@ impl PluginManager {
         .fetch_optional(&self.pool)
         .await?
         .ok_or(Error::PluginNotFound)?;
+
         let resolved_directory = self
             .storage_directory(plugin_id, &directory_id)
             .filter(|directory| directory.upload == BrowserUpload::Link)
             .ok_or(Error::PluginNotFound)?
             .resolved_for_upload();
-        let row = sqlx::query(
+
+        let row = query(
             "UPDATE public.plugin_file_links \
              SET upload_id = COALESCE(upload_id, $4), claimed_at = COALESCE(claimed_at, now()), \
                  storage_path = COALESCE(storage_path, $6) \
@@ -356,6 +329,7 @@ impl PluginManager {
         .bind(&resolved_directory.path)
         .fetch_optional(&self.pool)
         .await?;
+
         let row = row.ok_or(Error::PluginNotFound)?;
         let link_id: i64 = row.try_get("id")?;
         let filename: String = row.try_get("filename")?;
@@ -363,6 +337,7 @@ impl PluginManager {
             u64::try_from(row.try_get::<i64, _>("max_size")?).map_err(|_| Error::InvalidValue)?;
         let mut directory = resolved_directory;
         directory.path = row.try_get("storage_path")?;
+
         Ok((
             link_id,
             directory,
@@ -377,7 +352,7 @@ impl PluginManager {
         link_id: i64,
         upload_id: &str,
     ) -> Result<(), Error> {
-        let result = sqlx::query(
+        let result = query(
             "UPDATE public.plugin_file_links SET finalizing_at = COALESCE(finalizing_at, now()) \
              WHERE id = $1 AND purpose = 'upload' AND upload_id = $2 AND consumed_at IS NULL",
         )
@@ -385,13 +360,14 @@ impl PluginManager {
         .bind(upload_id)
         .execute(&self.pool)
         .await?;
+
         (result.rows_affected() == 1)
             .then_some(())
             .ok_or(Error::PluginNotFound)
     }
 
     pub async fn complete_upload_link(&self, link_id: i64, upload_id: &str) -> Result<(), Error> {
-        let result = sqlx::query(
+        let result = query(
             "UPDATE public.plugin_file_links SET consumed_at = now() \
              WHERE id = $1 AND purpose = 'upload' AND upload_id = $2 \
                AND finalizing_at IS NOT NULL AND consumed_at IS NULL",
@@ -400,6 +376,7 @@ impl PluginManager {
         .bind(upload_id)
         .execute(&self.pool)
         .await?;
+
         if result.rows_affected() == 1 {
             Ok(())
         } else {
@@ -433,14 +410,17 @@ impl PluginManager {
 
     pub async fn dispatch(&self, route: &Route, request: Request) -> Result<Response, Error> {
         let registered = self.routes.get(route.key()).ok_or(Error::PluginNotFound)?;
+
         if !self.authorized(route, request.identity.as_ref()) {
             return Err(Error::PluginForbidden);
         }
+
         if request.body.len() > self.request_body_limit {
             return Err(Error::PluginBadRequest(
                 "plugin request body exceeds limit".into(),
             ));
         }
+
         let response = registered
             .plugin
             .call(
@@ -474,7 +454,9 @@ impl PluginManager {
                 request.client_ip,
             )
             .await?;
+
         validate_response(&response, self.response_body_limit)?;
+
         Ok(Response {
             status: response.status,
             headers: response
@@ -490,6 +472,88 @@ impl PluginManager {
     }
 }
 
+async fn load_plugins(
+    pool: &PgPool,
+    installed: Vec<InstalledPlugin>,
+    runtime: &Runtime,
+) -> Result<LoadedPlugins, Error> {
+    let mut routes = Vec::new();
+    let mut assets = Vec::new();
+    let mut metadata = Vec::new();
+    let mut registered = HashSet::new();
+    let allow_root = settings().plugins.allow_root_routes;
+
+    for plugin in installed {
+        migrations::migrate_plugin(pool, &plugin).await?;
+
+        let plugin_id = plugin.manifest.plugin.id.clone();
+        let component = runtime.load(&plugin)?;
+
+        if let Some(path) = plugin.assets.clone() {
+            assets.push(AssetDirectory {
+                plugin_id: plugin_id.clone(),
+                path,
+            });
+        }
+
+        metadata.push(PluginMetadata {
+            id: plugin_id.clone(),
+            name: plugin
+                .manifest
+                .plugin
+                .name
+                .clone()
+                .unwrap_or_else(|| plugin_id.clone()),
+            version: plugin.manifest.plugin.version.clone(),
+            admin: plugin
+                .manifest
+                .admin
+                .clone()
+                .map(|admin| resolve_admin_manifest(&plugin_id, admin)),
+        });
+
+        let cache = plugin.manifest.cache.as_ref().map(|cache| CachePolicy {
+            ttl: Duration::from_secs(cache.ttl_seconds),
+            max_entries: cache.max_entries,
+        });
+
+        for route in &plugin.manifest.routes {
+            let path = resolve_route_path(&plugin_id, route, allow_root)?;
+            let key = (route.method.to_ascii_uppercase(), route_shape(&path)?);
+
+            if !registered.insert(key) {
+                return Err(Error::Manifest(format!(
+                    "duplicate plugin route {} {}",
+                    route.method, path
+                )));
+            }
+
+            let roles = route.roles()?;
+            let cache_enabled = route.cache_enabled(cache.is_some())?;
+            let route = Route::new(
+                routes.len(),
+                plugin_id.clone(),
+                route.id.clone(),
+                route.method.to_ascii_uppercase(),
+                path,
+                roles,
+                cache_enabled.then_some(cache).flatten(),
+            );
+
+            routes.push(RegisteredRoute {
+                route,
+                plugin: component.clone(),
+            });
+        }
+    }
+
+    Ok(LoadedPlugins {
+        routes,
+        assets,
+        metadata,
+    })
+}
+
 fn visible_admin(
     admin: Option<AdminManifest>,
     plugin_id: &str,
@@ -502,6 +566,7 @@ fn visible_admin(
     {
         return None;
     }
+
     let menu = admin.menu.clone();
     admin.menu = menu
         .into_iter()
@@ -511,6 +576,7 @@ fn visible_admin(
                 .is_ok_and(|required| required.iter().any(|role| user_roles.contains(role)))
         })
         .collect();
+
     Some(admin)
 }
 
@@ -524,7 +590,9 @@ fn validate_response(
     {
         return Err(Error::Plugin("plugin returned an invalid response".into()));
     }
+
     let mut bytes = 0usize;
+
     for header in &response.headers {
         if header.name.is_empty()
             || !header
@@ -541,13 +609,16 @@ fn validate_response(
                 "plugin returned invalid response headers".into(),
             ));
         }
+
         bytes = bytes
             .checked_add(header.name.len() + header.value.len())
             .ok_or_else(|| Error::Plugin("plugin response headers exceed limit".into()))?;
     }
+
     if bytes > MAX_RESPONSE_HEADER_BYTES {
         return Err(Error::Plugin("plugin response headers exceed limit".into()));
     }
+
     Ok(())
 }
 
@@ -566,6 +637,7 @@ fn resolve_route_path(
             route.path
         )));
     }
+
     if route.scope == RouteScope::Plugin {
         if route.path.starts_with("/files/") {
             return Err(Error::Manifest(format!(
@@ -594,12 +666,14 @@ fn resolve_route_path(
         route_shape(&path)?;
         return Ok(path);
     }
+
     if !allow_root {
         return Err(Error::Manifest(format!(
             "plugin '{plugin_id}' root route '{}' requires plugins.allow_root_routes = true",
             route.path
         )));
     }
+
     if [
         "/auth", "/api", "/admin", "/sse", "/uploads", "/p", "/files",
     ]
@@ -616,7 +690,9 @@ fn resolve_route_path(
             route.path
         )));
     }
+
     route_shape(&route.path)?;
+
     Ok(route.path.clone())
 }
 
@@ -629,6 +705,7 @@ fn resolve_admin_manifest(plugin_id: &str, mut admin: AdminManifest) -> AdminMan
             format!("{namespace}{}", item.path)
         };
     }
+
     admin
 }
 
@@ -641,8 +718,10 @@ fn route_shape(path: &str) -> Result<String, Error> {
             "plugin route path is invalid or too long".into(),
         ));
     }
+
     let mut params = HashSet::new();
     let mut shape = Vec::new();
+
     for segment in path.split('/') {
         if segment.starts_with('{') || segment.ends_with('}') {
             if segment.len() < 3
@@ -680,40 +759,32 @@ fn route_shape(path: &str) -> Result<String, Error> {
             shape.push(segment);
         }
     }
+
     Ok(shape.join("/"))
 }
 
 pub(crate) fn plugin_timeout() -> Duration {
-    Duration::from_secs(nur_core::config::settings().plugins.runtime.timeout_seconds)
+    Duration::from_secs(settings().plugins.runtime.timeout_seconds)
 }
+
 fn request_body_limit() -> usize {
-    nur_core::config::mb(
-        nur_core::config::settings()
-            .plugins
-            .runtime
-            .request_body_limit_mb,
-    ) as usize
+    mb(settings().plugins.runtime.request_body_limit_mb) as usize
 }
+
 fn response_body_limit() -> usize {
-    nur_core::config::mb(
-        nur_core::config::settings()
-            .plugins
-            .runtime
-            .response_body_limit_mb,
-    ) as usize
+    mb(settings().plugins.runtime.response_body_limit_mb) as usize
 }
 
 fn storage_quota() -> u64 {
-    nur_core::config::mb(nur_core::config::settings().plugins.storage.quota_mb)
+    mb(settings().plugins.storage.quota_mb)
 }
 
 fn storage_write_limit() -> usize {
-    nur_core::config::mb(nur_core::config::settings().plugins.storage.write_limit_mb) as usize
+    mb(settings().plugins.storage.write_limit_mb) as usize
 }
 
 fn plugin_upload_session_seconds() -> i32 {
-    i32::try_from(nur_core::config::settings().uploads.session_lifetime_hours * 60 * 60)
-        .unwrap_or(i32::MAX)
+    i32::try_from(settings().uploads.session_lifetime_hours * 60 * 60).unwrap_or(i32::MAX)
 }
 
 fn valid_file_token(token: &str) -> bool {
@@ -725,6 +796,7 @@ mod tests {
     use std::{collections::BTreeMap, time::Duration};
 
     use sha2::{Digest, Sha256};
+    use sqlx::{PgPool, migrate::Migrator, query};
 
     use super::{
         AdminManifest, AdminMenuItem, BrowserUpload, Error, PluginManager, RouteManifest,
@@ -733,7 +805,7 @@ mod tests {
     };
     use crate::manifest::RouteScope;
 
-    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+    const MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
     fn route(path: &str) -> RouteManifest {
         RouteManifest {
@@ -898,8 +970,8 @@ mod tests {
 
     #[sqlx::test(migrator = "MIGRATOR")]
     #[ignore = "requires PostgreSQL via DATABASE_URL"]
-    async fn upload_links_are_bound_to_one_session_and_consumed_once(pool: sqlx::PgPool) {
-        sqlx::query(
+    async fn upload_links_are_bound_to_one_session_and_consumed_once(pool: PgPool) {
+        query(
             "INSERT INTO public.plugin_registry \
              (plugin_id, version, api_version, schema_name, manifest_checksum) \
              VALUES ('example', '0.1.0', 1, 'nur_plugin_example', $1)",
@@ -909,7 +981,7 @@ mod tests {
         .await
         .expect("plugin registry row can be inserted");
         let token = "0123456789abcdef0123456789abcdef";
-        sqlx::query(
+        query(
             "INSERT INTO public.plugin_file_links \
              (plugin_id, directory_id, purpose, token_hash, filename, max_size, expires_at) \
              VALUES ('example', 'documents', 'upload', $1, 'report.pdf', 1024, \
@@ -942,7 +1014,7 @@ mod tests {
         };
 
         let download_token = "abcdefabcdefabcdefabcdefabcdefab";
-        sqlx::query(
+        query(
             "INSERT INTO public.plugin_file_links \
              (plugin_id, directory_id, purpose, token_hash, filename, expires_at) \
              VALUES ('example', 'documents', 'download', $1, 'documents/2026/09/report.pdf', \

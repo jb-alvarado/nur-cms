@@ -29,7 +29,6 @@ use tracing::{debug, error};
 #[cfg(not(debug_assertions))]
 mod serve;
 
-mod plugins;
 mod utils;
 
 use nur_core::{
@@ -49,11 +48,11 @@ use nur_core::{
 };
 use nur_plugins::PluginManager;
 
-use plugins::PluginCacheInvalidator;
 use utils::{
     config_management,
     extend_args::AppArgs,
     logging::{init_tracing, log_middleware},
+    plugins::{self, PluginCacheInvalidator},
 };
 
 static TRUSTED_PROXY_CIDRS: LazyLock<Vec<IpNet>> = LazyLock::new(|| {
@@ -339,7 +338,7 @@ async fn main() -> Result<(), NurError> {
         })?;
 
     if let Ok(addr) = listener.local_addr() {
-        debug!("listening on {}", addr.to_string().yellow());
+        debug!("listening on {}", format!("http://{addr}").yellow());
     } else {
         debug!("listening on bound address (local_addr unavailable)");
     }

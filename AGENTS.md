@@ -28,6 +28,14 @@ Production builds embed the frontend in the Rust binary.
   instead of rewriting existing history unless explicitly requested.
 - Keep async Rust non-blocking; do not hold locks across awaits. Avoid
   `unwrap`/`expect` in production paths without a documented invariant.
+- In Rust files, group imports in this order: `std`, external dependencies,
+  workspace crates such as `nur_core`, then local imports through `crate`,
+  `self`, or `super`. Separate every group with one blank line. Import modules
+  and functions directly when that keeps call sites focused on the operation
+  instead of its fully qualified path.
+- Within functions, use blank lines to separate distinct steps such as setup,
+  validation, execution, and result handling. Keep closely related statements
+  together.
 - Use Vue Composition API and typed TypeScript. Do not introduce `any`; prefer
   generated declarations, type guards, or `unknown` at external boundaries.
 - Preserve `/auth`, `/api`, `/sse`, `/uploads`, the Vite `/admin/` base path,

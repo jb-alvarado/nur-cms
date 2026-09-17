@@ -1,5 +1,6 @@
 pub mod ast_serialize;
 pub mod cmd_args;
+pub mod config;
 pub mod content_output;
 pub mod editor_settings;
 pub mod errors;

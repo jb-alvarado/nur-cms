@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
-    fs,
-    fs::OpenOptions,
-    io::Write,
+    fs::{self, OpenOptions},
+    io::{Error as IoError, ErrorKind, Write},
     path::{Component, Path, PathBuf},
+    process,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -12,6 +12,9 @@ use std::{
 };
 
 use chrono::{Datelike, Local};
+use serde::Serialize;
+
+use nur_core::config::settings;
 
 use crate::{
     Error,
@@ -58,7 +61,7 @@ pub struct PluginStorage {
     plugin_sizes: Arc<Mutex<HashMap<String, u64>>>,
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct StoredFile {
     pub path: String,
     pub public_url: Option<String>,
@@ -66,7 +69,8 @@ pub struct StoredFile {
 
 impl PluginStorage {
     pub fn from_config() -> Result<Self, Error> {
-        let config = nur_core::config::settings();
+        let config = settings();
+
         Self::from_roots(
             config.uploads.directory.clone(),
             config.plugins.storage.private_directory.clone(),
@@ -77,6 +81,7 @@ impl PluginStorage {
         fs::create_dir_all(&storage).map_err(Error::Io)?;
         let upload_root = fs::canonicalize(storage).map_err(Error::Io)?;
         let public_root = upload_root.join("p");
+
         fs::create_dir_all(&public_root).map_err(Error::Io)?;
         let public_root = fs::canonicalize(public_root).map_err(Error::Io)?;
         let private_root = private_root
@@ -85,6 +90,7 @@ impl PluginStorage {
                 fs::canonicalize(root).map_err(Error::Io)
             })
             .transpose()?;
+
         if private_root.as_ref().is_some_and(|private_root| {
             private_root.starts_with(&upload_root)
                 || upload_root.starts_with(private_root)
@@ -96,6 +102,7 @@ impl PluginStorage {
                     .into(),
             ));
         }
+
         Ok(Self {
             public_root,
             private_root,
@@ -118,12 +125,14 @@ impl PluginStorage {
                 "plugin storage directory is not valid".into(),
             ));
         }
+
         if directory.visibility == StorageVisibility::Private && self.private_root.is_none() {
             return Err(Error::Manifest(format!(
                 "plugin '{}' declares private storage '{}', but plugins.storage.private_directory is not configured",
                 directory.plugin_id, directory.id
             )));
         }
+
         Ok(())
     }
 
@@ -135,19 +144,22 @@ impl PluginStorage {
         maximum_plugin_size: u64,
     ) -> Result<(), Error> {
         self.validate_directory(directory)?;
-        validate_filename(filename).map_err(Error::PluginBadRequest)?;
-        validate_extension(directory, filename).map_err(Error::PluginBadRequest)?;
+        validate_file(directory, filename)?;
+
         if maximum_size == 0 || maximum_size > maximum_plugin_size {
             return Err(Error::PluginBadRequest("invalid plugin upload size".into()));
         }
+
         Ok(())
     }
 
     pub fn cleanup_incomplete_uploads(&self, maximum_age: Duration) -> Result<(), Error> {
         cleanup_incomplete_files(&self.public_root, maximum_age)?;
+
         if let Some(root) = &self.private_root {
             cleanup_incomplete_files(root, maximum_age)?;
         }
+
         Ok(())
     }
 
@@ -160,17 +172,18 @@ impl PluginStorage {
         maximum_plugin_size: u64,
     ) -> Result<StoredFile, Error> {
         self.validate_directory(directory)?;
+
         if bytes.len() > maximum_size {
             return Err(Error::PluginBadRequest(
                 "plugin storage write exceeds limit".into(),
             ));
         }
-        validate_filename(filename).map_err(Error::PluginBadRequest)?;
-        validate_extension(directory, filename).map_err(Error::PluginBadRequest)?;
+
+        validate_file(directory, filename)?;
+
         let operation_lock = self.operation_lock(&directory.plugin_id)?;
-        let _operation = operation_lock
-            .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+        let _operation = operation_lock.lock().map_err(|_| storage_lock_error())?;
+
         let root = self.create_directory_root(directory)?;
         let target = root.join(filename);
         ensure_regular_target(&root, &target)?;
@@ -179,6 +192,7 @@ impl PluginStorage {
             .cached_plugin_size(&directory.plugin_id)?
             .saturating_sub(current_size)
             .saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+
         if projected_size > maximum_plugin_size {
             return Err(Error::PluginBadRequest(
                 "plugin storage quota exceeded".into(),
@@ -190,17 +204,19 @@ impl PluginStorage {
             let _ = fs::remove_file(&temporary);
             return Err(Error::Io(error));
         }
+
         self.set_cached_plugin_size(&directory.plugin_id, projected_size)?;
+
         self.stored_file(directory, filename)
     }
 
     pub fn delete(&self, directory: &StorageDirectory, path: &str) -> Result<(), Error> {
         self.validate_directory(directory)?;
         validate_stored_path(directory, path).map_err(Error::PluginBadRequest)?;
+
         let operation_lock = self.operation_lock(&directory.plugin_id)?;
-        let _operation = operation_lock
-            .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+        let _operation = operation_lock.lock().map_err(|_| storage_lock_error())?;
+
         let namespace = self.namespace_root(directory)?;
         let relative = Path::new(path);
         let parent = safe_directory_path(
@@ -216,13 +232,15 @@ impl PluginStorage {
         ensure_regular_target(&parent, &target)?;
         let removed_size = regular_file_size(&target)?;
         let current_size = self.cached_plugin_size(&directory.plugin_id)?;
+
         fs::remove_file(target).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
+            if error.kind() == ErrorKind::NotFound {
                 Error::PluginNotFound
             } else {
                 Error::Io(error)
             }
         })?;
+
         self.set_cached_plugin_size(
             &directory.plugin_id,
             current_size.saturating_sub(removed_size),
@@ -232,6 +250,7 @@ impl PluginStorage {
     pub fn file_path(&self, directory: &StorageDirectory, path: &str) -> Result<PathBuf, Error> {
         self.validate_directory(directory)?;
         validate_stored_path(directory, path).map_err(Error::PluginBadRequest)?;
+
         let namespace = self.namespace_root(directory)?;
         let relative = Path::new(path);
         let parent = safe_directory_path(
@@ -245,6 +264,7 @@ impl PluginStorage {
                 .ok_or_else(|| Error::PluginBadRequest("invalid plugin storage path".into()))?,
         );
         ensure_regular_target(&parent, &target)?;
+
         Ok(target)
     }
 
@@ -257,20 +277,22 @@ impl PluginStorage {
         maximum_plugin_size: u64,
     ) -> Result<PathBuf, Error> {
         self.validate_directory(directory)?;
+
         if total_size == 0 || total_size > maximum_size {
             return Err(Error::PluginBadRequest(
                 "plugin upload exceeds size limit".into(),
             ));
         }
-        validate_filename(filename).map_err(Error::PluginBadRequest)?;
-        validate_extension(directory, filename).map_err(Error::PluginBadRequest)?;
+
+        validate_file(directory, filename)?;
+
         let operation_lock = self.operation_lock(&directory.plugin_id)?;
-        let _operation = operation_lock
-            .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+        let _operation = operation_lock.lock().map_err(|_| storage_lock_error())?;
+
         let root = self.create_directory_root(directory)?;
         let target = root.join(filename);
         ensure_regular_target(&root, &target)?;
+
         if target.exists() {
             return Err(Error::PluginBadRequest(
                 "plugin storage file already exists".into(),
@@ -279,32 +301,39 @@ impl PluginStorage {
         let temporary = append_suffix(&target, ".uploading");
         let reservation_exists = temporary.exists();
         let existing_reservation = regular_file_size(&temporary)?;
+
         if reservation_exists && existing_reservation != total_size {
             return Err(Error::PluginBadRequest(
                 "plugin upload size does not match its reservation".into(),
             ));
         }
+
         let projected_size = self
             .cached_plugin_size(&directory.plugin_id)?
             .saturating_sub(existing_reservation)
             .saturating_add(total_size);
+
         if projected_size > maximum_plugin_size {
             return Err(Error::PluginBadRequest(
                 "plugin storage quota exceeded".into(),
             ));
         }
+
         if !reservation_exists {
             let file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&temporary)
                 .map_err(Error::Io)?;
+
             if let Err(error) = file.set_len(total_size).and_then(|_| file.sync_all()) {
                 let _ = fs::remove_file(&temporary);
                 return Err(Error::Io(error));
             }
         }
+
         self.set_cached_plugin_size(&directory.plugin_id, projected_size)?;
+
         Ok(target)
     }
 
@@ -317,38 +346,44 @@ impl PluginStorage {
         maximum_plugin_size: u64,
     ) -> Result<StoredFile, Error> {
         self.validate_directory(directory)?;
-        validate_filename(filename).map_err(Error::PluginBadRequest)?;
-        validate_extension(directory, filename).map_err(Error::PluginBadRequest)?;
+        validate_file(directory, filename)?;
+
         let operation_lock = self.operation_lock(&directory.plugin_id)?;
-        let _operation = operation_lock
-            .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+        let _operation = operation_lock.lock().map_err(|_| storage_lock_error())?;
+
         let root = self.directory_root(directory)?;
         let target = root.join(filename);
         ensure_regular_target(&root, &target)?;
         let expected_temporary = append_suffix(&target, ".uploading");
+
         if temporary != expected_temporary {
             return Err(Error::PluginBadRequest(
                 "invalid plugin upload temporary path".into(),
             ));
         }
+
         if target.exists() {
             return Err(Error::PluginBadRequest(
                 "plugin storage file already exists".into(),
             ));
         }
+
         let actual_size = regular_file_size(temporary)?;
+
         if actual_size != total_size {
             return Err(Error::PluginBadRequest(
                 "plugin upload size does not match".into(),
             ));
         }
+
         if self.cached_plugin_size(&directory.plugin_id)? > maximum_plugin_size {
             return Err(Error::PluginBadRequest(
                 "plugin storage quota exceeded".into(),
             ));
         }
+
         fs::rename(temporary, &target).map_err(Error::Io)?;
+
         self.stored_file(directory, filename)
     }
 
@@ -359,24 +394,27 @@ impl PluginStorage {
         total_size: u64,
     ) -> Result<Option<(StoredFile, PathBuf)>, Error> {
         self.validate_directory(directory)?;
-        validate_filename(filename).map_err(Error::PluginBadRequest)?;
-        validate_extension(directory, filename).map_err(Error::PluginBadRequest)?;
+        validate_file(directory, filename)?;
+
         let operation_lock = self.operation_lock(&directory.plugin_id)?;
-        let _operation = operation_lock
-            .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+        let _operation = operation_lock.lock().map_err(|_| storage_lock_error())?;
+
         let root = self.directory_root(directory)?;
         let target = root.join(filename);
         let temporary = append_suffix(&target, ".uploading");
+
         if temporary.exists() || !target.exists() {
             return Ok(None);
         }
+
         ensure_regular_target(&root, &target)?;
+
         if regular_file_size(&target)? != total_size {
             return Err(Error::PluginBadRequest(
                 "finalized plugin upload size does not match".into(),
             ));
         }
+
         Ok(Some((self.stored_file(directory, filename)?, target)))
     }
 
@@ -387,16 +425,17 @@ impl PluginStorage {
         temporary: &Path,
     ) -> Result<(), Error> {
         let operation_lock = self.operation_lock(&directory.plugin_id)?;
-        let _operation = operation_lock
-            .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+        let _operation = operation_lock.lock().map_err(|_| storage_lock_error())?;
+
         let target = self.directory_root(directory)?.join(filename);
         let expected_temporary = append_suffix(&target, ".uploading");
+
         if temporary != expected_temporary {
             return Err(Error::PluginBadRequest(
                 "invalid plugin upload temporary path".into(),
             ));
         }
+
         fs::rename(target, temporary).map_err(Error::Io)
     }
 
@@ -406,6 +445,7 @@ impl PluginStorage {
         filename: &str,
     ) -> Result<StoredFile, Error> {
         let relative = format!("{}/{}", render_path(&directory.path), filename);
+
         Ok(StoredFile {
             path: relative.clone(),
             public_url: (directory.visibility == StorageVisibility::Public).then(|| {
@@ -460,22 +500,25 @@ impl PluginStorage {
         if let Some(size) = self
             .plugin_sizes
             .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?
+            .map_err(|_| storage_lock_error())?
             .get(plugin_id)
             .copied()
         {
             return Ok(size);
         }
+
         let size = self.scan_plugin_size(plugin_id)?;
         self.set_cached_plugin_size(plugin_id, size)?;
+
         Ok(size)
     }
 
     fn set_cached_plugin_size(&self, plugin_id: &str, size: u64) -> Result<(), Error> {
         self.plugin_sizes
             .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?
+            .map_err(|_| storage_lock_error())?
             .insert(plugin_id.to_owned(), size);
+
         Ok(())
     }
 
@@ -483,7 +526,8 @@ impl PluginStorage {
         let mut locks = self
             .operation_locks
             .lock()
-            .map_err(|_| Error::Io(std::io::Error::other("plugin storage lock is poisoned")))?;
+            .map_err(|_| storage_lock_error())?;
+
         Ok(Arc::clone(
             locks
                 .entry(plugin_id.to_owned())
@@ -515,6 +559,10 @@ impl StorageDirectory {
     }
 }
 
+fn storage_lock_error() -> Error {
+    Error::Io(IoError::other("plugin storage lock is poisoned"))
+}
+
 fn render_path(template: &str) -> String {
     let now = Local::now();
     template
@@ -522,10 +570,16 @@ fn render_path(template: &str) -> String {
         .replace("{month}", &format!("{:02}", now.month()))
 }
 
+fn validate_file(directory: &StorageDirectory, filename: &str) -> Result<(), Error> {
+    validate_filename(filename).map_err(Error::PluginBadRequest)?;
+    validate_extension(directory, filename).map_err(Error::PluginBadRequest)
+}
+
 fn validate_filename(filename: &str) -> Result<(), String> {
     let mut components = Path::new(filename).components();
     let single_normal_component =
         matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+
     if filename.is_empty()
         || filename.len() > MAX_FILE_NAME_BYTES
         || !single_normal_component
@@ -533,15 +587,18 @@ fn validate_filename(filename: &str) -> Result<(), String> {
     {
         return Err("invalid plugin storage filename".into());
     }
+
     Ok(())
 }
 
 fn validate_stored_path(directory: &StorageDirectory, path: &str) -> Result<(), String> {
     let template_segments: Vec<_> = directory.path.split('/').collect();
     let path_segments: Vec<_> = path.split('/').collect();
+
     if path_segments.len() != template_segments.len() + 1 {
         return Err("invalid plugin storage path".into());
     }
+
     for (template, actual) in template_segments.iter().zip(&path_segments) {
         let valid = match *template {
             "{year}" => actual.len() == 4 && actual.bytes().all(|byte| byte.is_ascii_digit()),
@@ -558,7 +615,9 @@ fn validate_stored_path(directory: &StorageDirectory, path: &str) -> Result<(), 
             return Err("invalid plugin storage path".into());
         }
     }
+
     let filename = path_segments.last().copied().unwrap_or_default();
+
     validate_filename(filename)?;
     validate_extension(directory, filename)
 }
@@ -569,9 +628,11 @@ fn validate_extension(directory: &StorageDirectory, filename: &str) -> Result<()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
         .ok_or_else(|| "plugin storage filename has no permitted extension".to_string())?;
+
     if !directory.extensions.contains(&extension) {
         return Err("plugin storage file extension is not permitted".into());
     }
+
     Ok(())
 }
 
@@ -580,8 +641,9 @@ fn write_temporary(root: &Path, bytes: &[u8]) -> Result<PathBuf, Error> {
         let sequence = TEMPORARY_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let temporary = root.join(format!(
             ".nur-upload-{}-{sequence}.uploading",
-            std::process::id()
+            process::id()
         ));
+
         match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -594,12 +656,13 @@ fn write_temporary(root: &Path, bytes: &[u8]) -> Result<PathBuf, Error> {
                 }
                 return Ok(temporary);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(Error::Io(error)),
         }
     }
-    Err(Error::Io(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
+
+    Err(Error::Io(IoError::new(
+        ErrorKind::AlreadyExists,
         "could not allocate a temporary plugin storage file",
     )))
 }
@@ -612,7 +675,7 @@ fn regular_file_size(path: &Path) -> Result<u64, Error> {
         Ok(_) => Err(Error::PluginBadRequest(
             "invalid plugin storage path".into(),
         )),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(0),
         Err(error) => Err(Error::Io(error)),
     }
 }
@@ -621,24 +684,31 @@ fn storage_size(root: &Path) -> Result<u64, Error> {
     if !root.exists() {
         return Ok(0);
     }
+
     let root_metadata = fs::symlink_metadata(root).map_err(Error::Io)?;
+
     if root_metadata.file_type().is_symlink() || !root_metadata.file_type().is_dir() {
         return Err(Error::PluginBadRequest(
             "invalid plugin storage path".into(),
         ));
     }
+
     let mut size = 0u64;
     let mut pending = vec![root.to_path_buf()];
+
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory).map_err(Error::Io)? {
             let entry = entry.map_err(Error::Io)?;
             let file_type = entry.file_type().map_err(Error::Io)?;
+
             if file_type.is_symlink() || !file_type.is_file() && !file_type.is_dir() {
                 return Err(Error::PluginBadRequest(
                     "invalid plugin storage path".into(),
                 ));
             }
+
             let metadata = entry.metadata().map_err(Error::Io)?;
+
             if file_type.is_dir() {
                 pending.push(entry.path());
             } else {
@@ -650,11 +720,13 @@ fn storage_size(root: &Path) -> Result<u64, Error> {
             }
         }
     }
+
     Ok(size)
 }
 
 fn safe_directory_path(base: &Path, relative: &Path, create: bool) -> Result<PathBuf, Error> {
     let mut current = base.to_path_buf();
+
     for component in relative.components() {
         let Component::Normal(component) = component else {
             return Err(Error::PluginBadRequest(
@@ -670,10 +742,10 @@ fn safe_directory_path(base: &Path, relative: &Path, create: bool) -> Result<Pat
                     "invalid plugin storage path".into(),
                 ));
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
+            Err(error) if error.kind() == ErrorKind::NotFound && create => {
                 match fs::create_dir(&current) {
                     Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {
                         let metadata = fs::symlink_metadata(&current).map_err(Error::Io)?;
                         if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
                             return Err(Error::PluginBadRequest(
@@ -684,12 +756,13 @@ fn safe_directory_path(base: &Path, relative: &Path, create: bool) -> Result<Pat
                     Err(error) => return Err(Error::Io(error)),
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
                 return Err(Error::PluginNotFound);
             }
             Err(error) => return Err(Error::Io(error)),
         }
     }
+
     Ok(current)
 }
 
@@ -697,12 +770,15 @@ fn cleanup_incomplete_files(root: &Path, maximum_age: Duration) -> Result<(), Er
     if !root.exists() {
         return Ok(());
     }
+
     let now = SystemTime::now();
     let mut pending = vec![root.to_path_buf()];
+
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory).map_err(Error::Io)? {
             let entry = entry.map_err(Error::Io)?;
             let file_type = entry.file_type().map_err(Error::Io)?;
+
             if file_type.is_symlink() {
                 continue;
             }
@@ -721,6 +797,7 @@ fn cleanup_incomplete_files(root: &Path, maximum_age: Duration) -> Result<(), Er
             let is_upload = name.ends_with(".uploading");
             let is_metadata = name.ends_with(".uploading.json");
             let is_temporary_metadata = name.ends_with(".uploading.json.tmp");
+
             if !is_upload && !is_metadata && !is_temporary_metadata {
                 continue;
             }
@@ -734,15 +811,17 @@ fn cleanup_incomplete_files(root: &Path, maximum_age: Duration) -> Result<(), Er
                 let upload_name = name.strip_suffix(".json").unwrap_or_default();
                 !path.with_file_name(upload_name).exists()
             };
+
             if stale || orphaned_metadata {
                 match fs::remove_file(&path) {
                     Ok(()) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
                     Err(error) => return Err(Error::Io(error)),
                 }
             }
         }
     }
+
     Ok(())
 }
 
@@ -752,6 +831,7 @@ fn ensure_regular_target(root: &Path, target: &Path) -> Result<(), Error> {
             "invalid plugin storage path".into(),
         ));
     }
+
     if let Ok(metadata) = fs::symlink_metadata(target)
         && (!metadata.file_type().is_file() || metadata.file_type().is_symlink())
     {
@@ -759,6 +839,7 @@ fn ensure_regular_target(root: &Path, target: &Path) -> Result<(), Error> {
             "invalid plugin storage path".into(),
         ));
     }
+
     Ok(())
 }
 
@@ -803,13 +884,20 @@ impl From<ManifestStorageUpload> for BrowserUpload {
 mod tests {
     use std::{
         collections::HashMap,
-        fs,
+        env, fs,
+        path::PathBuf,
+        process,
         sync::{Arc, Barrier, Mutex},
-        time::SystemTime,
+        thread,
+        time::{Duration, SystemTime},
     };
 
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
+
     use super::{
-        BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, validate_stored_path,
+        BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, append_suffix,
+        render_path, validate_stored_path,
     };
 
     fn directory() -> StorageDirectory {
@@ -824,15 +912,13 @@ mod tests {
         }
     }
 
-    fn temporary_storage() -> (PluginStorage, std::path::PathBuf) {
+    fn temporary_storage() -> (PluginStorage, PathBuf) {
         let unique = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("system clock is after epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "nur-cms-plugin-storage-{}-{unique}",
-            std::process::id()
-        ));
+        let root =
+            env::temp_dir().join(format!("nur-cms-plugin-storage-{}-{unique}", process::id()));
         fs::create_dir_all(&root).expect("temporary storage is created");
         (
             PluginStorage {
@@ -868,7 +954,7 @@ mod tests {
         let uploads = root.join("uploads");
         fs::create_dir_all(uploads.join("private")).unwrap();
         let alias = root.join("private-alias");
-        std::os::unix::fs::symlink(uploads.join("private"), &alias).unwrap();
+        symlink(uploads.join("private"), &alias).unwrap();
         assert!(PluginStorage::from_roots(uploads, Some(alias)).is_err());
         fs::remove_dir_all(root).expect("test storage is removed");
     }
@@ -881,7 +967,7 @@ mod tests {
         let external = root.join("external");
         fs::create_dir_all(&uploads).unwrap();
         fs::create_dir_all(&external).unwrap();
-        std::os::unix::fs::symlink(&external, uploads.join("p")).unwrap();
+        symlink(&external, uploads.join("p")).unwrap();
         assert!(PluginStorage::from_roots(uploads, Some(external.join("private"))).is_err());
         fs::remove_dir_all(root).expect("test storage is removed");
     }
@@ -916,7 +1002,7 @@ mod tests {
         let target = storage
             .prepare_resumable_upload(&directory, "report.pdf", 5, 5, 5)
             .expect("upload can be prepared");
-        let temporary = super::append_suffix(&target, ".uploading");
+        let temporary = append_suffix(&target, ".uploading");
         fs::write(&temporary, b"12345").expect("temporary upload can be written");
 
         let stored = storage
@@ -965,7 +1051,7 @@ mod tests {
         let target = storage
             .prepare_resumable_upload(&directory, "report.pdf", 5, 5, 10)
             .expect("upload can be prepared");
-        let temporary = super::append_suffix(&target, ".uploading");
+        let temporary = append_suffix(&target, ".uploading");
         fs::write(&temporary, b"12345").expect("temporary upload can be written");
         storage
             .complete_resumable_upload(&directory, "report.pdf", &temporary, 5, 10)
@@ -988,13 +1074,13 @@ mod tests {
         let target = storage
             .prepare_resumable_upload(&directory, "report.pdf", 5, 5, 10)
             .expect("upload can be prepared");
-        let temporary = super::append_suffix(&target, ".uploading");
-        let metadata = super::append_suffix(&temporary, ".json");
+        let temporary = append_suffix(&target, ".uploading");
+        let metadata = append_suffix(&temporary, ".json");
         fs::write(&temporary, b"12").expect("partial upload can be written");
         fs::write(&metadata, b"{}").expect("resume metadata can be written");
 
         storage
-            .cleanup_incomplete_uploads(std::time::Duration::ZERO)
+            .cleanup_incomplete_uploads(Duration::ZERO)
             .expect("stale upload cleanup succeeds");
 
         assert!(!temporary.exists());
@@ -1005,8 +1091,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn storage_rejects_symlinks_in_directory_paths() {
-        use std::os::unix::fs::symlink;
-
         let (storage, root) = temporary_storage();
         let external = root.with_extension("outside");
         fs::create_dir_all(root.join("example")).expect("plugin namespace can be created");
@@ -1036,7 +1120,7 @@ mod tests {
             let storage = Arc::clone(&storage);
             let barrier = Arc::clone(&barrier);
             let contents = contents.to_vec();
-            workers.push(std::thread::spawn(move || {
+            workers.push(thread::spawn(move || {
                 barrier.wait();
                 storage.write(&directory(), "report.pdf", &contents, 1024, 1024)
             }));
@@ -1054,7 +1138,7 @@ mod tests {
         assert!(stored.path.ends_with("/final.pdf"));
         let namespace = root.join("example");
         assert!(
-            fs::read_dir(namespace.join(super::render_path(&directory().path)))
+            fs::read_dir(namespace.join(render_path(&directory().path)))
                 .expect("storage directory can be read")
                 .all(|entry| !entry
                     .expect("valid entry")

@@ -17,7 +17,6 @@ use tokio::sync::{RwLock, Semaphore, broadcast::Sender};
 use tracing::{error, warn};
 
 pub mod api;
-pub mod config;
 pub mod db;
 pub mod file;
 pub mod mail;
@@ -38,6 +37,8 @@ use crate::{
     file::routes::{upload_chunk, upload_status},
     utils::{cmd_args::Args, errors::NurError},
 };
+
+pub use utils::config;
 
 type AuthRouter = Router<(PgPool, Args)>;
 type ApiRouter = Router<(PgPool, Sender<String>)>;

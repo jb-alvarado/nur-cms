@@ -1,15 +1,20 @@
 use std::{collections::HashSet, ops::ControlFlow, time::Duration};
 
 use futures_util::TryStreamExt;
+use serde_json::Value as JsonValue;
 use sqlparser::{
     ast::{Expr, ObjectName, Select, Statement as AstStatement, TableFactor, Visit, Visitor},
     dialect::PostgreSqlDialect,
     parser::Parser,
 };
 use sqlx::{
-    Column, PgConnection, Row, TypeInfo, ValueRef,
+    AssertSqlSafe, Column, Error as SqlxError, PgConnection, PgPool, Postgres, Row, Transaction,
+    TypeInfo, ValueRef,
     postgres::{PgArguments, PgRow},
+    query,
     query::Query,
+    raw_sql,
+    types::Json,
 };
 
 use super::bindings::nur::cms::database::{NullType, QueryResult, Statement, Value};
@@ -18,6 +23,7 @@ const MAX_DATABASE_ROWS: usize = 10_000;
 const MAX_DATABASE_STATEMENTS: usize = 32;
 const MAX_DATABASE_PARAMS: usize = 128;
 const MAX_DATABASE_SQL_BYTES: usize = 64 * 1024;
+
 const RESULT_OVERHEAD: usize = 32;
 const ROW_OVERHEAD: usize = 24;
 const VALUE_OVERHEAD: usize = 16;
@@ -25,7 +31,7 @@ const VALUE_OVERHEAD: usize = 16;
 #[derive(Debug, thiserror::Error)]
 pub(super) enum DatabaseHostError {
     #[error("database operation failed: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(#[from] SqlxError),
     #[error("database parameter is invalid")]
     InvalidParameter,
     #[error("database result contains unsupported PostgreSQL type {0}")]
@@ -37,7 +43,7 @@ pub(super) enum DatabaseHostError {
     #[error("database transaction rollback failed: {rollback}; original error: {original}")]
     Rollback {
         original: Box<Self>,
-        rollback: sqlx::Error,
+        rollback: SqlxError,
     },
 }
 
@@ -48,12 +54,30 @@ pub(super) struct ValidatedStatement {
 
 pub(super) fn validate_statement(statement: &Statement) -> Result<ValidatedStatement, String> {
     let sql = statement.sql.trim();
+
+    validate_statement_limits(statement, sql)?;
+    validate_statement_syntax(sql)?;
+    validate_placeholders(sql, statement.params.len())?;
+
+    let parsed = parse_statement(sql)?;
+    let returns_rows = statement_returns_rows(&parsed)?;
+    validate_sql_subset(&parsed)?;
+
+    Ok(ValidatedStatement { returns_rows })
+}
+
+fn validate_statement_limits(statement: &Statement, sql: &str) -> Result<(), String> {
     if sql.is_empty()
         || sql.len() > MAX_DATABASE_SQL_BYTES
         || statement.params.len() > MAX_DATABASE_PARAMS
     {
         return Err("invalid database statement".into());
     }
+
+    Ok(())
+}
+
+fn validate_statement_syntax(sql: &str) -> Result<(), String> {
     if sql.contains('\0')
         || sql.contains(';')
         || sql.contains("--")
@@ -65,15 +89,25 @@ pub(super) fn validate_statement(statement: &Statement) -> Result<ValidatedState
     {
         return Err("database statement contains unsupported syntax".into());
     }
-    validate_placeholders(sql, statement.params.len())?;
 
+    Ok(())
+}
+
+fn parse_statement(sql: &str) -> Result<AstStatement, String> {
     let mut parsed = Parser::parse_sql(&PostgreSqlDialect {}, sql)
         .map_err(|_| "database statement is not valid PostgreSQL".to_string())?;
+
     if parsed.len() != 1 {
         return Err("exactly one database statement is required".into());
     }
-    let parsed = parsed.pop().expect("one parsed statement was checked");
-    let returns_rows = match &parsed {
+
+    parsed
+        .pop()
+        .ok_or_else(|| "exactly one database statement is required".into())
+}
+
+fn statement_returns_rows(statement: &AstStatement) -> Result<bool, String> {
+    let returns_rows = match statement {
         AstStatement::Query(_) => true,
         AstStatement::Insert(insert) => insert.returning.is_some(),
         AstStatement::Update(update) => update.returning.is_some(),
@@ -83,12 +117,17 @@ pub(super) fn validate_statement(statement: &Statement) -> Result<ValidatedState
         }
     };
 
+    Ok(returns_rows)
+}
+
+fn validate_sql_subset(statement: &AstStatement) -> Result<(), String> {
     let mut validator = SqlSubsetValidator::default();
-    if let ControlFlow::Break(reason) = parsed.visit(&mut validator) {
+
+    if let ControlFlow::Break(reason) = statement.visit(&mut validator) {
         return Err(reason.into());
     }
 
-    Ok(ValidatedStatement { returns_rows })
+    Ok(())
 }
 
 pub(super) fn validate_transaction_size(statements: &[Statement]) -> Result<(), String> {
@@ -97,11 +136,187 @@ pub(super) fn validate_transaction_size(statements: &[Statement]) -> Result<(), 
             "transaction must contain between 1 and {MAX_DATABASE_STATEMENTS} statements"
         ));
     }
+
     Ok(())
 }
 
+fn validate_placeholders(sql: &str, param_count: usize) -> Result<(), String> {
+    let bytes = sql.as_bytes();
+    let mut placeholders = HashSet::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'$' {
+            index += 1;
+            continue;
+        }
+
+        let start = index + 1;
+        let mut end = start;
+
+        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+        }
+
+        if end == start || bytes[start] == b'0' {
+            return Err("database statement contains an invalid placeholder".into());
+        }
+
+        let placeholder = sql[start..end]
+            .parse::<usize>()
+            .map_err(|_| "database statement contains an invalid placeholder".to_string())?;
+
+        placeholders.insert(placeholder);
+        index = end;
+    }
+
+    if placeholders.len() != param_count
+        || !(1..=param_count).all(|placeholder| placeholders.contains(&placeholder))
+    {
+        return Err("database statement parameters do not match its placeholders".into());
+    }
+
+    Ok(())
+}
+
+#[derive(Default)]
+struct SqlSubsetValidator {
+    statement_count: usize,
+}
+
+impl Visitor for SqlSubsetValidator {
+    type Break = Box<str>;
+
+    fn pre_visit_statement(&mut self, _statement: &AstStatement) -> ControlFlow<Self::Break> {
+        self.statement_count += 1;
+
+        if self.statement_count > 1 {
+            return ControlFlow::Break("data-modifying subqueries are not allowed".into());
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
+        let Some(identifier) = relation
+            .0
+            .as_slice()
+            .first()
+            .and_then(|part| part.as_ident())
+        else {
+            return ControlFlow::Break("dynamic relation names are not allowed".into());
+        };
+
+        if relation.0.len() != 1 || identifier.quote_style.is_some() {
+            return ControlFlow::Break("qualified or quoted relation names are not allowed".into());
+        }
+
+        if identifier.value.to_ascii_lowercase().starts_with("pg_") {
+            return ControlFlow::Break("PostgreSQL system relations are not allowed".into());
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
+        if select.into.is_some() {
+            return ControlFlow::Break("SELECT INTO is not allowed".into());
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<Self::Break> {
+        match factor {
+            TableFactor::Table {
+                args,
+                with_hints,
+                version,
+                with_ordinality,
+                partitions,
+                json_path,
+                sample,
+                index_hints,
+                ..
+            } if args.is_none()
+                && with_hints.is_empty()
+                && version.is_none()
+                && !with_ordinality
+                && partitions.is_empty()
+                && json_path.is_none()
+                && sample.is_none()
+                && index_hints.is_empty() =>
+            {
+                ControlFlow::Continue(())
+            }
+            TableFactor::Derived { sample: None, .. } | TableFactor::NestedJoin { .. } => {
+                ControlFlow::Continue(())
+            }
+            _ => ControlFlow::Break(
+                "table functions and advanced table sources are not allowed".into(),
+            ),
+        }
+    }
+
+    fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
+        match expression {
+            Expr::CompoundIdentifier(_) | Expr::QualifiedWildcard(_, _) => {
+                ControlFlow::Break("qualified identifiers are not allowed".into())
+            }
+            Expr::Function(function) => {
+                let Some(identifier) = function
+                    .name
+                    .0
+                    .as_slice()
+                    .first()
+                    .and_then(|part| part.as_ident())
+                else {
+                    return ControlFlow::Break("dynamic function names are not allowed".into());
+                };
+
+                if function.name.0.len() != 1
+                    || identifier.quote_style.is_some()
+                    || !SAFE_FUNCTIONS.contains(&identifier.value.to_ascii_lowercase().as_str())
+                {
+                    return ControlFlow::Break("database function is not allowed".into());
+                }
+
+                ControlFlow::Continue(())
+            }
+            _ => ControlFlow::Continue(()),
+        }
+    }
+}
+
+const SAFE_FUNCTIONS: &[&str] = &[
+    "abs",
+    "avg",
+    "ceil",
+    "ceiling",
+    "char_length",
+    "coalesce",
+    "concat",
+    "count",
+    "floor",
+    "greatest",
+    "json_array_length",
+    "jsonb_array_length",
+    "jsonb_typeof",
+    "least",
+    "length",
+    "lower",
+    "max",
+    "min",
+    "octet_length",
+    "round",
+    "substring",
+    "sum",
+    "trim",
+    "upper",
+];
+
 pub(super) async fn execute_statements(
-    pool: &sqlx::PgPool,
+    pool: &PgPool,
     schema: &str,
     statements: &[Statement],
     validated: &[ValidatedStatement],
@@ -109,8 +324,10 @@ pub(super) async fn execute_statements(
     statement_timeout: Duration,
 ) -> Result<Vec<QueryResult>, DatabaseHostError> {
     debug_assert_eq!(statements.len(), validated.len());
+
     let mut transaction = pool.begin().await?;
     set_plugin_context(&mut transaction, schema, statement_timeout).await?;
+
     let mut results = Vec::with_capacity(statements.len());
     let mut response_size = 0usize;
 
@@ -118,6 +335,7 @@ pub(super) async fn execute_statements(
         let remaining = response_limit
             .checked_sub(response_size)
             .ok_or(DatabaseHostError::ResponseTooLarge)?;
+
         let result = match execute_statement(
             &mut transaction,
             statement,
@@ -127,38 +345,44 @@ pub(super) async fn execute_statements(
         .await
         {
             Ok(result) => result,
-            Err(original) => {
-                return match transaction.rollback().await {
-                    Ok(()) => Err(original),
-                    Err(rollback) => Err(DatabaseHostError::Rollback {
-                        original: Box::new(original),
-                        rollback,
-                    }),
-                };
+            Err(error) => {
+                return Err(rollback_with_error(transaction, error).await);
             }
         };
+
         response_size = response_size
             .checked_add(result_size(&result))
             .ok_or(DatabaseHostError::ResponseTooLarge)?;
+
         if response_size > response_limit {
-            let original = DatabaseHostError::ResponseTooLarge;
-            return match transaction.rollback().await {
-                Ok(()) => Err(original),
-                Err(rollback) => Err(DatabaseHostError::Rollback {
-                    original: Box::new(original),
-                    rollback,
-                }),
-            };
+            return Err(
+                rollback_with_error(transaction, DatabaseHostError::ResponseTooLarge).await,
+            );
         }
+
         results.push(result);
     }
 
     transaction.commit().await?;
+
     Ok(results)
 }
 
+async fn rollback_with_error(
+    transaction: Transaction<'_, Postgres>,
+    original: DatabaseHostError,
+) -> DatabaseHostError {
+    match transaction.rollback().await {
+        Ok(()) => original,
+        Err(rollback) => DatabaseHostError::Rollback {
+            original: Box::new(original),
+            rollback,
+        },
+    }
+}
+
 async fn set_plugin_context(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    transaction: &mut Transaction<'_, Postgres>,
     schema: &str,
     statement_timeout: Duration,
 ) -> Result<(), DatabaseHostError> {
@@ -166,11 +390,13 @@ async fn set_plugin_context(
     let statement = format!(
         "SET LOCAL search_path TO \"{schema}\", pg_temp; SET LOCAL statement_timeout = {timeout_ms}; SET LOCAL lock_timeout = {timeout_ms}"
     );
+
     // `schema` comes only from a manifest-validated plugin ID via `schema_name`.
     // `timeout_ms` comes from the bounded host configuration.
-    sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
+    raw_sql(AssertSqlSafe(statement))
         .execute(&mut **transaction)
         .await?;
+
     Ok(())
 }
 
@@ -182,9 +408,10 @@ async fn execute_statement(
 ) -> Result<QueryResult, DatabaseHostError> {
     // The parsed statement has passed `SqlSubsetValidator`; request values are exclusively bound.
     let query = bind_values(
-        sqlx::query(sqlx::AssertSqlSafe(statement.sql.as_str())),
+        query(AssertSqlSafe(statement.sql.as_str())),
         &statement.params,
     )?;
+
     if returns_rows {
         stream_rows(connection, query, response_limit).await
     } else {
@@ -199,7 +426,7 @@ async fn execute_statement(
 
 async fn stream_rows<'query>(
     connection: &mut PgConnection,
-    query: Query<'query, sqlx::Postgres, PgArguments>,
+    query: Query<'query, Postgres, PgArguments>,
     response_limit: usize,
 ) -> Result<QueryResult, DatabaseHostError> {
     let mut rows = query.fetch(connection);
@@ -211,6 +438,7 @@ async fn stream_rows<'query>(
         if result_rows.len() == MAX_DATABASE_ROWS {
             return Err(DatabaseHostError::TooManyRows);
         }
+
         if columns.is_empty() {
             columns = row
                 .columns()
@@ -230,7 +458,9 @@ async fn stream_rows<'query>(
         size = size
             .checked_add(ROW_OVERHEAD)
             .ok_or(DatabaseHostError::ResponseTooLarge)?;
+
         let mut values = Vec::with_capacity(row.len());
+
         for index in 0..row.len() {
             let value = database_value(&row, index)?;
             size = size
@@ -241,6 +471,7 @@ async fn stream_rows<'query>(
             }
             values.push(value);
         }
+
         result_rows.push(values);
     }
 
@@ -253,9 +484,9 @@ async fn stream_rows<'query>(
 }
 
 fn bind_values<'query>(
-    mut query: Query<'query, sqlx::Postgres, PgArguments>,
+    mut query: Query<'query, Postgres, PgArguments>,
     values: &[Value],
-) -> Result<Query<'query, sqlx::Postgres, PgArguments>, DatabaseHostError> {
+) -> Result<Query<'query, Postgres, PgArguments>, DatabaseHostError> {
     for value in values {
         query = match value {
             Value::Null(NullType::Boolean) => query.bind(Option::<bool>::None),
@@ -263,21 +494,20 @@ fn bind_values<'query>(
             Value::Null(NullType::Float) => query.bind(Option::<f64>::None),
             Value::Null(NullType::Text) => query.bind(Option::<String>::None),
             Value::Null(NullType::Bytes) => query.bind(Option::<Vec<u8>>::None),
-            Value::Null(NullType::Json) => {
-                query.bind(Option::<sqlx::types::Json<serde_json::Value>>::None)
-            }
+            Value::Null(NullType::Json) => query.bind(Option::<Json<JsonValue>>::None),
             Value::Boolean(value) => query.bind(*value),
             Value::Integer(value) => query.bind(*value),
             Value::Float(value) => query.bind(*value),
             Value::Text(value) => query.bind(value),
             Value::Bytes(value) => query.bind(value),
             Value::Json(value) => {
-                let value: serde_json::Value =
+                let value: JsonValue =
                     serde_json::from_str(value).map_err(|_| DatabaseHostError::InvalidParameter)?;
-                query.bind(sqlx::types::Json(value))
+                query.bind(Json(value))
             }
         };
     }
+
     Ok(query)
 }
 
@@ -287,7 +517,9 @@ fn database_value(row: &PgRow, index: usize) -> Result<Value, DatabaseHostError>
             row.columns()[index].type_info().name(),
         )?));
     }
+
     let type_name = row.columns()[index].type_info().name();
+
     match type_name {
         "BOOL" => row.try_get(index).map(Value::Boolean).map_err(Into::into),
         "INT2" => row
@@ -306,7 +538,7 @@ fn database_value(row: &PgRow, index: usize) -> Result<Value, DatabaseHostError>
         "FLOAT8" => row.try_get(index).map(Value::Float).map_err(Into::into),
         "BYTEA" => row.try_get(index).map(Value::Bytes).map_err(Into::into),
         "JSON" | "JSONB" => row
-            .try_get::<sqlx::types::Json<serde_json::Value>, _>(index)
+            .try_get::<Json<JsonValue>, _>(index)
             .map(|value| Value::Json(value.0.to_string()))
             .map_err(Into::into),
         "TEXT" | "VARCHAR" | "BPCHAR" | "NAME" | "UNKNOWN" => {
@@ -358,174 +590,15 @@ fn result_size(result: &QueryResult) -> usize {
             .sum::<usize>()
 }
 
-fn validate_placeholders(sql: &str, param_count: usize) -> Result<(), String> {
-    let bytes = sql.as_bytes();
-    let mut placeholders = HashSet::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] != b'$' {
-            index += 1;
-            continue;
-        }
-        let start = index + 1;
-        let mut end = start;
-        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
-            end += 1;
-        }
-        if end == start || bytes[start] == b'0' {
-            return Err("database statement contains an invalid placeholder".into());
-        }
-        let placeholder = sql[start..end]
-            .parse::<usize>()
-            .map_err(|_| "database statement contains an invalid placeholder".to_string())?;
-        placeholders.insert(placeholder);
-        index = end;
-    }
-    if placeholders.len() != param_count
-        || !(1..=param_count).all(|placeholder| placeholders.contains(&placeholder))
-    {
-        return Err("database statement parameters do not match its placeholders".into());
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct SqlSubsetValidator {
-    statement_count: usize,
-}
-
-impl Visitor for SqlSubsetValidator {
-    type Break = Box<str>;
-
-    fn pre_visit_statement(&mut self, _statement: &AstStatement) -> ControlFlow<Self::Break> {
-        self.statement_count += 1;
-        if self.statement_count > 1 {
-            return ControlFlow::Break("data-modifying subqueries are not allowed".into());
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
-        let Some(identifier) = relation
-            .0
-            .as_slice()
-            .first()
-            .and_then(|part| part.as_ident())
-        else {
-            return ControlFlow::Break("dynamic relation names are not allowed".into());
-        };
-        if relation.0.len() != 1 || identifier.quote_style.is_some() {
-            return ControlFlow::Break("qualified or quoted relation names are not allowed".into());
-        }
-        if identifier.value.to_ascii_lowercase().starts_with("pg_") {
-            return ControlFlow::Break("PostgreSQL system relations are not allowed".into());
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
-        if select.into.is_some() {
-            return ControlFlow::Break("SELECT INTO is not allowed".into());
-        }
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<Self::Break> {
-        match factor {
-            TableFactor::Table {
-                args,
-                with_hints,
-                version,
-                with_ordinality,
-                partitions,
-                json_path,
-                sample,
-                index_hints,
-                ..
-            } if args.is_none()
-                && with_hints.is_empty()
-                && version.is_none()
-                && !with_ordinality
-                && partitions.is_empty()
-                && json_path.is_none()
-                && sample.is_none()
-                && index_hints.is_empty() =>
-            {
-                ControlFlow::Continue(())
-            }
-            TableFactor::Derived { sample: None, .. } | TableFactor::NestedJoin { .. } => {
-                ControlFlow::Continue(())
-            }
-            _ => ControlFlow::Break(
-                "table functions and advanced table sources are not allowed".into(),
-            ),
-        }
-    }
-
-    fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
-        match expression {
-            Expr::CompoundIdentifier(_) | Expr::QualifiedWildcard(_, _) => {
-                ControlFlow::Break("qualified identifiers are not allowed".into())
-            }
-            Expr::Function(function) => {
-                let Some(identifier) = function
-                    .name
-                    .0
-                    .as_slice()
-                    .first()
-                    .and_then(|part| part.as_ident())
-                else {
-                    return ControlFlow::Break("dynamic function names are not allowed".into());
-                };
-                if function.name.0.len() != 1
-                    || identifier.quote_style.is_some()
-                    || !SAFE_FUNCTIONS.contains(&identifier.value.to_ascii_lowercase().as_str())
-                {
-                    return ControlFlow::Break("database function is not allowed".into());
-                }
-                ControlFlow::Continue(())
-            }
-            _ => ControlFlow::Continue(()),
-        }
-    }
-}
-
-const SAFE_FUNCTIONS: &[&str] = &[
-    "abs",
-    "avg",
-    "ceil",
-    "ceiling",
-    "char_length",
-    "coalesce",
-    "concat",
-    "count",
-    "floor",
-    "greatest",
-    "json_array_length",
-    "jsonb_array_length",
-    "jsonb_typeof",
-    "least",
-    "length",
-    "lower",
-    "max",
-    "min",
-    "octet_length",
-    "round",
-    "substring",
-    "sum",
-    "trim",
-    "upper",
-];
-
 #[cfg(test)]
 mod tests {
     use std::{
-        env,
+        env, process,
         sync::atomic::{AtomicU64, Ordering},
         time::Duration,
     };
 
-    use sqlx::{PgPool, Row};
+    use sqlx::{AssertSqlSafe, PgPool, Row, query, raw_sql};
 
     use super::{
         DatabaseHostError, NullType, Statement, Value, execute_statements, validate_statement,
@@ -648,25 +721,29 @@ mod tests {
         let pool = PgPool::connect(&env::var("DATABASE_URL").expect("DATABASE_URL is configured"))
             .await
             .expect("database is reachable");
+
         let schema = format!(
             "nur_plugin_runtime_test_{}_{}",
-            std::process::id(),
+            process::id(),
             TEST_SCHEMA_ID.fetch_add(1, Ordering::Relaxed)
         );
         let create = format!(
             "CREATE SCHEMA \"{schema}\"; CREATE TABLE \"{schema}\".messages (id BIGSERIAL PRIMARY KEY, message TEXT NOT NULL, optional_number BIGINT)"
         );
-        sqlx::raw_sql(sqlx::AssertSqlSafe(create))
+
+        raw_sql(AssertSqlSafe(create))
             .execute(&pool)
             .await
             .expect("test schema and table are created");
 
         let outcome = run_database_host_test(&pool, &schema).await;
         let drop = format!("DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
-        sqlx::query(sqlx::AssertSqlSafe(drop))
+
+        query(AssertSqlSafe(drop))
             .execute(&pool)
             .await
             .expect("test schema is removed");
+
         outcome.expect("database host behavior is correct");
     }
 
@@ -677,6 +754,7 @@ mod tests {
             vec![Value::Text(injected.into()), Value::Null(NullType::Integer)],
         );
         let insert_validated = validate_statement(&insert)?;
+
         let inserted = execute_statements(
             pool,
             schema,
@@ -687,6 +765,7 @@ mod tests {
         )
         .await
         .map_err(|error| error.to_string())?;
+
         let values_match = matches!(
             inserted[0].rows.as_slice(),
             [row] if matches!(
@@ -695,6 +774,7 @@ mod tests {
                     if message == injected
             )
         );
+
         if !values_match {
             return Err("bound or returned values differ".into());
         }
@@ -713,6 +793,7 @@ mod tests {
             .iter()
             .map(validate_statement)
             .collect::<Result<Vec<_>, _>>()?;
+
         if execute_statements(
             pool,
             schema,
@@ -728,19 +809,21 @@ mod tests {
         }
 
         let verify = format!("SELECT count(*) FROM \"{schema}\".messages WHERE message = $1");
-        let count: i64 = sqlx::query(sqlx::AssertSqlSafe(verify))
+        let count: i64 = query(AssertSqlSafe(verify))
             .bind("rollback")
             .fetch_one(pool)
             .await
             .map_err(|error| error.to_string())?
             .try_get(0)
             .map_err(|error| error.to_string())?;
+
         if count != 0 {
             return Err("failing transaction was not rolled back".into());
         }
 
         let core_query = statement("SELECT plugin_id FROM plugin_registry LIMIT 1", Vec::new());
         let core_query_validated = validate_statement(&core_query)?;
+
         if execute_statements(
             pool,
             schema,
@@ -760,6 +843,7 @@ mod tests {
             vec![Value::Text("x".repeat(4096))],
         );
         let oversized_validated = validate_statement(&oversized_insert)?;
+
         execute_statements(
             pool,
             schema,
@@ -770,11 +854,13 @@ mod tests {
         )
         .await
         .map_err(|error| error.to_string())?;
+
         let select = statement(
             "SELECT message FROM messages ORDER BY id DESC LIMIT 1",
             vec![],
         );
         let select_validated = validate_statement(&select)?;
+
         if !matches!(
             execute_statements(
                 pool,

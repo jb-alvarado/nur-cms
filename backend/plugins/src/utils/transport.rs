@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::Duration};
+use std::{net::IpAddr, path::PathBuf, time::Duration};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
@@ -77,5 +77,5 @@ impl Route {
 #[derive(Clone, Debug)]
 pub struct AssetDirectory {
     pub plugin_id: String,
-    pub path: std::path::PathBuf,
+    pub path: PathBuf,
 }

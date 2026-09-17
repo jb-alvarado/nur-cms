@@ -2,11 +2,14 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     env, fs,
     path::{Path, PathBuf},
+    str::from_utf8,
 };
 
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use nur_core::config::settings;
 
 use crate::{API_VERSION, Error};
 
@@ -49,7 +52,7 @@ pub struct StorageDirectoryManifest {
     #[serde(default)]
     pub upload: StorageUpload,
     /// Required only for authenticated browser uploads and administrative access.
-    #[serde(default = "admin_access")]
+    #[serde(default = "private_access")]
     pub access: String,
 }
 
@@ -141,7 +144,7 @@ pub struct CacheManifest {
 pub struct AdminManifest {
     pub entry: Option<String>,
     pub element: Option<String>,
-    #[serde(default = "admin_access")]
+    #[serde(default = "private_access")]
     pub access: String,
     #[serde(default)]
     pub styles: Vec<String>,
@@ -173,7 +176,7 @@ fn public_access() -> String {
     "public".into()
 }
 
-fn admin_access() -> String {
+fn private_access() -> String {
     "admin,author".into()
 }
 
@@ -228,8 +231,10 @@ impl AdminManifest {
 
     fn validate_menu_access(&self, plugin_id: &str) -> Result<(), Error> {
         let admin_roles = self.roles(plugin_id)?;
+
         for item in &self.menu {
             let menu_roles = self.menu_roles(item, plugin_id)?;
+
             if menu_roles.iter().any(|role| !admin_roles.contains(role)) {
                 return Err(Error::Manifest(format!(
                     "plugin '{plugin_id}' admin menu item '{}' uses roles outside admin.access",
@@ -237,6 +242,7 @@ impl AdminManifest {
                 )));
             }
         }
+
         Ok(())
     }
 }
@@ -254,14 +260,17 @@ fn parse_access(access: &str, context: &str, allow_public: bool) -> Result<Vec<S
             "{context} has an empty access declaration"
         )));
     }
+
     if roles.iter().any(|role| role == "public") {
         if !allow_public || roles.len() != 1 {
             return Err(Error::Manifest(format!(
                 "{context} cannot use public together with authenticated access"
             )));
         }
+
         return Ok(Vec::new());
     }
+
     if roles.iter().any(|role| !valid_role(role)) {
         return Err(Error::Manifest(format!(
             "{context} contains an invalid access role"
@@ -277,14 +286,17 @@ fn parse_access(access: &str, context: &str, allow_public: bool) -> Result<Vec<S
 
 pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
     let enabled = enabled_plugins();
+
     if enabled.is_empty() {
         return Ok(Vec::new());
     }
+
     if enabled.len() > 32 {
         return Err(Error::Manifest(
             "no more than 32 plugins can be enabled".into(),
         ));
     }
+
     if let Some(id) = enabled.iter().find(|id| !valid_plugin_id(id)) {
         return Err(Error::Manifest(format!(
             "invalid enabled plugin id '{id}'; use 3-40 lowercase letters, digits, and hyphens"
@@ -296,89 +308,14 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
         if !plugin_root.is_dir() {
             continue;
         }
+
         for enabled_id in &enabled {
-            let root = plugin_root.join(enabled_id);
-            let manifest_path = root.join("plugin.toml");
-            if !manifest_path.is_file() {
+            let Some(plugin) = load_installed_plugin(&plugin_root, enabled_id)? else {
                 continue;
-            }
-            let manifest_size = fs::metadata(&manifest_path).map_err(Error::Io)?.len();
-            if manifest_size > 256 * 1024 {
-                return Err(Error::Manifest(format!(
-                    "plugin manifest is too large: {}",
-                    manifest_path.display()
-                )));
-            }
-            let bytes = fs::read(&manifest_path).map_err(Error::Io)?;
-            let source = std::str::from_utf8(&bytes).map_err(|error| {
-                Error::Manifest(format!("{}: {error}", manifest_path.display()))
-            })?;
-            let manifest: Manifest = toml_edit::de::from_str(source).map_err(|error| {
-                Error::Manifest(format!("{}: {error}", manifest_path.display()))
-            })?;
-            validate_manifest(&manifest)?;
-            if manifest
-                .admin
-                .as_ref()
-                .and_then(|admin| admin.entry.as_ref())
-                .is_some()
-                && !nur_core::config::settings().plugins.allow_admin_components
-            {
-                return Err(Error::Manifest(format!(
-                    "plugin '{}' declares browser-side admin code; set plugins.allow_admin_components = true to trust and enable it",
-                    manifest.plugin.id
-                )));
-            }
-            if manifest.plugin.id != *enabled_id {
-                return Err(Error::Manifest(format!(
-                    "plugin directory '{enabled_id}' contains manifest for '{}'",
-                    manifest.plugin.id
-                )));
-            }
-            let root = fs::canonicalize(root).map_err(Error::Io)?;
-            let module = contained_path(
-                &root,
-                &manifest.plugin.module,
-                &manifest.plugin.id,
-                "module",
-            )?;
-            if !module.is_file() {
-                return Err(Error::Manifest(format!(
-                    "plugin '{}' module does not exist: {}",
-                    manifest.plugin.id,
-                    module.display()
-                )));
-            }
-            let assets = manifest
-                .assets
-                .as_ref()
-                .map(|assets| {
-                    contained_path(
-                        &root,
-                        &assets.directory,
-                        &manifest.plugin.id,
-                        "asset directory",
-                    )
-                })
-                .transpose()?;
-            if assets.as_ref().is_some_and(|assets| !assets.is_dir()) {
-                return Err(Error::Manifest(format!(
-                    "plugin '{}' asset directory does not exist",
-                    manifest.plugin.id
-                )));
-            }
-            if let Some(assets) = &assets {
-                validate_asset_tree(assets, &manifest.plugin.id)?;
-            }
-            validate_admin_assets(&manifest, assets.as_deref())?;
-            let plugin = InstalledPlugin {
-                manifest,
-                root,
-                module,
-                assets,
-                manifest_checksum: Sha256::digest(bytes).to_vec(),
             };
+
             let id = plugin.manifest.plugin.id.clone();
+
             if discovered.insert(id.clone(), plugin).is_some() {
                 return Err(Error::Manifest(format!(
                     "plugin '{id}' occurs in more than one plugin root"
@@ -393,6 +330,7 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
         .cloned()
         .collect();
     missing.sort();
+
     if !missing.is_empty() {
         return Err(Error::Manifest(format!(
             "enabled plugins were not found: {}",
@@ -402,8 +340,127 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
 
     let mut plugins: Vec<_> = discovered.into_values().collect();
     plugins.sort_by(|left, right| left.manifest.plugin.id.cmp(&right.manifest.plugin.id));
+
+    validate_unique_admin_elements(&plugins)?;
+
+    Ok(plugins)
+}
+
+fn load_installed_plugin(
+    plugin_root: &Path,
+    enabled_id: &str,
+) -> Result<Option<InstalledPlugin>, Error> {
+    let root = plugin_root.join(enabled_id);
+    let manifest_path = root.join("plugin.toml");
+
+    if !manifest_path.is_file() {
+        return Ok(None);
+    }
+
+    let bytes = read_manifest(&manifest_path)?;
+    let source = from_utf8(&bytes)
+        .map_err(|error| Error::Manifest(format!("{}: {error}", manifest_path.display())))?;
+    let manifest: Manifest = toml_edit::de::from_str(source)
+        .map_err(|error| Error::Manifest(format!("{}: {error}", manifest_path.display())))?;
+
+    validate_manifest(&manifest)?;
+    validate_admin_component_permission(&manifest)?;
+
+    if manifest.plugin.id != enabled_id {
+        return Err(Error::Manifest(format!(
+            "plugin directory '{enabled_id}' contains manifest for '{}'",
+            manifest.plugin.id
+        )));
+    }
+
+    let root = fs::canonicalize(root).map_err(Error::Io)?;
+    let module = contained_path(
+        &root,
+        &manifest.plugin.module,
+        &manifest.plugin.id,
+        "module",
+    )?;
+
+    if !module.is_file() {
+        return Err(Error::Manifest(format!(
+            "plugin '{}' module does not exist: {}",
+            manifest.plugin.id,
+            module.display()
+        )));
+    }
+
+    let assets = resolve_assets(&root, &manifest)?;
+    validate_admin_assets(&manifest, assets.as_deref())?;
+
+    Ok(Some(InstalledPlugin {
+        manifest,
+        root,
+        module,
+        assets,
+        manifest_checksum: Sha256::digest(bytes).to_vec(),
+    }))
+}
+
+fn read_manifest(path: &Path) -> Result<Vec<u8>, Error> {
+    if fs::metadata(path).map_err(Error::Io)?.len() > 256 * 1024 {
+        return Err(Error::Manifest(format!(
+            "plugin manifest is too large: {}",
+            path.display()
+        )));
+    }
+
+    fs::read(path).map_err(Error::Io)
+}
+
+fn validate_admin_component_permission(manifest: &Manifest) -> Result<(), Error> {
+    let has_admin_entry = manifest
+        .admin
+        .as_ref()
+        .and_then(|admin| admin.entry.as_ref())
+        .is_some();
+
+    if has_admin_entry && !settings().plugins.allow_admin_components {
+        return Err(Error::Manifest(format!(
+            "plugin '{}' declares browser-side admin code; set plugins.allow_admin_components = true to trust and enable it",
+            manifest.plugin.id
+        )));
+    }
+
+    Ok(())
+}
+
+fn resolve_assets(root: &Path, manifest: &Manifest) -> Result<Option<PathBuf>, Error> {
+    let assets = manifest
+        .assets
+        .as_ref()
+        .map(|assets| {
+            contained_path(
+                root,
+                &assets.directory,
+                &manifest.plugin.id,
+                "asset directory",
+            )
+        })
+        .transpose()?;
+
+    if assets.as_ref().is_some_and(|assets| !assets.is_dir()) {
+        return Err(Error::Manifest(format!(
+            "plugin '{}' asset directory does not exist",
+            manifest.plugin.id
+        )));
+    }
+
+    if let Some(assets) = &assets {
+        validate_asset_tree(assets, &manifest.plugin.id)?;
+    }
+
+    Ok(assets)
+}
+
+fn validate_unique_admin_elements(plugins: &[InstalledPlugin]) -> Result<(), Error> {
     let mut elements = HashSet::new();
-    for plugin in &plugins {
+
+    for plugin in plugins {
         if let Some(element) = plugin
             .manifest
             .admin
@@ -416,21 +473,25 @@ pub fn discover() -> Result<Vec<InstalledPlugin>, Error> {
             )));
         }
     }
-    Ok(plugins)
+
+    Ok(())
 }
 
 fn validate_asset_tree(root: &Path, plugin_id: &str) -> Result<(), Error> {
     let mut directories = vec![root.to_path_buf()];
+
     while let Some(directory) = directories.pop() {
         for entry in fs::read_dir(&directory).map_err(Error::Io)? {
             let entry = entry.map_err(Error::Io)?;
             let file_type = entry.file_type().map_err(Error::Io)?;
+
             if file_type.is_symlink() {
                 return Err(Error::Manifest(format!(
                     "plugin '{plugin_id}' asset directory contains a symbolic link: {}",
                     entry.path().display()
                 )));
             }
+
             if file_type.is_dir() {
                 directories.push(entry.path());
             } else if !file_type.is_file() {
@@ -462,23 +523,42 @@ pub fn contained_path(
             expected_path.display()
         ))
     })?;
+
     if !path.starts_with(root) {
         return Err(Error::Manifest(format!(
             "plugin '{plugin_id}' {kind} must stay inside {}",
             root.display()
         )));
     }
+
     Ok(path)
 }
 
 fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
     let plugin = &manifest.plugin;
+
+    validate_plugin_metadata(plugin)?;
+    validate_cache(manifest.cache.as_ref(), &plugin.id)?;
+    validate_mail_permissions(&manifest.mail, &plugin.id)?;
+    validate_storage(&manifest.storage, &plugin.id)?;
+    validate_cms_version(plugin)?;
+    validate_routes(manifest)?;
+
+    if let Some(admin) = &manifest.admin {
+        validate_admin(admin, &plugin.id)?;
+    }
+
+    Ok(())
+}
+
+fn validate_plugin_metadata(plugin: &PluginManifest) -> Result<(), Error> {
     if !valid_plugin_id(&plugin.id) {
         return Err(Error::Manifest(format!(
             "invalid plugin id '{}'; use 3-40 lowercase letters, digits, and hyphens",
             plugin.id
         )));
     }
+
     if plugin
         .name
         .as_ref()
@@ -489,29 +569,25 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
             plugin.id
         )));
     }
+
     Version::parse(&plugin.version).map_err(|error| {
         Error::Manifest(format!(
             "plugin '{}' has invalid version: {error}",
             plugin.id
         ))
     })?;
+
     if plugin.api_version != API_VERSION {
         return Err(Error::Manifest(format!(
             "plugin '{}' requires unsupported API version {}",
             plugin.id, plugin.api_version
         )));
     }
-    if let Some(cache) = &manifest.cache
-        && (!(1..=86_400).contains(&cache.ttl_seconds)
-            || !(1..=10_000).contains(&cache.max_entries))
-    {
-        return Err(Error::Manifest(format!(
-            "plugin '{}' cache settings are outside the supported limits",
-            plugin.id
-        )));
-    }
-    validate_mail_permissions(&manifest.mail, &plugin.id)?;
-    validate_storage(&manifest.storage, &plugin.id)?;
+
+    Ok(())
+}
+
+fn validate_cms_version(plugin: &PluginManifest) -> Result<(), Error> {
     let requirement = VersionReq::parse(&plugin.cms_version).map_err(|error| {
         Error::Manifest(format!(
             "plugin '{}' has invalid cms_version: {error}",
@@ -520,6 +596,7 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
     })?;
     let cms_version = Version::parse(env!("CARGO_PKG_VERSION"))
         .map_err(|error| Error::Manifest(error.to_string()))?;
+
     if !requirement.matches(&cms_version) {
         return Err(Error::Manifest(format!(
             "plugin '{}' does not support nur-cms {cms_version}",
@@ -527,65 +604,88 @@ fn validate_manifest(manifest: &Manifest) -> Result<(), Error> {
         )));
     }
 
-    let mut route_ids = HashSet::new();
-    if manifest.routes.len() > 64 {
+    Ok(())
+}
+
+fn validate_cache(cache: Option<&CacheManifest>, plugin_id: &str) -> Result<(), Error> {
+    if cache.is_some_and(|cache| {
+        !(1..=86_400).contains(&cache.ttl_seconds) || !(1..=10_000).contains(&cache.max_entries)
+    }) {
         return Err(Error::Manifest(format!(
-            "plugin '{}' declares more than 64 routes",
-            plugin.id
+            "plugin '{plugin_id}' cache settings are outside the supported limits"
         )));
     }
+
+    Ok(())
+}
+
+fn validate_routes(manifest: &Manifest) -> Result<(), Error> {
+    let plugin_id = &manifest.plugin.id;
+
+    if manifest.routes.len() > 64 {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' declares more than 64 routes"
+        )));
+    }
+
+    let mut route_ids = HashSet::new();
+
     for route in &manifest.routes {
         if !valid_route_id(&route.id) || !route_ids.insert(&route.id) {
             return Err(Error::Manifest(format!(
-                "plugin '{}' has an invalid or duplicate route id",
-                plugin.id
+                "plugin '{plugin_id}' has an invalid or duplicate route id"
             )));
         }
+
         route.cache_enabled(manifest.cache.is_some())?;
     }
-    if let Some(admin) = &manifest.admin {
-        admin.roles(&plugin.id)?;
-        let unique_styles: HashSet<_> = admin.styles.iter().collect();
-        if admin.styles.len() > 16
-            || unique_styles.len() != admin.styles.len()
-            || admin.styles.iter().any(|style| !valid_admin_style(style))
-        {
-            return Err(Error::Manifest(format!(
-                "plugin '{}' has invalid or duplicate admin styles",
-                plugin.id
-            )));
-        }
-        match (&admin.entry, &admin.element) {
-            (Some(entry), Some(element))
-                if valid_admin_entry(entry) && valid_custom_element_name(element) => {}
-            (Some(_), Some(_)) => {
-                return Err(Error::Manifest(format!(
-                    "plugin '{}' has an invalid admin entry or custom element name",
-                    plugin.id
-                )));
-            }
-            (None, None) if admin.menu.is_empty() && admin.styles.is_empty() => {}
-            (None, None) => {
-                return Err(Error::Manifest(format!(
-                    "plugin '{}' declares admin menu items without an admin entry and custom element",
-                    plugin.id
-                )));
-            }
-            _ => {
-                return Err(Error::Manifest(format!(
-                    "plugin '{}' must declare both admin entry and custom element",
-                    plugin.id
-                )));
-            }
-        }
-        if admin.menu.len() > 32 || admin.menu.iter().any(|item| !valid_admin_menu_item(item)) {
-            return Err(Error::Manifest(format!(
-                "plugin '{}' has invalid admin menu metadata",
-                plugin.id
-            )));
-        }
-        admin.validate_menu_access(&plugin.id)?;
+
+    Ok(())
+}
+
+fn validate_admin(admin: &AdminManifest, plugin_id: &str) -> Result<(), Error> {
+    admin.roles(plugin_id)?;
+
+    let unique_styles: HashSet<_> = admin.styles.iter().collect();
+
+    if admin.styles.len() > 16
+        || unique_styles.len() != admin.styles.len()
+        || admin.styles.iter().any(|style| !valid_admin_style(style))
+    {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' has invalid or duplicate admin styles"
+        )));
     }
+
+    match (&admin.entry, &admin.element) {
+        (Some(entry), Some(element))
+            if valid_admin_entry(entry) && valid_custom_element_name(element) => {}
+        (Some(_), Some(_)) => {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' has an invalid admin entry or custom element name"
+            )));
+        }
+        (None, None) if admin.menu.is_empty() && admin.styles.is_empty() => {}
+        (None, None) => {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' declares admin menu items without an admin entry and custom element"
+            )));
+        }
+        _ => {
+            return Err(Error::Manifest(format!(
+                "plugin '{plugin_id}' must declare both admin entry and custom element"
+            )));
+        }
+    }
+
+    if admin.menu.len() > 32 || admin.menu.iter().any(|item| !valid_admin_menu_item(item)) {
+        return Err(Error::Manifest(format!(
+            "plugin '{plugin_id}' has invalid admin menu metadata"
+        )));
+    }
+
+    admin.validate_menu_access(plugin_id)?;
+
     Ok(())
 }
 
@@ -598,18 +698,22 @@ fn validate_storage(storage: &StorageManifest, plugin_id: &str) -> Result<(), Er
 
     let mut ids = HashSet::new();
     let mut paths = HashSet::new();
+
     for directory in &storage.directories {
         if !valid_storage_id(&directory.id) || !ids.insert(&directory.id) {
             return Err(Error::Manifest(format!(
                 "plugin '{plugin_id}' has an invalid or duplicate storage directory id"
             )));
         }
+
         if !valid_storage_path(&directory.path) || !paths.insert(&directory.path) {
             return Err(Error::Manifest(format!(
                 "plugin '{plugin_id}' has an invalid or duplicate storage directory path"
             )));
         }
+
         let extensions: HashSet<_> = directory.extensions.iter().collect();
+
         if directory.extensions.is_empty()
             || directory.extensions.len() > 32
             || extensions.len() != directory.extensions.len()
@@ -623,8 +727,10 @@ fn validate_storage(storage: &StorageManifest, plugin_id: &str) -> Result<(), Er
                 directory.id
             )));
         }
+
         directory.roles(plugin_id)?;
     }
+
     Ok(())
 }
 
@@ -637,7 +743,9 @@ fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(),
             "plugin '{plugin_id}' declares more than 32 mail targets"
         )));
     }
+
     let targets: HashSet<_> = mail.targets.iter().collect();
+
     if targets.len() != mail.targets.len()
         || mail.targets.iter().any(|target| !valid_mail_target(target))
     {
@@ -645,7 +753,9 @@ fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(),
             "plugin '{plugin_id}' has an invalid or duplicate mail target"
         )));
     }
+
     let dynamic_targets: HashSet<_> = mail.dynamic_recipient_targets.iter().collect();
+
     if dynamic_targets.len() != mail.dynamic_recipient_targets.len()
         || mail
             .dynamic_recipient_targets
@@ -656,7 +766,9 @@ fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(),
             "plugin '{plugin_id}' dynamic recipient targets must be unique declared mail targets"
         )));
     }
+
     let trusted_template_targets: HashSet<_> = mail.trusted_template_targets.iter().collect();
+
     if trusted_template_targets.len() != mail.trusted_template_targets.len()
         || mail
             .trusted_template_targets
@@ -667,6 +779,7 @@ fn validate_mail_permissions(mail: &MailManifest, plugin_id: &str) -> Result<(),
             "plugin '{plugin_id}' trusted template targets must be unique declared mail targets"
         )));
     }
+
     Ok(())
 }
 
@@ -681,15 +794,18 @@ fn validate_admin_assets(manifest: &Manifest, assets: Option<&Path>) -> Result<(
     let Some(admin) = &manifest.admin else {
         return Ok(());
     };
+
     if admin.entry.is_none() && admin.styles.is_empty() {
         return Ok(());
     }
+
     let assets = assets.ok_or_else(|| {
         Error::Manifest(format!(
             "plugin '{}' declares an admin entry without an asset directory",
             manifest.plugin.id
         ))
     })?;
+
     for (path, kind) in admin
         .entry
         .iter()
@@ -697,6 +813,7 @@ fn validate_admin_assets(manifest: &Manifest, assets: Option<&Path>) -> Result<(
         .chain(admin.styles.iter().map(|style| (style, "admin stylesheet")))
     {
         let path = contained_path(assets, path, &manifest.plugin.id, kind)?;
+
         if !path.is_file() {
             return Err(Error::Manifest(format!(
                 "plugin '{}' {kind} does not exist: {}",
@@ -705,6 +822,7 @@ fn validate_admin_assets(manifest: &Manifest, assets: Option<&Path>) -> Result<(
             )));
         }
     }
+
     Ok(())
 }
 
@@ -883,19 +1001,11 @@ pub(crate) fn valid_storage_extension(extension: &str) -> bool {
 }
 
 fn enabled_plugins() -> HashSet<String> {
-    nur_core::config::settings()
-        .plugins
-        .enabled
-        .iter()
-        .cloned()
-        .collect()
+    settings().plugins.enabled.iter().cloned().collect()
 }
 
 fn plugin_roots() -> Vec<PathBuf> {
-    let mut roots = nur_core::config::settings()
-        .plugins
-        .additional_directories
-        .clone();
+    let mut roots = settings().plugins.additional_directories.clone();
     if cfg!(debug_assertions) {
         roots.push(PathBuf::from("backend/plugins/examples"));
     }
@@ -915,7 +1025,7 @@ fn plugin_roots() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, env, process};
 
     use super::{
         AdminManifest, AdminMenuItem, CacheManifest, MailManifest, Manifest, RouteManifest,
@@ -927,8 +1037,8 @@ mod tests {
 
     #[test]
     fn missing_plugin_paths_include_context() {
-        let root = std::env::temp_dir();
-        let relative = format!("nur-cms-missing-plugin-path-{}", std::process::id());
+        let root = env::temp_dir();
+        let relative = format!("nur-cms-missing-plugin-path-{}", process::id());
         let error = contained_path(&root, &relative, "example", "module")
             .expect_err("missing path is rejected")
             .to_string();
@@ -1041,7 +1151,7 @@ mod tests {
     #[test]
     fn echo_example_uses_a_valid_current_manifest() {
         let manifest: Manifest =
-            toml_edit::de::from_str(include_str!("../examples/echo/plugin.toml"))
+            toml_edit::de::from_str(include_str!("../../examples/echo/plugin.toml"))
                 .expect("echo manifest can be deserialized");
 
         validate_manifest(&manifest).expect("echo manifest is valid");
@@ -1050,7 +1160,7 @@ mod tests {
     #[test]
     fn vue_admin_example_uses_a_valid_current_manifest() {
         let manifest: Manifest =
-            toml_edit::de::from_str(include_str!("../examples/vue-admin/plugin.toml"))
+            toml_edit::de::from_str(include_str!("../../examples/vue-admin/plugin.toml"))
                 .expect("Vue admin manifest can be deserialized");
 
         validate_manifest(&manifest).expect("Vue admin manifest is valid");
@@ -1200,10 +1310,8 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("system clock is after epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "nur-cms-plugin-assets-{}-{unique}",
-            std::process::id()
-        ));
+        let root =
+            env::temp_dir().join(format!("nur-cms-plugin-assets-{}-{unique}", process::id()));
         fs::create_dir_all(&root).expect("test asset directory is created");
         fs::write(root.join("site.css"), "body {}").expect("regular test asset is created");
         assert!(validate_asset_tree(&root, "example").is_ok());

@@ -1,12 +1,17 @@
-use std::{collections::BTreeMap, fs, path::PathBuf, time::Instant};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use include_dir::{Dir, include_dir};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{AssertSqlSafe, PgPool, Row, query, query_scalar, raw_sql};
 
 use crate::{
     Error,
-    manifest::{InstalledPlugin, contained_path, schema_name},
+    manifest::{InstalledPlugin, StorageVisibility, contained_path, schema_name},
 };
 
 static RUNTIME_MIGRATIONS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/migrations");
@@ -32,7 +37,7 @@ pub async fn migrate_plugin(pool: &PgPool, plugin: &InstalledPlugin) -> Result<(
         apply_migration(pool, id, &schema, migration).await?;
     }
 
-    sqlx::query(
+    query(
         "UPDATE public.plugin_registry SET version = $2, api_version = $3, manifest_checksum = $4, \
          updated_at = now() WHERE plugin_id = $1",
     )
@@ -52,17 +57,20 @@ async fn synchronize_storage_directories(
 ) -> Result<(), Error> {
     let plugin_id = &plugin.manifest.plugin.id;
     let mut transaction = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+
+    query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(plugin_id)
         .execute(&mut *transaction)
         .await?;
-    let rows = sqlx::query(
+
+    let rows = query(
         "SELECT directory_id, path, visibility, extensions \
          FROM public.plugin_storage_directories WHERE plugin_id = $1",
     )
     .bind(plugin_id)
     .fetch_all(&mut *transaction)
     .await?;
+
     let declared = plugin
         .manifest
         .storage
@@ -76,20 +84,21 @@ async fn synchronize_storage_directories(
         let stored_path: String = row.try_get("path")?;
         let stored_visibility: String = row.try_get("visibility")?;
         let stored_extensions: Vec<String> = row.try_get("extensions")?;
+
         let directory = declared.get(directory_id.as_str()).ok_or_else(|| {
             Error::Migration(format!(
                 "plugin '{plugin_id}' removed storage directory '{directory_id}' while stored files may still reference it"
             ))
         })?;
-        let visibility = match directory.visibility {
-            crate::manifest::StorageVisibility::Public => "public",
-            crate::manifest::StorageVisibility::Private => "private",
-        };
+
+        let visibility = storage_visibility(directory.visibility);
+
         if directory.path != stored_path || visibility != stored_visibility {
             return Err(Error::Migration(format!(
                 "plugin '{plugin_id}' changed the path or visibility of storage directory '{directory_id}'"
             )));
         }
+
         if stored_extensions
             .iter()
             .any(|extension| !directory.extensions.contains(extension))
@@ -101,11 +110,9 @@ async fn synchronize_storage_directories(
     }
 
     for directory in &plugin.manifest.storage.directories {
-        let visibility = match directory.visibility {
-            crate::manifest::StorageVisibility::Public => "public",
-            crate::manifest::StorageVisibility::Private => "private",
-        };
-        sqlx::query(
+        let visibility = storage_visibility(directory.visibility);
+
+        query(
             "INSERT INTO public.plugin_storage_directories \
              (plugin_id, directory_id, path, visibility, extensions) \
              VALUES ($1, $2, $3, $4, $5) \
@@ -119,8 +126,17 @@ async fn synchronize_storage_directories(
         .execute(&mut *transaction)
         .await?;
     }
+
     transaction.commit().await?;
+
     Ok(())
+}
+
+fn storage_visibility(visibility: StorageVisibility) -> &'static str {
+    match visibility {
+        StorageVisibility::Public => "public",
+        StorageVisibility::Private => "private",
+    }
 }
 
 /// Bootstrap tables owned by the plugin runtime. Keeping this idempotent lets
@@ -130,34 +146,44 @@ async fn ensure_infrastructure(pool: &PgPool) -> Result<(), Error> {
     let bootstrap = migrations
         .get(&1)
         .ok_or_else(|| Error::Migration("runtime migration 0001 is missing".into()))?;
+
     let mut transaction = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('nur_plugins_runtime', 0))")
+
+    query("SELECT pg_advisory_xact_lock(hashtextextended('nur_plugins_runtime', 0))")
         .execute(&mut *transaction)
         .await?;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(bootstrap.sql.clone()))
+
+    raw_sql(AssertSqlSafe(bootstrap.sql.clone()))
         .execute(&mut *transaction)
         .await?;
-    let has_scope: bool = sqlx::query_scalar(
+
+    let has_scope: bool = query_scalar(
         "SELECT EXISTS (SELECT 1 FROM information_schema.columns \
          WHERE table_schema = 'public' AND table_name = '_plugin_migrations' AND column_name = 'scope')",
     )
     .fetch_one(&mut *transaction)
     .await?;
+
     if !has_scope {
         let legacy_upgrade = migrations.get(&2).ok_or_else(|| {
             Error::Migration(
                 "runtime migration 0002 for the legacy plugin journal is missing".into(),
             )
         })?;
-        sqlx::raw_sql(sqlx::AssertSqlSafe(legacy_upgrade.sql.clone()))
+
+        raw_sql(AssertSqlSafe(legacy_upgrade.sql.clone()))
             .execute(&mut *transaction)
             .await?;
     }
+
     transaction.commit().await?;
+
     validate_applied_migrations(pool, "runtime", None, &migrations).await?;
+
     for migration in migrations.values() {
         apply_runtime_migration(pool, migration).await?;
     }
+
     Ok(())
 }
 
@@ -176,17 +202,19 @@ async fn ensure_registry(
     schema: &str,
 ) -> Result<(), Error> {
     let mut transaction = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+
+    query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(&plugin.manifest.plugin.id)
         .execute(&mut *transaction)
         .await?;
-    if let Some(row) =
-        sqlx::query("SELECT schema_name FROM public.plugin_registry WHERE plugin_id = $1")
-            .bind(&plugin.manifest.plugin.id)
-            .fetch_optional(&mut *transaction)
-            .await?
+
+    if let Some(row) = query("SELECT schema_name FROM public.plugin_registry WHERE plugin_id = $1")
+        .bind(&plugin.manifest.plugin.id)
+        .fetch_optional(&mut *transaction)
+        .await?
     {
         let stored_schema: String = row.try_get("schema_name")?;
+
         if stored_schema != schema {
             return Err(Error::Migration(format!(
                 "plugin '{}' schema changed from '{stored_schema}' to '{schema}'",
@@ -194,7 +222,7 @@ async fn ensure_registry(
             )));
         }
     } else {
-        sqlx::query(
+        query(
             "INSERT INTO public.plugin_registry \
              (plugin_id, version, api_version, schema_name, manifest_checksum) \
              VALUES ($1, $2, $3, $4, $5)",
@@ -209,11 +237,14 @@ async fn ensure_registry(
     }
 
     let statement = format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\"");
+
     // `schema` is derived exclusively from the strictly validated plugin ID.
-    sqlx::query(sqlx::AssertSqlSafe(statement))
+    query(AssertSqlSafe(statement))
         .execute(&mut *transaction)
         .await?;
+
     transaction.commit().await?;
+
     Ok(())
 }
 
@@ -227,6 +258,7 @@ fn read_migrations(plugin: &InstalledPlugin) -> Result<BTreeMap<i64, Migration>,
         &plugin.manifest.plugin.id,
         "migration directory",
     )?;
+
     if !directory.is_dir() {
         return Err(Error::Migration(format!(
             "plugin '{}' migration path is not a directory",
@@ -235,18 +267,23 @@ fn read_migrations(plugin: &InstalledPlugin) -> Result<BTreeMap<i64, Migration>,
     }
 
     let mut migrations = BTreeMap::new();
+
     for entry in fs::read_dir(directory).map_err(Error::Io)? {
         let path = entry.map_err(Error::Io)?.path();
+
         if path.extension().and_then(|value| value.to_str()) != Some("sql") {
             continue;
         }
+
         let migration = parse_migration(path)?;
+
         if migrations.insert(migration.version, migration).is_some() {
             return Err(Error::Migration(format!(
                 "plugin '{}' contains duplicate migration versions",
                 plugin.manifest.plugin.id
             )));
         }
+
         if migrations.len() > 256 {
             return Err(Error::Migration(format!(
                 "plugin '{}' contains more than 256 migrations",
@@ -254,25 +291,30 @@ fn read_migrations(plugin: &InstalledPlugin) -> Result<BTreeMap<i64, Migration>,
             )));
         }
     }
+
     Ok(migrations)
 }
 
 fn read_migration_files<'a>(
-    files: impl Iterator<Item = (&'a std::path::Path, &'a [u8])>,
+    files: impl Iterator<Item = (&'a Path, &'a [u8])>,
     owner: &str,
 ) -> Result<BTreeMap<i64, Migration>, Error> {
     let mut migrations = BTreeMap::new();
+
     for (path, bytes) in files {
         if path.extension().and_then(|value| value.to_str()) != Some("sql") {
             continue;
         }
+
         let migration = parse_migration_bytes(path, bytes)?;
+
         if migrations.insert(migration.version, migration).is_some() {
             return Err(Error::Migration(format!(
                 "{owner} contains duplicate migration versions"
             )));
         }
     }
+
     Ok(migrations)
 }
 
@@ -281,7 +323,7 @@ fn parse_migration(path: PathBuf) -> Result<Migration, Error> {
     parse_migration_bytes(&path, &bytes)
 }
 
-fn parse_migration_bytes(path: &std::path::Path, bytes: &[u8]) -> Result<Migration, Error> {
+fn parse_migration_bytes(path: &Path, bytes: &[u8]) -> Result<Migration, Error> {
     let filename = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -297,18 +339,22 @@ fn parse_migration_bytes(path: &std::path::Path, bytes: &[u8]) -> Result<Migrati
         .ok()
         .filter(|version| *version > 0)
         .ok_or_else(|| Error::Migration(format!("invalid migration version in '{filename}'")))?;
+
     if description.is_empty() || description.len() > 255 {
         return Err(Error::Migration(format!(
             "invalid migration description in '{filename}'"
         )));
     }
+
     if bytes.len() > 8 * 1024 * 1024 {
         return Err(Error::Migration(format!(
             "migration '{filename}' exceeds 8 MiB"
         )));
     }
+
     let sql = String::from_utf8(bytes.to_vec())
         .map_err(|error| Error::Migration(format!("{filename}: {error}")))?;
+
     Ok(Migration {
         version,
         description: description.replace('_', " "),
@@ -323,7 +369,7 @@ async fn validate_applied_migrations(
     plugin_id: Option<&str>,
     migrations: &BTreeMap<i64, Migration>,
 ) -> Result<(), Error> {
-    let rows = sqlx::query(
+    let rows = query(
         "SELECT version, checksum FROM public._plugin_migrations \
          WHERE scope = $1 AND plugin_id IS NOT DISTINCT FROM $2 ORDER BY version",
     )
@@ -331,6 +377,7 @@ async fn validate_applied_migrations(
     .bind(plugin_id)
     .fetch_all(pool)
     .await?;
+
     for row in rows {
         let version: i64 = row.try_get("version")?;
         let checksum: Vec<u8> = row.try_get("checksum")?;
@@ -339,12 +386,14 @@ async fn validate_applied_migrations(
                 "{scope} no longer contains applied migration {version}"
             )));
         };
+
         if checksum != migration.checksum {
             return Err(Error::Migration(format!(
                 "{scope} changed applied migration {version}"
             )));
         }
     }
+
     Ok(())
 }
 
@@ -355,11 +404,13 @@ async fn apply_migration(
     migration: &Migration,
 ) -> Result<(), Error> {
     let mut transaction = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+
+    query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(plugin_id)
         .execute(&mut *transaction)
         .await?;
-    if let Some(row) = sqlx::query(
+
+    if let Some(row) = query(
         "SELECT checksum FROM public._plugin_migrations WHERE scope = 'plugin' AND plugin_id = $1 AND version = $2",
     )
     .bind(plugin_id)
@@ -368,27 +419,35 @@ async fn apply_migration(
     .await?
     {
         let checksum: Vec<u8> = row.try_get("checksum")?;
+
         if checksum != migration.checksum {
             return Err(Error::Migration(format!(
                 "plugin '{plugin_id}' changed applied migration {}",
                 migration.version
             )));
         }
+
         transaction.commit().await?;
+
         return Ok(());
     }
 
     let search_path = format!("SET LOCAL search_path TO \"{schema}\", pg_temp");
+
     // `schema` is derived exclusively from the strictly validated plugin ID.
-    sqlx::query(sqlx::AssertSqlSafe(search_path))
+    query(AssertSqlSafe(search_path))
         .execute(&mut *transaction)
         .await?;
+
     let started = Instant::now();
-    sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.clone()))
+
+    raw_sql(AssertSqlSafe(migration.sql.clone()))
         .execute(&mut *transaction)
         .await?;
+
     let elapsed = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
-    sqlx::query(
+
+    query(
         "INSERT INTO public._plugin_migrations \
          (scope, plugin_id, version, description, checksum, execution_time_ms) \
          VALUES ('plugin', $1, $2, $3, $4, $5)",
@@ -400,16 +459,20 @@ async fn apply_migration(
     .bind(elapsed)
     .execute(&mut *transaction)
     .await?;
+
     transaction.commit().await?;
+
     Ok(())
 }
 
 async fn apply_runtime_migration(pool: &PgPool, migration: &Migration) -> Result<(), Error> {
     let mut transaction = pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('nur_plugins_runtime', 0))")
+
+    query("SELECT pg_advisory_xact_lock(hashtextextended('nur_plugins_runtime', 0))")
         .execute(&mut *transaction)
         .await?;
-    if let Some(row) = sqlx::query(
+
+    if let Some(row) = query(
         "SELECT checksum FROM public._plugin_migrations WHERE scope = 'runtime' AND version = $1",
     )
     .bind(migration.version)
@@ -417,21 +480,28 @@ async fn apply_runtime_migration(pool: &PgPool, migration: &Migration) -> Result
     .await?
     {
         let checksum: Vec<u8> = row.try_get("checksum")?;
+
         if checksum != migration.checksum {
             return Err(Error::Migration(format!(
                 "runtime changed applied migration {}",
                 migration.version
             )));
         }
+
         transaction.commit().await?;
+
         return Ok(());
     }
+
     let started = Instant::now();
-    sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.clone()))
+
+    raw_sql(AssertSqlSafe(migration.sql.clone()))
         .execute(&mut *transaction)
         .await?;
+
     let elapsed = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
-    sqlx::query(
+
+    query(
         "INSERT INTO public._plugin_migrations \
          (scope, plugin_id, version, description, checksum, execution_time_ms) \
          VALUES ('runtime', NULL, $1, $2, $3, $4)",
@@ -442,7 +512,9 @@ async fn apply_runtime_migration(pool: &PgPool, migration: &Migration) -> Result
     .bind(elapsed)
     .execute(&mut *transaction)
     .await?;
+
     transaction.commit().await?;
+
     Ok(())
 }
 
@@ -450,7 +522,7 @@ async fn apply_runtime_migration(pool: &PgPool, migration: &Migration) -> Result
 mod tests {
     use std::{env, path::PathBuf};
 
-    use sqlx::PgPool;
+    use sqlx::{AssertSqlSafe, PgPool, query, query_scalar};
 
     use super::{migrate_plugin, parse_migration, read_runtime_migrations};
     use crate::manifest::{
@@ -559,15 +631,14 @@ mod tests {
             "a storage directory path cannot change silently"
         );
 
-        let migration_count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM public._plugin_migrations WHERE plugin_id = $1",
-        )
-        .bind(plugin_id)
-        .fetch_one(&pool)
-        .await
-        .expect("migration record can be read");
+        let migration_count: i64 =
+            query_scalar("SELECT count(*) FROM public._plugin_migrations WHERE plugin_id = $1")
+                .bind(plugin_id)
+                .fetch_one(&pool)
+                .await
+                .expect("migration record can be read");
         let table_name = format!("{schema}.echo_messages");
-        let migrated_table: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
+        let migrated_table: Option<String> = query_scalar("SELECT to_regclass($1)::text")
             .bind(table_name)
             .fetch_one(&pool)
             .await
@@ -579,13 +650,13 @@ mod tests {
     }
 
     async fn remove_test_plugin(pool: &PgPool, plugin_id: &str, schema: &str) {
-        sqlx::query("DELETE FROM public.plugin_registry WHERE plugin_id = $1")
+        query("DELETE FROM public.plugin_registry WHERE plugin_id = $1")
             .bind(plugin_id)
             .execute(pool)
             .await
             .expect("test plugin registry entry can be removed");
         let drop_schema = format!("DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
-        sqlx::query(sqlx::AssertSqlSafe(drop_schema))
+        query(AssertSqlSafe(drop_schema))
             .execute(pool)
             .await
             .expect("test plugin schema can be removed");

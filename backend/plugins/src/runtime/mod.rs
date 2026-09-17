@@ -1,4 +1,25 @@
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    fs,
+    net::IpAddr,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
 use colored::Colorize;
+use sha2::{Digest, Sha256};
+use tokio::{
+    sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError},
+    time::interval,
+};
+use tracing::{error, info, warn};
+use uuid::Uuid;
+use wasmtime::{
+    Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
+    component::{Component, Linker},
+};
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+
 use nur_core::{
     CONFIG,
     db::{
@@ -12,34 +33,21 @@ use nur_core::{
     },
     utils::{content_output::render_entry_nodes, public_url::configured_public_url},
 };
-use sha2::{Digest, Sha256};
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    net::IpAddr,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
-use tracing::{error, info, warn};
-use uuid::Uuid;
-use wasmtime::{
-    Cache, CacheConfig, Config, Engine, Store, StoreLimits, StoreLimitsBuilder,
-    component::{Component, Linker},
-};
-use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
+use self::{
+    bindings::nur::cms::types::{PluginError, Request, Response},
+    database::{
+        DatabaseHostError, execute_statements, validate_statement, validate_transaction_size,
+    },
+};
 use crate::{
     Error,
     manifest::InstalledPlugin,
     plugin_timeout,
-    storage::{PluginStorage, StorageDirectory},
+    utils::storage::{PluginStorage, StorageDirectory},
 };
 
 mod database;
-
-use database::{
-    DatabaseHostError, execute_statements, validate_statement, validate_transaction_size,
-};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -47,6 +55,9 @@ pub mod bindings {
         world: "cms-plugin",
     });
 }
+
+type PluginResult<T> = Result<T, PluginError>;
+type TimedHostResult<T, E> = Result<Result<T, E>, tokio::time::error::Elapsed>;
 
 const EPOCH_INTERVAL_MS: u64 = 10;
 const MAX_MAIL_CALLS_PER_REQUEST: u8 = 3;
@@ -61,17 +72,15 @@ fn maximum_file_link_expiry_seconds() -> u32 {
         * 60
 }
 
-fn valid_link_expiry(expires_seconds: u32) -> Result<i32, bindings::nur::cms::types::PluginError> {
+fn valid_link_expiry(expires_seconds: u32) -> PluginResult<i32> {
     if !(MIN_FILE_LINK_EXPIRY_SECONDS..=maximum_file_link_expiry_seconds())
         .contains(&expires_seconds)
     {
-        return Err(bindings::nur::cms::types::PluginError::BadRequest(
-            "invalid file link expiry".into(),
-        ));
+        return Err(PluginError::BadRequest("invalid file link expiry".into()));
     }
-    i32::try_from(expires_seconds).map_err(|_| {
-        bindings::nur::cms::types::PluginError::BadRequest("invalid file link expiry".into())
-    })
+
+    i32::try_from(expires_seconds)
+        .map_err(|_| PluginError::BadRequest("invalid file link expiry".into()))
 }
 
 #[derive(Clone)]
@@ -109,6 +118,20 @@ struct MailPermissions {
 }
 
 impl MailPermissions {
+    fn from_plugin(plugin: &InstalledPlugin) -> Self {
+        let mail = &plugin.manifest.mail;
+
+        Self {
+            targets: Arc::new(mail.targets.iter().cloned().collect()),
+            dynamic_recipient_targets: Arc::new(
+                mail.dynamic_recipient_targets.iter().cloned().collect(),
+            ),
+            trusted_template_targets: Arc::new(
+                mail.trusted_template_targets.iter().cloned().collect(),
+            ),
+        }
+    }
+
     fn allows(&self, target: &str, dynamic_recipient: bool, trusted_template: bool) -> bool {
         self.targets.contains(target)
             && (!dynamic_recipient || self.dynamic_recipient_targets.contains(target))
@@ -141,6 +164,48 @@ struct HostState {
     storage_quota: u64,
 }
 
+impl HostState {
+    fn new(
+        component: &PluginComponent,
+        request: &Request,
+        public_route: bool,
+        client_ip: Option<IpAddr>,
+    ) -> Self {
+        let runtime = &component.runtime;
+
+        Self {
+            plugin_id: component.id.clone(),
+            plugin_schema: crate::manifest::schema_name(&component.id),
+            limits: StoreLimitsBuilder::new()
+                .memory_size(runtime.memory_limit)
+                .instances(128)
+                .tables(16)
+                .memories(4)
+                .trap_on_grow_failure(true)
+                .build(),
+            table: ResourceTable::new(),
+            wasi: WasiCtxBuilder::new().build(),
+            pool: runtime.pool.clone(),
+            tokio_handle: runtime.tokio_handle.clone(),
+            host_calls_remaining: runtime.max_host_calls,
+            host_call_timeout: runtime.timeout,
+            content_response_body_limit: runtime.content_response_body_limit,
+            metrics_enabled: runtime.metrics_enabled,
+            public_route,
+            route_id: request.route_id.clone(),
+            client_ip,
+            public_mail_rate_limiter: Arc::clone(&runtime.public_mail_rate_limiter),
+            public_mail_authorized: None,
+            mail_calls_remaining: MAX_MAIL_CALLS_PER_REQUEST,
+            mail_permissions: component.mail_permissions.clone(),
+            storage: runtime.storage.clone(),
+            storage_directories: Arc::clone(&component.storage_directories),
+            storage_write_limit: runtime.storage_write_limit,
+            storage_quota: runtime.storage_quota,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct PublicMailKey {
     plugin_id: String,
@@ -153,6 +218,17 @@ struct PublicMailRateLimiter {
     expirations: VecDeque<(Instant, PublicMailKey)>,
     window: Duration,
     max_clients: usize,
+}
+
+impl PublicMailRateLimiter {
+    fn new(window: Duration, max_clients: usize) -> Self {
+        Self {
+            sent: HashMap::new(),
+            expirations: VecDeque::new(),
+            window,
+            max_clients,
+        }
+    }
 }
 
 impl WasiView for HostState {
@@ -168,60 +244,33 @@ impl bindings::nur::cms::types::Host for HostState {}
 
 impl Runtime {
     pub fn new(pool: sqlx::PgPool, storage: Option<PluginStorage>) -> Result<Self, Error> {
-        let mut config = Config::new();
-        config.consume_fuel(true);
-        config.epoch_interruption(true);
-        config.wasm_component_model(true);
-        configure_compilation_cache(&mut config)?;
-        let engine = Arc::new(Engine::new(&config).map_err(Error::wasmtime)?);
-        let epoch_engine = Arc::clone(&engine);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_millis(EPOCH_INTERVAL_MS));
-            loop {
-                interval.tick().await;
-                epoch_engine.increment_epoch();
-            }
-        });
+        let engine = create_engine()?;
+        start_epoch_ticker(Arc::clone(&engine));
+
+        let settings = &nur_core::config::settings().plugins;
+        let runtime = &settings.runtime;
+        let storage_settings = &settings.storage;
+        let public_mail = &settings.public_mail;
 
         Ok(Self {
             engine,
-            fuel: nur_core::config::settings().plugins.runtime.fuel,
-            memory_limit: nur_core::config::mb(
-                nur_core::config::settings().plugins.runtime.memory_limit_mb,
-            ) as usize,
+            fuel: runtime.fuel,
+            memory_limit: nur_core::config::mb(runtime.memory_limit_mb) as usize,
             timeout: plugin_timeout(),
-            semaphore: Arc::new(Semaphore::new(
-                nur_core::config::settings().plugins.runtime.max_concurrency,
-            )),
+            semaphore: Arc::new(Semaphore::new(runtime.max_concurrency)),
             pool,
             tokio_handle: tokio::runtime::Handle::current(),
-            max_host_calls: nur_core::config::settings().plugins.runtime.max_host_calls,
-            content_response_body_limit: nur_core::config::mb(
-                nur_core::config::settings()
-                    .plugins
-                    .runtime
-                    .response_body_limit_mb,
-            ) as usize,
-            metrics_enabled: nur_core::config::settings().plugins.runtime.metrics_enabled,
-            public_mail_rate_limiter: Arc::new(Mutex::new(PublicMailRateLimiter {
-                sent: HashMap::new(),
-                expirations: VecDeque::new(),
-                window: Duration::from_secs(
-                    nur_core::config::settings()
-                        .plugins
-                        .public_mail
-                        .interval_minutes
-                        * 60,
-                ),
-                max_clients: nur_core::config::settings().plugins.public_mail.max_clients,
-            })),
+            max_host_calls: runtime.max_host_calls,
+            content_response_body_limit: nur_core::config::mb(runtime.response_body_limit_mb)
+                as usize,
+            metrics_enabled: runtime.metrics_enabled,
+            public_mail_rate_limiter: Arc::new(Mutex::new(PublicMailRateLimiter::new(
+                Duration::from_secs(public_mail.interval_minutes * 60),
+                public_mail.max_clients,
+            ))),
             storage,
-            storage_write_limit: nur_core::config::mb(
-                nur_core::config::settings().plugins.storage.write_limit_mb,
-            ) as usize,
-            storage_quota: nur_core::config::mb(
-                nur_core::config::settings().plugins.storage.quota_mb,
-            ),
+            storage_write_limit: nur_core::config::mb(storage_settings.write_limit_mb) as usize,
+            storage_quota: nur_core::config::mb(storage_settings.quota_mb),
         })
     }
 
@@ -232,56 +281,64 @@ impl Runtime {
                 .runtime
                 .module_size_limit_mb,
         );
-        if std::fs::metadata(&plugin.module).map_err(Error::Io)?.len() > module_limit {
+
+        if fs::metadata(&plugin.module).map_err(Error::Io)?.len() > module_limit {
             return Err(Error::Plugin(format!(
                 "plugin '{}' module exceeds the configured size limit",
                 plugin.manifest.plugin.id
             )));
         }
+
         let component = Component::from_file(&self.engine, &plugin.module)
             .map_err(|error| Error::Plugin(format!("{}: {error}", plugin.module.display())))?;
+
         Ok(PluginComponent {
             id: plugin.manifest.plugin.id.clone(),
             component,
             runtime: self.clone(),
-            mail_permissions: MailPermissions {
-                targets: Arc::new(plugin.manifest.mail.targets.iter().cloned().collect()),
-                dynamic_recipient_targets: Arc::new(
-                    plugin
-                        .manifest
-                        .mail
-                        .dynamic_recipient_targets
-                        .iter()
-                        .cloned()
-                        .collect(),
-                ),
-                trusted_template_targets: Arc::new(
-                    plugin
-                        .manifest
-                        .mail
-                        .trusted_template_targets
-                        .iter()
-                        .cloned()
-                        .collect(),
-                ),
-            },
-            storage_directories: Arc::new(
-                plugin
-                    .manifest
-                    .storage
-                    .directories
-                    .iter()
-                    .map(|directory| {
-                        StorageDirectory::from_manifest(&plugin.manifest.plugin.id, directory)
-                    })
-                    .collect::<Result<_, _>>()?,
-            ),
+            mail_permissions: MailPermissions::from_plugin(plugin),
+            storage_directories: plugin_storage_directories(plugin)?,
         })
     }
 }
 
+fn create_engine() -> Result<Arc<Engine>, Error> {
+    let mut config = Config::new();
+    config.consume_fuel(true);
+    config.epoch_interruption(true);
+    config.wasm_component_model(true);
+    configure_compilation_cache(&mut config)?;
+
+    Engine::new(&config).map(Arc::new).map_err(Error::wasmtime)
+}
+
+fn start_epoch_ticker(engine: Arc<Engine>) {
+    tokio::spawn(async move {
+        let mut interval = interval(Duration::from_millis(EPOCH_INTERVAL_MS));
+
+        loop {
+            interval.tick().await;
+            engine.increment_epoch();
+        }
+    });
+}
+
+fn plugin_storage_directories(
+    plugin: &InstalledPlugin,
+) -> Result<Arc<Vec<StorageDirectory>>, Error> {
+    plugin
+        .manifest
+        .storage
+        .directories
+        .iter()
+        .map(|directory| StorageDirectory::from_manifest(&plugin.manifest.plugin.id, directory))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Arc::new)
+}
+
 fn configure_compilation_cache(config: &mut Config) -> Result<(), Error> {
     let settings = &nur_core::config::settings().plugins.compilation_cache;
+
     if !settings.enabled {
         info!("plugin compilation cache is disabled");
         return Ok(());
@@ -290,9 +347,11 @@ fn configure_compilation_cache(config: &mut Config) -> Result<(), Error> {
     let directory = settings.directory.clone();
     let explicitly_configured = directory.is_some();
     let mut cache_config = CacheConfig::new();
+
     if let Some(directory) = directory {
         cache_config.with_directory(directory);
     }
+
     cache_config.with_files_total_size_soft_limit(nur_core::config::mb(settings.max_size_mb));
 
     match Cache::new(cache_config) {
@@ -314,16 +373,17 @@ fn configure_compilation_cache(config: &mut Config) -> Result<(), Error> {
 impl PluginComponent {
     pub async fn call(
         &self,
-        request: bindings::nur::cms::types::Request,
+        request: Request,
         public_route: bool,
         client_ip: Option<IpAddr>,
-    ) -> Result<bindings::nur::cms::types::Response, Error> {
+    ) -> Result<Response, Error> {
         let permit = acquire_runtime_permit(Arc::clone(&self.runtime.semaphore))?;
         let component = self.clone();
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             component.call_sync(request, public_route, client_ip)
         });
+
         tokio::time::timeout(self.runtime.timeout + Duration::from_millis(100), task)
             .await
             .map_err(|_| Error::Timeout)?
@@ -332,48 +392,20 @@ impl PluginComponent {
 
     fn call_sync(
         &self,
-        request: bindings::nur::cms::types::Request,
+        request: Request,
         public_route: bool,
         client_ip: Option<IpAddr>,
-    ) -> Result<bindings::nur::cms::types::Response, Error> {
+    ) -> Result<Response, Error> {
         let call_started = Instant::now();
         let mut linker = Linker::new(&self.runtime.engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(Error::wasmtime)?;
-        let mut store = Store::new(
-            &self.runtime.engine,
-            HostState {
-                plugin_id: self.id.clone(),
-                plugin_schema: crate::manifest::schema_name(&self.id),
-                limits: StoreLimitsBuilder::new()
-                    .memory_size(self.runtime.memory_limit)
-                    .instances(128)
-                    .tables(16)
-                    .memories(4)
-                    .trap_on_grow_failure(true)
-                    .build(),
-                table: ResourceTable::new(),
-                wasi: WasiCtxBuilder::new().build(),
-                pool: self.runtime.pool.clone(),
-                tokio_handle: self.runtime.tokio_handle.clone(),
-                host_calls_remaining: self.runtime.max_host_calls,
-                host_call_timeout: self.runtime.timeout,
-                content_response_body_limit: self.runtime.content_response_body_limit,
-                metrics_enabled: self.runtime.metrics_enabled,
-                public_route,
-                route_id: request.route_id.clone(),
-                client_ip,
-                public_mail_rate_limiter: Arc::clone(&self.runtime.public_mail_rate_limiter),
-                public_mail_authorized: None,
-                mail_calls_remaining: MAX_MAIL_CALLS_PER_REQUEST,
-                mail_permissions: self.mail_permissions.clone(),
-                storage: self.runtime.storage.clone(),
-                storage_directories: Arc::clone(&self.storage_directories),
-                storage_write_limit: self.runtime.storage_write_limit,
-                storage_quota: self.runtime.storage_quota,
-            },
-        );
+
+        let host_state = HostState::new(self, &request, public_route, client_ip);
+        let mut store = Store::new(&self.runtime.engine, host_state);
+
         store.limiter(|state| &mut state.limits);
         store.set_fuel(self.runtime.fuel).map_err(Error::wasmtime)?;
+
         let ticks = self
             .runtime
             .timeout
@@ -382,11 +414,13 @@ impl PluginComponent {
         store.set_epoch_deadline(u64::try_from(ticks).unwrap_or(u64::MAX));
 
         let instantiate_started = Instant::now();
+
         bindings::CmsPlugin::add_to_linker::<HostState, wasmtime::component::HasSelf<HostState>>(
             &mut linker,
             |state| state,
         )
         .map_err(Error::wasmtime)?;
+
         let instance = match bindings::CmsPlugin::instantiate(&mut store, &self.component, &linker)
         {
             Ok(instance) => instance,
@@ -401,6 +435,7 @@ impl PluginComponent {
                 return Err(Error::wasmtime(error));
             }
         };
+
         self.log_metrics(
             "instantiate",
             instantiate_started.elapsed(),
@@ -415,19 +450,8 @@ impl PluginComponent {
             .nur_cms_http_handler()
             .call_handle(&mut store, &request)
             .map_err(Error::wasmtime)
-            .and_then(|result| {
-                result.map_err(|error| match error {
-                    bindings::nur::cms::types::PluginError::BadRequest(message) => {
-                        Error::PluginBadRequest(message)
-                    }
-                    bindings::nur::cms::types::PluginError::RateLimited => Error::RateLimited,
-                    bindings::nur::cms::types::PluginError::Forbidden => Error::PluginForbidden,
-                    bindings::nur::cms::types::PluginError::NotFound => Error::PluginNotFound,
-                    bindings::nur::cms::types::PluginError::Failed(message) => {
-                        Error::Plugin(message)
-                    }
-                })
-            });
+            .and_then(|result| result.map_err(plugin_call_error));
+
         self.log_metrics(
             "handler",
             handler_started.elapsed(),
@@ -435,6 +459,7 @@ impl PluginComponent {
             fuel_after_instantiation,
             &store,
         );
+
         result
     }
 
@@ -470,6 +495,7 @@ impl PluginComponent {
             .yellow();
         let fuel_remaining = fuel_remaining.to_string().yellow();
         let host_calls = host_calls.to_string().yellow();
+
         info!(
             plugin = %self.id,
             phase,
@@ -485,6 +511,16 @@ impl PluginComponent {
     }
 }
 
+fn plugin_call_error(error: PluginError) -> Error {
+    match error {
+        PluginError::BadRequest(message) => Error::PluginBadRequest(message),
+        PluginError::RateLimited => Error::RateLimited,
+        PluginError::Forbidden => Error::PluginForbidden,
+        PluginError::NotFound => Error::PluginNotFound,
+        PluginError::Failed(message) => Error::Plugin(message),
+    }
+}
+
 fn acquire_runtime_permit(semaphore: Arc<Semaphore>) -> Result<OwnedSemaphorePermit, Error> {
     semaphore.try_acquire_owned().map_err(|error| match error {
         TryAcquireError::NoPermits => Error::Busy,
@@ -497,39 +533,34 @@ impl bindings::nur::cms::content::Host for HostState {
         &mut self,
         query: String,
         output: bindings::nur::cms::content::OutputType,
-    ) -> Result<Vec<u8>, bindings::nur::cms::types::PluginError> {
-        if self.host_calls_remaining == 0 {
-            return Err(bindings::nur::cms::types::PluginError::Failed(
-                "plugin host-call limit exceeded".into(),
-            ));
-        }
-        self.host_calls_remaining -= 1;
+    ) -> PluginResult<Vec<u8>> {
+        self.consume_host_call()?;
 
         if query.len() > 8 * 1024 {
-            return Err(bindings::nur::cms::types::PluginError::BadRequest(
-                "content query is too long".into(),
-            ));
+            return Err(PluginError::BadRequest("content query is too long".into()));
         }
 
         let mut params: QueryObj<ContentEntryFields> = match serde_urlencoded::from_str(&query) {
             Ok(params) => params,
             Err(_) => {
-                return Err(bindings::nur::cms::types::PluginError::BadRequest(
-                    "invalid content query".into(),
-                ));
+                return Err(PluginError::BadRequest("invalid content query".into()));
             }
         };
+
         params.path = "/api/content/entries".into();
         params.query = query;
         params.search_status = Some("published".into());
+
         let output = match output {
             bindings::nur::cms::content::OutputType::Markdown => OutputType::Markdown,
             bindings::nur::cms::content::OutputType::Ast => OutputType::AST,
             bindings::nur::cms::content::OutputType::Html => OutputType::HTML,
         };
+
         let embeds_requested = params
             .fields
             .contains(&ContentEntryFields::Node(ContentNodeFields::Embeds));
+
         if params
             .fields
             .contains(&ContentEntryFields::Node(ContentNodeFields::Text))
@@ -546,6 +577,7 @@ impl bindings::nur::cms::content::Host for HostState {
             tokio::time::timeout(self.host_call_timeout, async {
                 let max_image_variant_width = CONFIG.read().await.max_image_resolution();
                 let mut entries = handles::select_content_entries(&self.pool, &params).await?;
+
                 if params
                     .fields
                     .contains(&ContentEntryFields::Node(ContentNodeFields::Text))
@@ -558,25 +590,24 @@ impl bindings::nur::cms::content::Host for HostState {
                         max_image_variant_width,
                     )?;
                 }
+
                 serde_json::to_vec(&entries).map_err(nur_core::utils::errors::NurError::from)
             })
             .await
         });
+
         self.log_content_query_metrics(&result, host_call_started.elapsed());
+
         match result {
             Ok(Ok(entries)) if entries.len() <= self.content_response_body_limit => Ok(entries),
-            Ok(Ok(_)) => Err(bindings::nur::cms::types::PluginError::Failed(
+            Ok(Ok(_)) => Err(PluginError::Failed(
                 "content response exceeds plugin limit".into(),
             )),
             Ok(Err(error)) => {
                 error!(plugin = %self.plugin_id, %error, "plugin content query failed");
-                Err(bindings::nur::cms::types::PluginError::Failed(
-                    "content query failed".into(),
-                ))
+                Err(PluginError::Failed("content query failed".into()))
             }
-            Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
-                "content query timed out".into(),
-            )),
+            Err(_) => Err(PluginError::Failed("content query timed out".into())),
         }
     }
 }
@@ -585,8 +616,7 @@ impl bindings::nur::cms::database::Host for HostState {
     fn execute(
         &mut self,
         statement: bindings::nur::cms::database::Statement,
-    ) -> Result<bindings::nur::cms::database::QueryResult, bindings::nur::cms::types::PluginError>
-    {
+    ) -> PluginResult<bindings::nur::cms::database::QueryResult> {
         self.consume_host_call()?;
         let validated = validate_statement(&statement).map_err(database_error)?;
 
@@ -609,7 +639,9 @@ impl bindings::nur::cms::database::Host for HostState {
             )
             .await
         });
+
         self.log_database_metrics("execute", &result, started.elapsed());
+
         match result {
             Ok(Ok(mut results)) => results
                 .pop()
@@ -625,10 +657,7 @@ impl bindings::nur::cms::database::Host for HostState {
     fn transaction(
         &mut self,
         statements: Vec<bindings::nur::cms::database::Statement>,
-    ) -> Result<
-        Vec<bindings::nur::cms::database::QueryResult>,
-        bindings::nur::cms::types::PluginError,
-    > {
+    ) -> PluginResult<Vec<bindings::nur::cms::database::QueryResult>> {
         self.consume_host_call()?;
         validate_transaction_size(&statements).map_err(database_error)?;
         let validated = statements
@@ -654,7 +683,9 @@ impl bindings::nur::cms::database::Host for HostState {
             )
             .await
         });
+
         self.log_database_metrics("transaction", &result, started.elapsed());
+
         match result {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(error)) => {
@@ -678,12 +709,11 @@ impl bindings::nur::cms::storage::Host for HostState {
         directory: String,
         filename: String,
         contents: Vec<u8>,
-    ) -> Result<bindings::nur::cms::storage::File, bindings::nur::cms::types::PluginError> {
+    ) -> PluginResult<bindings::nur::cms::storage::File> {
         self.consume_host_call()?;
         let directory = self.storage_directory(&directory)?;
-        let storage = self.storage.as_ref().ok_or_else(|| {
-            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
-        })?;
+        let storage = self.plugin_storage()?;
+
         let stored = storage
             .write(
                 directory,
@@ -693,22 +723,18 @@ impl bindings::nur::cms::storage::Host for HostState {
                 self.storage_quota,
             )
             .map_err(|error| self.storage_error(error))?;
+
         Ok(bindings::nur::cms::storage::File {
             path: stored.path,
             public_url: stored.public_url,
         })
     }
 
-    fn delete(
-        &mut self,
-        directory: String,
-        path: String,
-    ) -> Result<(), bindings::nur::cms::types::PluginError> {
+    fn delete(&mut self, directory: String, path: String) -> PluginResult<()> {
         self.consume_host_call()?;
         let directory = self.storage_directory(&directory)?;
-        let storage = self.storage.as_ref().ok_or_else(|| {
-            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
-        })?;
+        let storage = self.plugin_storage()?;
+
         storage
             .delete(directory, &path)
             .map_err(|error| self.storage_error(error))
@@ -717,15 +743,16 @@ impl bindings::nur::cms::storage::Host for HostState {
     fn create_upload_link(
         &mut self,
         request: bindings::nur::cms::storage::UploadLinkRequest,
-    ) -> Result<bindings::nur::cms::storage::Link, bindings::nur::cms::types::PluginError> {
+    ) -> PluginResult<bindings::nur::cms::storage::Link> {
         self.consume_host_call()?;
         let directory = self.storage_directory(&request.directory)?;
+
         if directory.upload != crate::BrowserUpload::Link {
-            return Err(bindings::nur::cms::types::PluginError::Forbidden);
+            return Err(PluginError::Forbidden);
         }
-        let storage = self.storage.as_ref().ok_or_else(|| {
-            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
-        })?;
+
+        let storage = self.plugin_storage()?;
+
         storage
             .validate_upload_request(
                 directory,
@@ -734,10 +761,11 @@ impl bindings::nur::cms::storage::Host for HostState {
                 self.storage_quota,
             )
             .map_err(|error| self.storage_error(error))?;
-        let maximum_size = i64::try_from(request.max_size).map_err(|_| {
-            bindings::nur::cms::types::PluginError::BadRequest("invalid upload size".into())
-        })?;
+
+        let maximum_size = i64::try_from(request.max_size)
+            .map_err(|_| PluginError::BadRequest("invalid upload size".into()))?;
         let expires_seconds = valid_link_expiry(request.expires_seconds)?;
+
         self.create_file_link(
             "upload",
             directory,
@@ -750,18 +778,20 @@ impl bindings::nur::cms::storage::Host for HostState {
     fn create_download_link(
         &mut self,
         request: bindings::nur::cms::storage::DownloadLinkRequest,
-    ) -> Result<bindings::nur::cms::storage::Link, bindings::nur::cms::types::PluginError> {
+    ) -> PluginResult<bindings::nur::cms::storage::Link> {
         self.consume_host_call()?;
         let directory = self.storage_directory(&request.directory)?;
+
         if directory.visibility != crate::StorageVisibility::Private {
-            return Err(bindings::nur::cms::types::PluginError::Forbidden);
+            return Err(PluginError::Forbidden);
         }
-        let storage = self.storage.as_ref().ok_or_else(|| {
-            bindings::nur::cms::types::PluginError::Failed("plugin storage is unavailable".into())
-        })?;
+
+        let storage = self.plugin_storage()?;
+
         storage
             .file_path(directory, &request.path)
             .map_err(|error| self.storage_error(error))?;
+
         self.create_file_link(
             "download",
             directory,
@@ -773,22 +803,20 @@ impl bindings::nur::cms::storage::Host for HostState {
 }
 
 impl bindings::nur::cms::mail::Host for HostState {
-    fn send(
-        &mut self,
-        message: bindings::nur::cms::mail::Message,
-    ) -> Result<(), bindings::nur::cms::types::PluginError> {
+    fn send(&mut self, message: bindings::nur::cms::mail::Message) -> PluginResult<()> {
         self.consume_host_call()?;
 
         let trusted_template = matches!(
             message.content_kind,
             bindings::nur::cms::mail::ContentKind::TrustedTemplateHtml
         );
+
         if !self.mail_permissions.allows(
             &message.target,
             message.recipient.is_some(),
             trusted_template,
         ) {
-            return Err(bindings::nur::cms::types::PluginError::Forbidden);
+            return Err(PluginError::Forbidden);
         }
 
         let request = MailRequest {
@@ -805,6 +833,7 @@ impl bindings::nur::cms::mail::Host for HostState {
         };
         let target = message.target;
         let recipient = message.recipient;
+
         let started = Instant::now();
         let prepared = self.tokio_handle.block_on(async {
             tokio::time::timeout(
@@ -813,6 +842,7 @@ impl bindings::nur::cms::mail::Host for HostState {
             )
             .await
         });
+
         let prepared = match prepared {
             Ok(Ok(prepared)) => prepared,
             Ok(Err(error)) => {
@@ -827,9 +857,7 @@ impl bindings::nur::cms::mail::Host for HostState {
                     &Err::<Result<(), PluginMailError>, _>(error),
                     started.elapsed(),
                 );
-                return Err(bindings::nur::cms::types::PluginError::Failed(
-                    "mail delivery timed out".into(),
-                ));
+                return Err(PluginError::Failed("mail delivery timed out".into()));
             }
         };
 
@@ -838,13 +866,13 @@ impl bindings::nur::cms::mail::Host for HostState {
         let result = self.tokio_handle.block_on(async {
             tokio::time::timeout(remaining, deliver_plugin_mail(prepared)).await
         });
+
         self.log_mail_metrics(&result, started.elapsed());
+
         match result {
             Ok(Ok(())) => Ok(()),
             Ok(Err(error)) => Err(self.plugin_mail_error(error)),
-            Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
-                "mail delivery timed out".into(),
-            )),
+            Err(_) => Err(PluginError::Failed("mail delivery timed out".into())),
         }
     }
 }
@@ -857,12 +885,13 @@ impl HostState {
         path: String,
         maximum_size: Option<i64>,
         expires_seconds: i32,
-    ) -> Result<bindings::nur::cms::storage::Link, bindings::nur::cms::types::PluginError> {
+    ) -> PluginResult<bindings::nur::cms::storage::Link> {
         let token = Uuid::new_v4().simple().to_string();
         let token_hash = Sha256::digest(token.as_bytes()).to_vec();
         let plugin_id = self.plugin_id.clone();
         let directory_id = directory.id.clone();
         let purpose = purpose.to_owned();
+
         let result = self.tokio_handle.block_on(async {
             tokio::time::timeout(
                 self.host_call_timeout,
@@ -882,83 +911,81 @@ impl HostState {
             )
             .await
         });
+
         match result {
             Ok(Ok(_)) => Ok(bindings::nur::cms::storage::Link {
                 url: format!("/api/p/{plugin_id}/files/{purpose}/{token}"),
             }),
             Ok(Err(error)) => {
                 error!(plugin = %self.plugin_id, %error, "plugin file link creation failed");
-                Err(bindings::nur::cms::types::PluginError::Failed(
-                    "file link creation failed".into(),
-                ))
+                Err(PluginError::Failed("file link creation failed".into()))
             }
-            Err(_) => Err(bindings::nur::cms::types::PluginError::Failed(
-                "file link creation timed out".into(),
-            )),
+            Err(_) => Err(PluginError::Failed("file link creation timed out".into())),
         }
     }
-    fn storage_directory(
-        &self,
-        id: &str,
-    ) -> Result<&StorageDirectory, bindings::nur::cms::types::PluginError> {
+
+    fn storage_directory(&self, id: &str) -> PluginResult<&StorageDirectory> {
         self.storage_directories
             .iter()
             .find(|directory| directory.id == id)
-            .ok_or(bindings::nur::cms::types::PluginError::Forbidden)
+            .ok_or(PluginError::Forbidden)
     }
 
-    fn storage_error(&self, error: Error) -> bindings::nur::cms::types::PluginError {
+    fn plugin_storage(&self) -> PluginResult<&PluginStorage> {
+        self.storage
+            .as_ref()
+            .ok_or_else(|| PluginError::Failed("plugin storage is unavailable".into()))
+    }
+
+    fn storage_error(&self, error: Error) -> PluginError {
         match error {
-            Error::PluginBadRequest(_) => {
-                bindings::nur::cms::types::PluginError::BadRequest("invalid storage request".into())
-            }
-            Error::PluginNotFound => bindings::nur::cms::types::PluginError::NotFound,
+            Error::PluginBadRequest(_) => PluginError::BadRequest("invalid storage request".into()),
+            Error::PluginNotFound => PluginError::NotFound,
             Error::Manifest(_) | Error::Io(_) => {
                 error!(plugin = %self.plugin_id, %error, "plugin storage operation failed");
-                bindings::nur::cms::types::PluginError::Failed("storage operation failed".into())
+                PluginError::Failed("storage operation failed".into())
             }
-            _ => bindings::nur::cms::types::PluginError::Failed("storage operation failed".into()),
+            _ => PluginError::Failed("storage operation failed".into()),
         }
     }
+}
 
-    fn plugin_mail_error(&self, error: PluginMailError) -> bindings::nur::cms::types::PluginError {
+impl HostState {
+    fn plugin_mail_error(&self, error: PluginMailError) -> PluginError {
         match error {
-            PluginMailError::UnknownTarget => {
-                bindings::nur::cms::types::PluginError::BadRequest("unknown mail target".into())
-            }
+            PluginMailError::UnknownTarget => PluginError::BadRequest("unknown mail target".into()),
             PluginMailError::DynamicRecipientNotAllowed => {
-                bindings::nur::cms::types::PluginError::BadRequest(
-                    "dynamic recipient is not allowed".into(),
-                )
+                PluginError::BadRequest("dynamic recipient is not allowed".into())
             }
             PluginMailError::InvalidMessage => {
-                bindings::nur::cms::types::PluginError::BadRequest("invalid mail message".into())
+                PluginError::BadRequest("invalid mail message".into())
             }
-            PluginMailError::Spam => {
-                bindings::nur::cms::types::PluginError::BadRequest("mail message rejected".into())
-            }
+            PluginMailError::Spam => PluginError::BadRequest("mail message rejected".into()),
             PluginMailError::DeliveryFailed => {
                 error!(plugin = %self.plugin_id, ?error, "plugin mail delivery failed");
-                bindings::nur::cms::types::PluginError::Failed("mail delivery failed".into())
+                PluginError::Failed("mail delivery failed".into())
             }
         }
     }
 
-    fn consume_host_call(&mut self) -> Result<(), bindings::nur::cms::types::PluginError> {
+    fn consume_host_call(&mut self) -> PluginResult<()> {
         if self.host_calls_remaining == 0 {
-            return Err(bindings::nur::cms::types::PluginError::Failed(
+            return Err(PluginError::Failed(
                 "plugin host-call limit exceeded".into(),
             ));
         }
+
         self.host_calls_remaining -= 1;
+
         Ok(())
     }
 
-    fn authorize_mail_send(&mut self) -> Result<(), bindings::nur::cms::types::PluginError> {
+    fn authorize_mail_send(&mut self) -> PluginResult<()> {
         let limiter = Arc::clone(&self.public_mail_rate_limiter);
         let plugin_id = self.plugin_id.clone();
         let route_id = self.route_id.clone();
         let client_ip = self.client_ip;
+
         if allow_mail_for_request(
             &mut self.mail_calls_remaining,
             self.public_route,
@@ -975,24 +1002,28 @@ impl HostState {
         ) {
             Ok(())
         } else {
-            Err(bindings::nur::cms::types::PluginError::RateLimited)
+            Err(PluginError::RateLimited)
         }
     }
+}
 
+impl HostState {
     fn log_database_metrics<T>(
         &self,
         operation: &'static str,
-        result: &Result<Result<T, DatabaseHostError>, tokio::time::error::Elapsed>,
+        result: &TimedHostResult<T, DatabaseHostError>,
         elapsed: Duration,
     ) {
         if !self.metrics_enabled {
             return;
         }
+
         let outcome = match result {
             Ok(Ok(_)) => "ok",
             Ok(Err(_)) => "error",
             Err(_) => "timeout",
         };
+
         info!(
             plugin = %self.plugin_id,
             host_call = "database",
@@ -1003,19 +1034,17 @@ impl HostState {
         );
     }
 
-    fn log_mail_metrics<T>(
-        &self,
-        result: &Result<Result<T, PluginMailError>, tokio::time::error::Elapsed>,
-        elapsed: Duration,
-    ) {
+    fn log_mail_metrics<T>(&self, result: &TimedHostResult<T, PluginMailError>, elapsed: Duration) {
         if !self.metrics_enabled {
             return;
         }
+
         let outcome = match result {
             Ok(Ok(_)) => "ok",
             Ok(Err(_)) => "error",
             Err(_) => "timeout",
         };
+
         info!(
             plugin = %self.plugin_id,
             host_call = "mail",
@@ -1027,10 +1056,7 @@ impl HostState {
 
     fn log_content_query_metrics(
         &self,
-        result: &Result<
-            Result<Vec<u8>, nur_core::utils::errors::NurError>,
-            tokio::time::error::Elapsed,
-        >,
+        result: &TimedHostResult<Vec<u8>, nur_core::utils::errors::NurError>,
         elapsed: Duration,
     ) {
         if !self.metrics_enabled {
@@ -1045,6 +1071,7 @@ impl HostState {
             Ok(Err(_)) => ("error", 0),
             Err(_) => ("timeout", 0),
         };
+
         info!(
             plugin = %self.plugin_id,
             host_call = "published_entries",
@@ -1065,7 +1092,9 @@ fn allow_mail_for_request(
     let Some(remaining) = calls_remaining.checked_sub(1) else {
         return false;
     };
+
     *calls_remaining = remaining;
+
     if !public_route {
         return true;
     }
@@ -1092,17 +1121,21 @@ fn allow_public_mail(
             limiter.sent.remove(&key);
         }
     }
+
     let key = PublicMailKey {
         plugin_id: plugin_id.into(),
         route_id: route_id.into(),
         client_ip,
     };
+
     if limiter.sent.contains_key(&key) || limiter.sent.len() >= limiter.max_clients {
         return false;
     }
+
     let expires_at = now.checked_add(limiter.window).unwrap_or(now);
     limiter.sent.insert(key.clone(), expires_at);
     limiter.expirations.push_back((expires_at, key));
+
     true
 }
 
@@ -1116,14 +1149,16 @@ fn allow_public_mail_for_client(
     let Some(client_ip) = client_ip else {
         return false;
     };
+
     let Ok(mut limiter) = limiter.lock() else {
         return false;
     };
+
     allow_public_mail(&mut limiter, plugin_id, route_id, client_ip, now)
 }
 
-fn database_error(message: impl Into<String>) -> bindings::nur::cms::types::PluginError {
-    bindings::nur::cms::types::PluginError::Failed(message.into())
+fn database_error(message: impl Into<String>) -> PluginError {
+    PluginError::Failed(message.into())
 }
 
 #[cfg(test)]
@@ -1140,12 +1175,11 @@ mod tests {
 
     use tokio::sync::Semaphore;
 
-    use crate::Error;
-
     use super::{
         MailPermissions, PluginComponent, PublicMailRateLimiter, Runtime, acquire_runtime_permit,
         allow_mail_for_request, allow_public_mail, allow_public_mail_for_client, bindings,
     };
+    use crate::Error;
 
     #[test]
     fn rejects_work_when_runtime_capacity_is_exhausted() {
@@ -1184,6 +1218,7 @@ mod tests {
         };
         let now = Instant::now();
         let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
         assert!(allow_public_mail(&mut limiter, "echo", "mail", ip, now));
         assert!(!allow_public_mail(&mut limiter, "echo", "mail", ip, now));
         assert!(allow_public_mail(
@@ -1233,6 +1268,7 @@ mod tests {
                 },
             ));
         }
+
         assert!(!allow_mail_for_request(
             &mut remaining,
             true,
@@ -1246,6 +1282,7 @@ mod tests {
     fn protected_routes_have_the_same_per_request_mail_limit() {
         let mut remaining = 3;
         let mut authorized = None;
+
         for _ in 0..3 {
             assert!(allow_mail_for_request(
                 &mut remaining,
@@ -1254,6 +1291,7 @@ mod tests {
                 || false,
             ));
         }
+
         assert!(!allow_mail_for_request(
             &mut remaining,
             false,
