@@ -224,6 +224,7 @@ export default {
         highlight: 'Highlight',
         insert: 'Insert',
         superscript: 'Superscript',
+        subscript: 'Subscript',
         subtext: 'Subtext',
         spoiler: 'Spoiler',
         multilineQuote: 'Multiline quote',

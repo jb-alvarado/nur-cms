@@ -184,6 +184,7 @@ fn node_type_name(node: &NodeValue) -> &'static str {
         NodeValue::Highlight => "highlight",
         NodeValue::Insert => "insert",
         NodeValue::Superscript => "superscript",
+        NodeValue::Subscript => "subscript",
         NodeValue::SpoileredText => "spoiler",
         NodeValue::Subtext => "subtext",
         NodeValue::Alert(_) => "alert",
@@ -797,22 +798,28 @@ mod tests {
     fn preserves_enabled_extension_nodes_in_the_structure_ast() {
         let mut media = Vec::new();
         let ast = to_structure_root(
-            "__underlined__ ==highlighted== ++inserted++ x^2^ ||spoiler||\n\n-# subtext\n\n>>>\nquote\n>>>\n\n> [!WARNING]\n> Alert\n\n:::notice\nDirective\n:::",
+            "~~deleted~~ __underlined__ ==highlighted== ++inserted++ x^2^ ||spoiler||\n\nH~2~O\n\n-# subtext\n\n>>>\nquote\n>>>\n\n> [!WARNING]\n> Alert\n\n:::notice\nDirective\n:::",
             &mut media,
         );
 
-        assert_eq!(ast[0]["children"][0]["type"], "underline");
-        assert_eq!(ast[0]["children"][2]["type"], "highlight");
-        assert_eq!(ast[0]["children"][4]["type"], "insert");
-        assert_eq!(ast[0]["children"][6]["type"], "superscript");
-        assert_eq!(ast[0]["children"][8]["type"], "spoiler");
-        assert_eq!(ast[1]["type"], "subtext");
-        assert_eq!(ast[2]["type"], "multilineBlockquote");
-        assert_eq!(ast[3]["type"], "alert");
-        assert_eq!(ast[3]["alertType"], "warning");
-        assert_eq!(ast[3]["title"], "Warning");
-        assert_eq!(ast[4]["type"], "blockDirective");
-        assert_eq!(ast[4]["class"], "notice");
+        assert_eq!(
+            ast[0]["children"][0],
+            json!({ "type": "text", "text": "deleted", "strikethrough": true })
+        );
+        assert_eq!(ast[0]["children"][2]["type"], "underline");
+        assert_eq!(ast[0]["children"][4]["type"], "highlight");
+        assert_eq!(ast[0]["children"][6]["type"], "insert");
+        assert_eq!(ast[0]["children"][8]["type"], "superscript");
+        assert_eq!(ast[0]["children"][10]["type"], "spoiler");
+        assert_eq!(ast[1]["children"][1]["type"], "subscript");
+        assert_eq!(ast[1]["children"][1]["children"][0]["text"], "2");
+        assert_eq!(ast[2]["type"], "subtext");
+        assert_eq!(ast[3]["type"], "multilineBlockquote");
+        assert_eq!(ast[4]["type"], "alert");
+        assert_eq!(ast[4]["alertType"], "warning");
+        assert_eq!(ast[4]["title"], "Warning");
+        assert_eq!(ast[5]["type"], "blockDirective");
+        assert_eq!(ast[5]["class"], "notice");
     }
 
     #[test]

@@ -566,6 +566,7 @@ pub fn gfm_options() -> Options<'static> {
     options.extension.tasklist = true;
     options.extension.block_directive = true;
     options.extension.superscript = true;
+    options.extension.subscript = true;
     options.extension.subtext = true;
     options.extension.multiline_block_quotes = true;
     options.extension.spoiler = true;
@@ -716,16 +717,18 @@ mod tests {
     #[test]
     fn renders_all_enabled_comrak_extensions_as_html() {
         let html = render_gfm_html(
-            "__underlined__ ==highlighted== ++inserted++ x^2^ ||spoiler|| Inline^[note]\n\n-# subtext\n\n>>>\nquote\n>>>\n\n> [!WARNING]\n> Alert\n\n:::notice\nDirective\n:::",
+            "~~deleted~~ __underlined__ ==highlighted== ++inserted++ x^2^ H~2~O ||spoiler|| Inline^[note]\n\n-# subtext\n\n>>>\nquote\n>>>\n\n> [!WARNING]\n> Alert\n\n:::notice\nDirective\n:::",
             &[],
             None,
         )
         .expect("extension rendering succeeds");
 
+        assert!(html.contains("<del>deleted</del>"));
         assert!(html.contains("<u>underlined</u>"));
         assert!(html.contains("<mark>highlighted</mark>"));
         assert!(html.contains("<ins>inserted</ins>"));
         assert!(html.contains("x<sup>2</sup>"));
+        assert!(html.contains("H<sub>2</sub>O"));
         assert!(html.contains("<span class=\"spoiler\">spoiler</span>"));
         assert!(html.contains("id=\"fn-__inline_1\""));
         assert!(html.contains("<p><sub>subtext</sub></p>"));

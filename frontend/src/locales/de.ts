@@ -227,6 +227,7 @@ export default {
         highlight: 'Hervorgehoben',
         insert: 'Eingefügt',
         superscript: 'Hochgestellt',
+        subscript: 'Tiefgestellt',
         subtext: 'Untertext',
         spoiler: 'Spoiler',
         multilineQuote: 'Mehrzeiliges Zitat',

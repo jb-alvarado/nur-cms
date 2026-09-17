@@ -91,6 +91,7 @@ const sections = computed(
                         syntax: `++${t('markdownHelp.examples.added')}++`,
                     },
                     { id: 'superscript', label: t('markdownHelp.superscript'), syntax: 'x^2^' },
+                    { id: 'subscript', label: t('markdownHelp.subscript'), syntax: 'H~2~O' },
                     {
                         id: 'subtext',
                         label: t('markdownHelp.subtext'),

@@ -307,6 +307,10 @@ function alertClass(node: AstNode): string {
                     ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
                 /></sup>
 
+                <sub v-else-if="node.type === 'subscript'"
+                    ><AstRender :content="children(node)" :footnote-scope="footnoteScope" inline
+                /></sub>
+
                 <span
                     v-else-if="node.type === 'spoiler'"
                     class="cursor-pointer rounded bg-base-content px-1 text-transparent hover:text-base-content focus:text-base-content"

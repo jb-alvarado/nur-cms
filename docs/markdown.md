@@ -53,6 +53,7 @@ Footnotes and inline footnotes use one shared numbering sequence.
 - Highlight: `==highlighted==`
 - Insert: `++inserted++`
 - Superscript: `x^2^`
+- Subscript: `H~2~O`
 - Subtext: `-# Subtext`
 - Spoiler: `||Spoiler text||`
 
