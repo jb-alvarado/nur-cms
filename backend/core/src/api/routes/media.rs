@@ -202,46 +202,21 @@ pub async fn media_update(
             rename_media_file(m, name).await?;
         }
 
-        let database_result = async {
-            let mut transaction = pool.begin().await?;
-
-            if renamed_from.is_some()
-                && let Some(media) = media.results.first()
-            {
-                for variant in &media.variants {
-                    sqlx::query("UPDATE media_variants SET filename = $1 WHERE id = $2")
-                        .bind(&variant.filename)
-                        .bind(variant.id)
-                        .execute(&mut *transaction)
-                        .await?;
-                }
-                for variant in &media.video_variants {
-                    sqlx::query("UPDATE media_video_variants SET filename = $1 WHERE id = $2")
-                        .bind(&variant.filename)
-                        .bind(variant.id)
-                        .execute(&mut *transaction)
-                        .await?;
-                }
-            }
-
-            if let Some(filename) = content.get("filename").and_then(Value::as_str) {
-                sqlx::query("UPDATE media SET filename = $1 WHERE id = $2")
-                    .bind(filename)
-                    .bind(id)
-                    .execute(&mut *transaction)
-                    .await?;
-            }
-            if let Some(alt) = content.get("alt") {
-                sqlx::query("UPDATE media SET alt = $1 WHERE id = $2")
-                    .bind(alt.as_str())
-                    .bind(id)
-                    .execute(&mut *transaction)
-                    .await?;
-            }
-            transaction.commit().await?;
-            Ok::<_, NurError>(())
-        }
-        .await;
+        let filename = content.get("filename").and_then(Value::as_str);
+        let alt = content.get("alt").map(Value::as_str);
+        let media_record = media.results.first();
+        let variants = if renamed_from.is_some() {
+            media_record.map_or(&[][..], |media| media.variants.as_slice())
+        } else {
+            &[]
+        };
+        let video_variants = if renamed_from.is_some() {
+            media_record.map_or(&[][..], |media| media.video_variants.as_slice())
+        } else {
+            &[]
+        };
+        let database_result =
+            handles::update_media(&pool, id, filename, alt, variants, video_variants).await;
 
         if let Err(error) = database_result {
             if let Some(old_filename) = renamed_from
@@ -250,7 +225,7 @@ pub async fn media_update(
             {
                 error!("Failed to roll back media rename: {rollback_error}");
             }
-            return Err(error);
+            return Err(error.into());
         }
 
         return Ok(());
@@ -272,12 +247,7 @@ pub async fn media_retry_video(
         ));
     }
 
-    let is_video = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (SELECT 1 FROM media WHERE id = $1 AND type LIKE 'video/%')",
-    )
-    .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    let is_video = handles::media_is_video(&pool, id).await?;
     if !is_video {
         return Err(NurError::BadRequest(
             "The media item is not a video.".into(),
@@ -310,12 +280,7 @@ pub async fn media_replace_video_thumbnail(
         ));
     }
     ensure_video_ready_for_thumbnail(&pool, id).await?;
-    let usable_image = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS (SELECT 1 FROM media WHERE id = $1 AND type IN ('image/avif', 'image/gif', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'))",
-    )
-    .bind(source.media_id)
-    .fetch_one(&pool)
-    .await?;
+    let usable_image = handles::media_is_raster_image(&pool, source.media_id).await?;
     if !usable_image {
         return Err(NurError::BadRequest(
             "The thumbnail must be an uploaded raster image.".into(),
@@ -340,13 +305,9 @@ pub async fn media_regenerate_video_thumbnail(
 }
 
 async fn ensure_video_ready_for_thumbnail(pool: &PgPool, id: i32) -> Result<(), NurError> {
-    let video_status = sqlx::query_as::<_, (Option<String>, String)>(
-        "SELECT type, processing_status FROM media WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or(NurError::NotFound)?;
+    let video_status = handles::media_type_and_processing_status(pool, id)
+        .await?
+        .ok_or(NurError::NotFound)?;
     if !video_status
         .0
         .as_deref()

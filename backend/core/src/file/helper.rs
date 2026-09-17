@@ -17,7 +17,11 @@ use tracing::{error, info};
 use crate::{
     IMAGE_PROCESSING_SEMAPHORE, MAX_ACTIVE_UPLOADS_PER_USER, MAX_IMAGE_PIXELS, PUBLIC_UPLOADS,
     STORAGE, UPLOAD_TTL_SECONDS,
-    db::{models::Configuration, serialize::MediaSerializer},
+    db::{
+        handles::{self, NewUploadedMedia},
+        models::Configuration,
+        serialize::MediaSerializer,
+    },
     file::processing::save_image,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
@@ -659,11 +663,7 @@ pub async fn cleanup_upload_for_output(output_file: &Path) {
 }
 
 pub async fn delete_media_record(pool: &PgPool, media_id: i32) {
-    if let Err(error) = sqlx::query("DELETE FROM media WHERE id = $1")
-        .bind(media_id)
-        .execute(pool)
-        .await
-    {
+    if let Err(error) = handles::delete_media(pool, media_id).await {
         error!("Failed to roll back media record {media_id}: {error}");
     }
 }
@@ -738,37 +738,24 @@ pub async fn add_media_record(
     } else {
         "completed"
     };
-    let inserted_id = sqlx::query_scalar::<_, i32>(
-        r#"INSERT INTO media
-               (alt, filename, path, type, width, height, size, uploaded_by, upload_id, processing_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-           ON CONFLICT (path, filename) DO NOTHING
-           RETURNING id"#,
-    )
-    .bind(alt)
-    .bind(&filename)
-    .bind(&path)
-    .bind(&mime_type)
-    .bind(width)
-    .bind(height)
-    .bind(size)
-    .bind(user_id)
-    .bind(upload_id)
-    .bind(processing_status)
-    .fetch_optional(pool)
-    .await?;
+    let media = NewUploadedMedia {
+        alt,
+        filename: &filename,
+        path: &path,
+        mime_type: &mime_type,
+        width,
+        height,
+        size,
+        uploaded_by: user_id,
+        upload_id,
+        processing_status,
+    };
+    let inserted_id = handles::insert_uploaded_media(pool, &media).await?;
     let media_id = match inserted_id {
         Some(id) => id,
-        None => sqlx::query_scalar::<_, i32>(
-            "SELECT id FROM media WHERE path = $1 AND filename = $2 AND upload_id = $3 AND uploaded_by = $4",
-        )
-        .bind(&path)
-        .bind(&filename)
-        .bind(upload_id)
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| NurError::Conflict("File already exists in database.".into()))?,
+        None => handles::find_owned_upload_media(pool, &media)
+            .await?
+            .ok_or_else(|| NurError::Conflict("File already exists in database.".into()))?,
     };
 
     Ok((media_id, mime_type, width.is_some()))
@@ -813,19 +800,7 @@ pub async fn process_variants(
         ));
     }
 
-    for (width, height, filename) in variants {
-        sqlx::query(
-            r#"INSERT INTO media_variants (media_id, width, height, filename)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (media_id, width, height, filename) DO NOTHING"#,
-        )
-        .bind(media_id)
-        .bind(width)
-        .bind(height)
-        .bind(filename)
-        .execute(pool)
-        .await?;
-    }
+    handles::insert_media_variants(pool, media_id, &variants).await?;
 
     Ok(())
 }

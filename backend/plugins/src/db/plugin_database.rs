@@ -17,7 +17,7 @@ use sqlx::{
     types::Json,
 };
 
-use super::bindings::nur::cms::database::{NullType, QueryResult, Statement, Value};
+use crate::runtime::bindings::nur::cms::database::{NullType, QueryResult, Statement, Value};
 
 const MAX_DATABASE_ROWS: usize = 10_000;
 const MAX_DATABASE_STATEMENTS: usize = 32;
@@ -29,7 +29,7 @@ const ROW_OVERHEAD: usize = 24;
 const VALUE_OVERHEAD: usize = 16;
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum DatabaseHostError {
+pub(crate) enum DatabaseHostError {
     #[error("database operation failed: {0}")]
     Database(#[from] SqlxError),
     #[error("database parameter is invalid")]
@@ -48,11 +48,11 @@ pub(super) enum DatabaseHostError {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct ValidatedStatement {
+pub(crate) struct ValidatedStatement {
     returns_rows: bool,
 }
 
-pub(super) fn validate_statement(statement: &Statement) -> Result<ValidatedStatement, String> {
+pub(crate) fn validate_statement(statement: &Statement) -> Result<ValidatedStatement, String> {
     let sql = statement.sql.trim();
 
     validate_statement_limits(statement, sql)?;
@@ -130,7 +130,7 @@ fn validate_sql_subset(statement: &AstStatement) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn validate_transaction_size(statements: &[Statement]) -> Result<(), String> {
+pub(crate) fn validate_transaction_size(statements: &[Statement]) -> Result<(), String> {
     if statements.is_empty() || statements.len() > MAX_DATABASE_STATEMENTS {
         return Err(format!(
             "transaction must contain between 1 and {MAX_DATABASE_STATEMENTS} statements"
@@ -315,7 +315,7 @@ const SAFE_FUNCTIONS: &[&str] = &[
     "upper",
 ];
 
-pub(super) async fn execute_statements(
+pub(crate) async fn execute_statements(
     pool: &PgPool,
     schema: &str,
     statements: &[Statement],

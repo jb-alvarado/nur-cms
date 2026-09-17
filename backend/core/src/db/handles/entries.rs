@@ -1359,6 +1359,59 @@ pub async fn delete_content_media_for_node(
         .map(|_| ())
 }
 
+pub async fn persist_content_media_locations(
+    connection: &mut PgConnection,
+    node_id: i64,
+    paths: &[String],
+    filenames: &[String],
+    positions: &[i32],
+) -> Result<(), sqlx::Error> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        WITH matched_images AS (
+            SELECT
+                m.id AS media_id,
+                (row_number() OVER (ORDER BY image.document_index) - 1)::int AS position_index
+            FROM UNNEST($2::text[], $3::text[], $4::int[])
+                AS image(path, filename, document_index)
+            JOIN media m
+              ON m.path = image.path
+             AND m.filename = image.filename
+        )
+        INSERT INTO content_node_media (node_id, media_id, position_index)
+        SELECT $1, media_id, position_index
+        FROM matched_images
+        ON CONFLICT (node_id, position_index) DO UPDATE
+        SET media_id = EXCLUDED.media_id,
+            updated_at = now()
+        "#,
+    )
+    .bind(node_id)
+    .bind(paths)
+    .bind(filenames)
+    .bind(positions)
+    .execute(connection)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn persist_content_media_locations_in_pool(
+    pool: &PgPool,
+    node_id: i64,
+    paths: &[String],
+    filenames: &[String],
+    positions: &[i32],
+) -> Result<(), sqlx::Error> {
+    let mut connection = pool.acquire().await?;
+
+    persist_content_media_locations(&mut connection, node_id, paths, filenames, positions).await
+}
+
 pub async fn select_entry_text(pool: &PgPool, node_id: i64) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar::<_, String>("SELECT text FROM content_nodes WHERE id = $1")
         .bind(node_id)

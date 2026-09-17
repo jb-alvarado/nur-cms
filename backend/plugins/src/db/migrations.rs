@@ -24,7 +24,7 @@ struct Migration {
     checksum: Vec<u8>,
 }
 
-pub async fn migrate_plugin(pool: &PgPool, plugin: &InstalledPlugin) -> Result<(), Error> {
+pub(crate) async fn migrate_plugin(pool: &PgPool, plugin: &InstalledPlugin) -> Result<(), Error> {
     ensure_infrastructure(pool).await?;
     let id = &plugin.manifest.plugin.id;
     let schema = schema_name(id);

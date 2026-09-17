@@ -16,10 +16,13 @@ use tracing::{error, info};
 
 use crate::{
     AuthUserMeta, CONFIG, ENTRY_CACHE, MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE, PUBLIC_UPLOADS, STORAGE,
-    db::models::Role,
+    db::{
+        handles::{ensure_video_processing_job, find_upload_media},
+        models::Role,
+    },
     file::{
         helper::*,
-        video::{enqueue_video_processing, ensure_video_processing, mark_video_processing_failed},
+        video::{enqueue_video_processing, mark_video_processing_failed},
     },
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
@@ -296,21 +299,13 @@ pub async fn upload_status(
     ensure_upload_directory(&output_file).await?;
     let file_path = public_upload_path(&output_file);
 
-    if let Some((media_id, existing_upload_id, uploaded_by)) =
-        sqlx::query_as::<_, (i32, Option<String>, Option<i32>)>(
-            "SELECT id, upload_id, uploaded_by FROM media WHERE filename = $1 AND path = $2",
-        )
-        .bind(&file_name)
-        .bind(&file_path)
-        .fetch_optional(&pool)
-        .await?
-    {
-        if existing_upload_id.as_deref() == Some(query.batch_id.as_str())
-            && uploaded_by == Some(user.id)
+    if let Some(media) = find_upload_media(&pool, &file_path, &file_name).await? {
+        if media.upload_id.as_deref() == Some(query.batch_id.as_str())
+            && media.uploaded_by == Some(user.id)
         {
             if fs::try_exists(&output_file).await? {
                 if mime_type.starts_with("video/") {
-                    ensure_video_processing(&pool, media_id).await?;
+                    ensure_video_processing_job(&pool, media.id).await?;
                 }
                 return Ok(Json(UploadStatus {
                     received_ranges: Vec::new(),
@@ -409,38 +404,29 @@ pub async fn upload_chunk(
 
     let file_path = public_upload_path(&output_file);
 
-    let upload = if let Some(upload) =
-        get_active_upload(&output_file, &batch_id, user.id, size).await?
-    {
-        upload
-    } else {
-        if let Some((media_id, existing_upload_id, uploaded_by)) =
-            sqlx::query_as::<_, (i32, Option<String>, Option<i32>)>(
-                "SELECT id, upload_id, uploaded_by FROM media WHERE filename = $1 AND path = $2",
-            )
-            .bind(&file_name)
-            .bind(&file_path)
-            .fetch_optional(&pool)
-            .await?
-        {
-            if existing_upload_id.as_deref() == Some(batch_id.as_str())
-                && uploaded_by == Some(user.id)
-            {
-                if fs::try_exists(&output_file).await? {
-                    if validate_mime_type(&file_name)?.starts_with("video/") {
-                        ensure_video_processing(&pool, media_id).await?;
+    let upload =
+        if let Some(upload) = get_active_upload(&output_file, &batch_id, user.id, size).await? {
+            upload
+        } else {
+            if let Some(media) = find_upload_media(&pool, &file_path, &file_name).await? {
+                if media.upload_id.as_deref() == Some(batch_id.as_str())
+                    && media.uploaded_by == Some(user.id)
+                {
+                    if fs::try_exists(&output_file).await? {
+                        if validate_mime_type(&file_name)?.starts_with("video/") {
+                            ensure_video_processing_job(&pool, media.id).await?;
+                        }
+                        return Ok(StatusCode::OK);
                     }
-                    return Ok(StatusCode::OK);
+                } else {
+                    return Err(NurError::Conflict(format!(
+                        "File '{file_name}' already exists in database."
+                    )));
                 }
-            } else {
-                return Err(NurError::Conflict(format!(
-                    "File '{file_name}' already exists in database."
-                )));
             }
-        }
 
-        get_or_create_upload(size, &output_file, &batch_id, user.id).await?
-    };
+            get_or_create_upload(size, &output_file, &batch_id, user.id).await?
+        };
     let should_finalize = write_upload_chunk(&upload, start, end, &chunk_data).await?;
     let alt = Path::new(&original_filename)
         .file_stem()

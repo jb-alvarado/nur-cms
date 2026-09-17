@@ -62,18 +62,9 @@ async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(),
     let author_name = comment.author_name.as_deref().unwrap_or_default();
     let author_email = comment.author_email.as_deref().unwrap_or_default();
     let comment_text = comment.text.as_deref().unwrap_or_default();
-    let entry = sqlx::query(
-        "SELECT e.title, e.slug, t.slug AS type_slug
-         FROM content_entries e
-         INNER JOIN content_types t ON t.id = e.type_id
-         WHERE e.id = $1",
-    )
-    .bind(comment.entry_id.ok_or(NurError::InvalidInput)?)
-    .fetch_one(pool)
-    .await?;
-    let entry_title: String = sqlx::Row::try_get(&entry, "title")?;
-    let entry_slug: String = sqlx::Row::try_get(&entry, "slug")?;
-    let entry_type: String = sqlx::Row::try_get(&entry, "type_slug")?;
+    let entry =
+        handles::select_comment_entry(pool, comment.entry_id.ok_or(NurError::InvalidInput)?)
+            .await?;
 
     let public_url = configured_public_url();
     let moderation_links = match public_url.as_deref() {
@@ -82,7 +73,7 @@ async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(),
     };
     let entry_link = public_url
         .as_deref()
-        .map(|public_url| entry_public_url(public_url, &entry_type, &entry_slug));
+        .map(|public_url| entry_public_url(public_url, &entry.type_slug, &entry.slug));
     let comment_link = public_url
         .as_deref()
         .map(|public_url| format!("{public_url}/admin/comment/{comment_id}"));
@@ -92,7 +83,7 @@ async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(),
          <p><strong>Entry:</strong> {}</p>\
          <p><strong>Name:</strong> {}<br><strong>Email:</strong> {}</p>\
          <hr><p>{}</p>{}",
-        escape_html(&entry_title),
+        escape_html(&entry.title),
         escape_html(author_name),
         escape_html(author_email),
         escape_html(comment_text).replace('\n', "<br>"),

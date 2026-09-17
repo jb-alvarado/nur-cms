@@ -368,12 +368,7 @@ async fn insert_meta_nodes(
             )));
         }
 
-        let template: Option<(i32, Value, Value)> = sqlx::query_as(
-            "SELECT id, data, schema FROM content_node_templates WHERE name = $1 ORDER BY id LIMIT 1",
-        )
-        .bind(name)
-        .fetch_optional(pool)
-        .await?;
+        let template = handles::select_node_template(pool, name).await?;
 
         let (template_id, data) = match template {
             Some((template_id, defaults, schema)) => {
@@ -412,16 +407,8 @@ async fn insert_meta_nodes(
             }
         };
 
-        sqlx::query(
-            "INSERT INTO content_nodes (entry_id, order_index, name, data, template_id) VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(entry_id)
-        .bind((index + 1) as i32)
-        .bind(name)
-        .bind(data)
-        .bind(template_id)
-        .execute(pool)
-        .await?;
+        handles::insert_data_node(pool, entry_id, (index + 1) as i32, name, data, template_id)
+            .await?;
     }
 
     Ok(())
@@ -533,14 +520,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let entry_id = handles::insert_entry(pool, &entry_value).await?;
 
     // Insert content_node with the markdown body
-    let node_id: i64 = sqlx::query_scalar(
-        "INSERT INTO content_nodes (entry_id, order_index, text) VALUES ($1, $2, $3) RETURNING id",
-    )
-    .bind(entry_id)
-    .bind(0)
-    .bind(&body)
-    .fetch_one(pool)
-    .await?;
+    let node_id = handles::insert_text_node(pool, entry_id, 0, &body).await?;
 
     // Build AST from body content and persist content_media links (with positions)
     persist_content_media(pool, node_id, &images).await?;
@@ -562,7 +542,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
                         if let Ok(Some(author_id)) =
                             lookup_or_create_author(pool, author_name, created_at).await
                         {
-                            let _ = insert_entry_author(pool, entry_id, author_id).await;
+                            let _ = handles::insert_entry_author(pool, entry_id, author_id).await;
                         }
                     }
                 }
@@ -570,7 +550,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
                     if let Ok(Some(author_id)) =
                         lookup_or_create_author(pool, name, created_at).await
                     {
-                        let _ = insert_entry_author(pool, entry_id, author_id).await;
+                        let _ = handles::insert_entry_author(pool, entry_id, author_id).await;
                     }
                 }
             }
@@ -580,7 +560,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
         if let Some(ref tags) = fm.tags {
             for tag_name in tags {
                 if let Ok(Some(tag_id)) = lookup_or_create_tag(pool, tag_name).await {
-                    let _ = insert_entry_tag(pool, entry_id, tag_id).await;
+                    let _ = handles::insert_entry_tag(pool, entry_id, tag_id).await;
                 }
             }
         }
@@ -772,27 +752,14 @@ async fn lookup_or_create_category(
     name: &str,
     locale_id: i32,
 ) -> Result<Option<i32>, sqlx::Error> {
-    let existing: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM content_categories WHERE name = $1 AND locale_id = $2 LIMIT 1",
-    )
-    .bind(name)
-    .bind(locale_id)
-    .fetch_optional(pool)
-    .await?;
+    let existing = handles::find_category(pool, name, locale_id).await?;
 
     if let Some(id) = existing {
         return Ok(Some(id));
     }
 
     let slug = slugify(name);
-    let id: i32 = sqlx::query_scalar(
-        "INSERT INTO content_categories (name, slug, locale_id, status) VALUES ($1, $2, $3, 'published') RETURNING id",
-    )
-    .bind(name)
-    .bind(&slug)
-    .bind(locale_id)
-    .fetch_one(pool)
-    .await?;
+    let id = handles::insert_category(pool, name, &slug, locale_id).await?;
 
     Ok(Some(id))
 }
@@ -809,29 +776,14 @@ async fn lookup_or_create_author(
         _ => (name, None),
     };
 
-    let existing: Option<i32> = sqlx::query_scalar(
-        "SELECT id FROM content_authors WHERE first_name = $1 AND last_name IS NOT DISTINCT FROM $2 LIMIT 1",
-    )
-    .bind(first_name)
-    .bind(last_name)
-    .fetch_optional(pool)
-    .await?;
+    let existing = handles::find_author(pool, first_name, last_name).await?;
 
     if let Some(id) = existing {
         return Ok(Some(id));
     }
 
     let slug = slugify(name);
-    let id: i32 = sqlx::query_scalar(
-        "INSERT INTO content_authors (first_name, last_name, slug, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-    )
-    .bind(first_name)
-    .bind(last_name)
-    .bind(&slug)
-    .bind(created_at)
-    .bind(created_at)
-    .fetch_one(pool)
-    .await?;
+    let id = handles::insert_author(pool, first_name, last_name, &slug, created_at).await?;
 
     Ok(Some(id))
 }
@@ -839,22 +791,13 @@ async fn lookup_or_create_author(
 async fn lookup_or_create_tag(pool: &PgPool, name: &str) -> Result<Option<i32>, sqlx::Error> {
     let slug = slugify(name);
 
-    let existing: Option<i32> =
-        sqlx::query_scalar("SELECT id FROM content_tags WHERE slug = $1 LIMIT 1")
-            .bind(&slug)
-            .fetch_optional(pool)
-            .await?;
+    let existing = handles::find_tag(pool, &slug).await?;
 
     if let Some(id) = existing {
         return Ok(Some(id));
     }
 
-    let id: i32 =
-        sqlx::query_scalar("INSERT INTO content_tags (name, slug) VALUES ($1, $2) RETURNING id")
-            .bind(name)
-            .bind(&slug)
-            .fetch_one(pool)
-            .await?;
+    let id = handles::insert_tag(pool, name, &slug).await?;
 
     Ok(Some(id))
 }
@@ -916,26 +859,17 @@ async fn ensure_media(
     let (target_dir, target_path) = ensure_target_paths(date);
 
     // Check if media record already exists
-    if let Some((id, mime_type, processing_status)) = sqlx::query_as::<
-        _,
-        (i32, Option<String>, String),
-    >(
-        "SELECT id, type, processing_status FROM media WHERE path = $1 AND filename = $2 LIMIT 1",
-    )
-    .bind(&target_dir)
-    .bind(filename)
-    .fetch_optional(pool)
-    .await?
-    {
-        if mime_type
+    if let Some(media) = handles::find_imported_media(pool, &target_dir, filename).await? {
+        if media
+            .mime_type
             .as_deref()
             .is_some_and(|mime| mime.starts_with("video/"))
-            && processing_status == "failed"
-            && let Err(error) = enqueue_video_processing(pool, id).await
+            && media.processing_status == "failed"
+            && let Err(error) = enqueue_video_processing(pool, media.id).await
         {
-            warn!("Failed to re-enqueue imported video {id}: {error}");
+            warn!("Failed to re-enqueue imported video {}: {error}", media.id);
         }
-        return Ok(Some(id));
+        return Ok(Some(media.id));
     }
 
     // Ensure target directory exists
@@ -977,29 +911,22 @@ async fn ensure_media(
         .and_then(|f| f.to_str())
         .unwrap_or(filename);
 
-    let id: i32 = sqlx::query_scalar(
-        "INSERT INTO media (alt, filename, path, type, width, height, size, created_at, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
-    )
-    .bind(alt_text)
-    .bind(filename)
-    .bind(&target_dir)
-    .bind(&mime_type)
-    .bind(width)
-    .bind(height)
-    .bind(size)
-    .bind(date)
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
+    let media = handles::NewImportedMedia {
+        alt: alt_text,
+        filename,
+        path: &target_dir,
+        mime_type: &mime_type,
+        width,
+        height,
+        size,
+        uploaded_by: user_id,
+        created_at: date,
+    };
+    let id = handles::insert_imported_media(pool, &media).await?;
 
     // Generate variants for images (only if they don't already exist)
     if mime_type.starts_with("image") {
-        let existing_variants: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM media_variants WHERE media_id = $1")
-                .bind(id)
-                .fetch_one(pool)
-                .await
-                .unwrap_or(0);
+        let existing_variants = handles::media_variant_count(pool, id).await.unwrap_or(0);
 
         if existing_variants == 0 {
             let config = CONFIG.read().await;
@@ -1010,15 +937,14 @@ async fn ensure_media(
             if !resolutions.is_empty() && !extensions.is_empty() {
                 match save_image(resolutions, &extensions, &target_file, None) {
                     Ok(variants) => {
-                        for (w, h, variant_filename) in variants {
-                            let _ = sqlx::query(
-                                "INSERT INTO media_variants (media_id, width, height, filename) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                        for (width, height, variant_filename) in variants {
+                            let _ = handles::insert_media_variant(
+                                pool,
+                                id,
+                                width,
+                                height,
+                                &variant_filename,
                             )
-                            .bind(id)
-                            .bind(w)
-                            .bind(h)
-                            .bind(&variant_filename)
-                            .execute(pool)
                             .await;
                             info!("Insert variant: {}", variant_filename.bright_magenta());
                         }
@@ -1037,30 +963,6 @@ async fn ensure_media(
     }
 
     Ok(Some(id))
-}
-
-async fn insert_entry_author(
-    pool: &PgPool,
-    entry_id: i32,
-    author_id: i32,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO content_entry_authors (entry_id, author_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-        .bind(entry_id)
-        .bind(author_id)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-async fn insert_entry_tag(pool: &PgPool, entry_id: i32, tag_id: i32) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO content_entry_tags (entry_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-    )
-    .bind(entry_id)
-    .bind(tag_id)
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 // content_media linking is handled via utils::ast_serialize::persist_content_media

@@ -9,7 +9,7 @@ use sqlx::postgres::{PgConnection, PgPool};
 
 use crate::{
     NurError,
-    db::serialize::MediaSerializer,
+    db::{handles, serialize::MediaSerializer},
     utils::markdown::{
         MarkdownImageRef, MarkdownSource, is_reference_definition, is_video_url, media_location,
         uses_reference_syntax,
@@ -696,8 +696,12 @@ pub(crate) async fn persist_content_media(
     node_id: i64,
     images: &[MarkdownImageRef],
 ) -> Result<(), NurError> {
-    let mut connection = pool.acquire().await?;
-    persist_content_media_on(&mut connection, node_id, images).await
+    let (paths, filenames, positions) = content_media_locations(images);
+
+    handles::persist_content_media_locations_in_pool(pool, node_id, &paths, &filenames, &positions)
+        .await?;
+
+    Ok(())
 }
 
 pub(crate) async fn persist_content_media_on(
@@ -705,6 +709,15 @@ pub(crate) async fn persist_content_media_on(
     node_id: i64,
     images: &[MarkdownImageRef],
 ) -> Result<(), NurError> {
+    let (paths, filenames, positions) = content_media_locations(images);
+
+    handles::persist_content_media_locations(connection, node_id, &paths, &filenames, &positions)
+        .await?;
+
+    Ok(())
+}
+
+fn content_media_locations(images: &[MarkdownImageRef]) -> (Vec<String>, Vec<String>, Vec<i32>) {
     let mut paths = Vec::new();
     let mut filenames = Vec::new();
     let mut positions = Vec::new();
@@ -717,38 +730,7 @@ pub(crate) async fn persist_content_media_on(
         }
     }
 
-    if paths.is_empty() {
-        return Ok(());
-    }
-
-    sqlx::query(
-        r#"
-        WITH matched_images AS (
-            SELECT
-                m.id AS media_id,
-                (row_number() OVER (ORDER BY image.document_index) - 1)::int AS position_index
-            FROM UNNEST($2::text[], $3::text[], $4::int[])
-                AS image(path, filename, document_index)
-            JOIN media m
-              ON m.path = image.path
-             AND m.filename = image.filename
-        )
-        INSERT INTO content_node_media (node_id, media_id, position_index)
-        SELECT $1, media_id, position_index
-        FROM matched_images
-        ON CONFLICT (node_id, position_index) DO UPDATE
-        SET media_id = EXCLUDED.media_id,
-            updated_at = now()
-        "#,
-    )
-    .bind(node_id)
-    .bind(&paths)
-    .bind(&filenames)
-    .bind(&positions)
-    .execute(&mut *connection)
-    .await?;
-
-    Ok(())
+    (paths, filenames, positions)
 }
 
 #[cfg(test)]

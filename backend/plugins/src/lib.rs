@@ -2,27 +2,28 @@ use std::{collections::HashSet, io::Error as IoError, time::Duration};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{Error as SqlxError, PgPool, Row, query, query_scalar};
+use sqlx::{Error as SqlxError, PgPool};
 use tokio::task::JoinError;
 use wasmtime::{Error as WasmtimeError, Trap};
 
 use nur_core::config::{mb, settings};
 
 use self::{
+    db::{handles::file_links, migrations},
+    manifest::{InstalledPlugin, RouteManifest, RouteScope},
     runtime::{PluginComponent, Runtime, bindings},
-    utils::{
-        manifest::{self, InstalledPlugin, RouteManifest, RouteScope},
-        migrations,
-    },
 };
 
+mod db;
+mod manifest;
 mod runtime;
-mod utils;
+mod storage;
+pub mod transport;
 
-pub use utils::{
+pub use self::{
     manifest::{AdminManifest, AdminMenuItem},
     storage::{BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, StoredFile},
-    transport::{self, AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route},
+    transport::{AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route},
 };
 
 pub const API_VERSION: u32 = 1;
@@ -158,16 +159,7 @@ impl PluginManager {
         let runtime = Runtime::new(pool.clone(), storage.clone())?;
         let loaded = load_plugins(pool, installed, &runtime).await?;
 
-        query(
-            "DELETE FROM public.plugin_file_links \
-             WHERE (upload_id IS NULL AND expires_at <= now()) \
-                OR consumed_at <= now() - interval '1 day' \
-                OR (upload_id IS NOT NULL AND consumed_at IS NULL \
-                    AND claimed_at <= now() - make_interval(secs => $1))",
-        )
-        .bind(plugin_upload_session_seconds())
-        .execute(pool)
-        .await?;
+        file_links::cleanup(pool, plugin_upload_session_seconds()).await?;
 
         Ok(Self {
             routes: loaded.routes,
@@ -239,36 +231,23 @@ impl PluginManager {
             return Err(Error::PluginNotFound);
         }
 
-        let row = query(
-            "SELECT id, directory_id, filename FROM public.plugin_file_links \
-             WHERE plugin_id = $1 AND purpose = 'download' AND token_hash = $2 \
-               AND consumed_at IS NULL AND expires_at > now()",
+        let link = file_links::find_download(
+            &self.pool,
+            plugin_id,
+            Sha256::digest(token.as_bytes()).to_vec(),
         )
-        .bind(plugin_id)
-        .bind(Sha256::digest(token.as_bytes()).to_vec())
-        .fetch_optional(&self.pool)
-        .await?;
-
-        let row = row.ok_or(Error::PluginNotFound)?;
-        let directory_id: String = row.try_get("directory_id")?;
-        let path: String = row.try_get("filename")?;
+        .await?
+        .ok_or(Error::PluginNotFound)?;
         let directory = self
-            .storage_directory(plugin_id, &directory_id)
+            .storage_directory(plugin_id, &link.directory_id)
             .ok_or(Error::PluginNotFound)?;
 
-        Ok((row.try_get("id")?, directory, path))
+        Ok((link.id, directory, link.filename))
     }
 
     pub async fn consume_download_link(&self, link_id: i64) -> Result<(), Error> {
-        let result = query(
-            "UPDATE public.plugin_file_links SET consumed_at = now() \
-             WHERE id = $1 AND purpose = 'download' AND consumed_at IS NULL AND expires_at > now()",
-        )
-        .bind(link_id)
-        .execute(&self.pool)
-        .await?;
-
-        (result.rows_affected() == 1)
+        file_links::consume_download(&self.pool, link_id)
+            .await?
             .then_some(())
             .ok_or(Error::PluginNotFound)
     }
@@ -293,15 +272,11 @@ impl PluginManager {
 
         let total_size = i64::try_from(total_size).map_err(|_| Error::PluginNotFound)?;
 
-        let directory_id: String = query_scalar(
-            "SELECT directory_id FROM public.plugin_file_links \
-             WHERE plugin_id = $1 AND purpose = 'upload' AND token_hash = $2",
-        )
-        .bind(plugin_id)
-        .bind(Sha256::digest(token.as_bytes()).to_vec())
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or(Error::PluginNotFound)?;
+        let token_hash = Sha256::digest(token.as_bytes()).to_vec();
+        let directory_id =
+            file_links::upload_directory_id(&self.pool, plugin_id, token_hash.clone())
+                .await?
+                .ok_or(Error::PluginNotFound)?;
 
         let resolved_directory = self
             .storage_directory(plugin_id, &directory_id)
@@ -309,41 +284,27 @@ impl PluginManager {
             .ok_or(Error::PluginNotFound)?
             .resolved_for_upload();
 
-        let row = query(
-            "UPDATE public.plugin_file_links \
-             SET upload_id = COALESCE(upload_id, $4), claimed_at = COALESCE(claimed_at, now()), \
-                 storage_path = COALESCE(storage_path, $6) \
-             WHERE plugin_id = $1 AND purpose = 'upload' AND token_hash = $2 \
-               AND consumed_at IS NULL \
-               AND ((upload_id IS NULL AND expires_at > now()) \
-                    OR (upload_id = $4 AND claimed_at > now() - make_interval(secs => $5))) \
-               AND (upload_id IS NULL OR upload_id = $4) \
-               AND max_size IS NOT NULL AND max_size >= $3 \
-             RETURNING id, filename, max_size, storage_path, finalizing_at IS NOT NULL AS finalizing",
+        let link = file_links::reserve_upload(
+            &self.pool,
+            plugin_id,
+            token_hash,
+            total_size,
+            upload_id,
+            plugin_upload_session_seconds(),
+            &resolved_directory.path,
         )
-        .bind(plugin_id)
-        .bind(Sha256::digest(token.as_bytes()).to_vec())
-        .bind(total_size)
-        .bind(upload_id)
-        .bind(plugin_upload_session_seconds())
-        .bind(&resolved_directory.path)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        let row = row.ok_or(Error::PluginNotFound)?;
-        let link_id: i64 = row.try_get("id")?;
-        let filename: String = row.try_get("filename")?;
-        let maximum_size =
-            u64::try_from(row.try_get::<i64, _>("max_size")?).map_err(|_| Error::InvalidValue)?;
+        .await?
+        .ok_or(Error::PluginNotFound)?;
+        let maximum_size = u64::try_from(link.maximum_size).map_err(|_| Error::InvalidValue)?;
         let mut directory = resolved_directory;
-        directory.path = row.try_get("storage_path")?;
+        directory.path = link.storage_path;
 
         Ok((
-            link_id,
+            link.id,
             directory,
-            filename,
+            link.filename,
             maximum_size,
-            row.try_get("finalizing")?,
+            link.finalizing,
         ))
     }
 
@@ -352,32 +313,14 @@ impl PluginManager {
         link_id: i64,
         upload_id: &str,
     ) -> Result<(), Error> {
-        let result = query(
-            "UPDATE public.plugin_file_links SET finalizing_at = COALESCE(finalizing_at, now()) \
-             WHERE id = $1 AND purpose = 'upload' AND upload_id = $2 AND consumed_at IS NULL",
-        )
-        .bind(link_id)
-        .bind(upload_id)
-        .execute(&self.pool)
-        .await?;
-
-        (result.rows_affected() == 1)
+        file_links::begin_upload_finalization(&self.pool, link_id, upload_id)
+            .await?
             .then_some(())
             .ok_or(Error::PluginNotFound)
     }
 
     pub async fn complete_upload_link(&self, link_id: i64, upload_id: &str) -> Result<(), Error> {
-        let result = query(
-            "UPDATE public.plugin_file_links SET consumed_at = now() \
-             WHERE id = $1 AND purpose = 'upload' AND upload_id = $2 \
-               AND finalizing_at IS NOT NULL AND consumed_at IS NULL",
-        )
-        .bind(link_id)
-        .bind(upload_id)
-        .execute(&self.pool)
-        .await?;
-
-        if result.rows_affected() == 1 {
+        if file_links::complete_upload(&self.pool, link_id, upload_id).await? {
             Ok(())
         } else {
             Err(Error::PluginNotFound)

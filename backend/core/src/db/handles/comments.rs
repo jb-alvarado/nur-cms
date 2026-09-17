@@ -35,6 +35,33 @@ fn comment_ordering(ordering: &str) -> String {
         .join(", ")
 }
 
+pub struct CommentEntry {
+    pub title: String,
+    pub slug: String,
+    pub type_slug: String,
+}
+
+pub async fn select_comment_entry(
+    pool: &PgPool,
+    entry_id: i32,
+) -> Result<CommentEntry, sqlx::Error> {
+    let (title, slug, type_slug) = sqlx::query_as(
+        "SELECT e.title, e.slug, t.slug AS type_slug
+         FROM content_entries e
+         INNER JOIN content_types t ON t.id = e.type_id
+         WHERE e.id = $1",
+    )
+    .bind(entry_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(CommentEntry {
+        title,
+        slug,
+        type_slug,
+    })
+}
+
 pub async fn select_comments(
     pool: &PgPool,
     query_obj: &QueryObj<CommentFields>,
