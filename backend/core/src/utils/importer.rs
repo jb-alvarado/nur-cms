@@ -23,7 +23,7 @@ use std::{
     sync::LazyLock,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use colored::Colorize;
 use inquire::Select;
 use regex::Regex;
@@ -104,6 +104,15 @@ struct Frontmatter {
     /// Named content-node values, for example `data: { book: { name: "…" } }`.
     #[serde(default)]
     data: Option<BTreeMap<String, Value>>,
+}
+
+fn parse_frontmatter_datetime(value: &str) -> Option<DateTime<Utc>> {
+    value.trim().parse::<DateTime<Utc>>().ok().or_else(|| {
+        NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+            .ok()?
+            .and_hms_opt(0, 0, 0)
+            .map(|datetime| datetime.and_utc())
+    })
 }
 
 pub async fn import_markdown(
@@ -274,11 +283,11 @@ async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<()
     let start_time = fm
         .event_start
         .as_ref()
-        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+        .and_then(|value| parse_frontmatter_datetime(value));
     let end_time = fm
         .event_end
         .as_ref()
-        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+        .and_then(|value| parse_frontmatter_datetime(value));
     let meta = ContentMeta {
         id: 0,
         entry_id: type_id,
@@ -444,7 +453,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
         };
 
         if let Some(u) = &fm.updated_at {
-            updated_at = u.parse::<DateTime<Utc>>().unwrap_or(updated_at);
+            updated_at = parse_frontmatter_datetime(u).unwrap_or(updated_at);
         }
         let status = if fm.draft.unwrap_or(false) {
             "draft"
@@ -603,13 +612,13 @@ async fn extract_body_and_title(
                 created_at = match frontmatter
                     .as_ref()
                     .and_then(|f| f.created_at.as_ref())
-                    .and_then(|c| c.parse::<DateTime<Utc>>().ok())
+                    .and_then(|value| parse_frontmatter_datetime(value))
                 {
                     Some(created_at) => created_at,
                     None => frontmatter
                         .as_ref()
                         .and_then(|f| f.date.as_ref())
-                        .and_then(|d| d.parse::<DateTime<Utc>>().ok())
+                        .and_then(|value| parse_frontmatter_datetime(value))
                         .unwrap_or(Utc::now()),
                 };
 
@@ -986,6 +995,26 @@ mod tests {
                 json!({ "name": "Test book", "pages": 320 })
             )]))
         );
+    }
+
+    #[test]
+    fn parses_frontmatter_dates_with_and_without_a_time() {
+        assert_eq!(
+            parse_frontmatter_datetime("2008-04-17"),
+            "2008-04-17T00:00:00Z".parse::<DateTime<Utc>>().ok()
+        );
+        assert_eq!(
+            parse_frontmatter_datetime("2008-04-17T13:45:30+02:00"),
+            "2008-04-17T11:45:30Z".parse::<DateTime<Utc>>().ok()
+        );
+    }
+
+    #[test]
+    fn deserializes_an_unquoted_yaml_date() {
+        let frontmatter: Frontmatter =
+            serde_yaml::from_str("date: 2008-04-17\n").expect("frontmatter should parse");
+
+        assert_eq!(frontmatter.date.as_deref(), Some("2008-04-17"));
     }
 
     #[tokio::test]
