@@ -1096,8 +1096,15 @@ async fn ensure_media(
             drop(config);
 
             if !resolutions.is_empty() && !extensions.is_empty() {
-                match save_image(resolutions, &extensions, &target_file, None) {
-                    Ok(variants) => {
+                let image_file = target_file.clone();
+                let variants = tokio::task::spawn_blocking(move || {
+                    save_image(resolutions, &extensions, &image_file, None)
+                        .map_err(|error| error.to_string())
+                })
+                .await;
+
+                match variants {
+                    Ok(Ok(variants)) => {
                         for (width, height, variant_filename) in variants {
                             let _ = handles::insert_media_variant(
                                 pool,
@@ -1110,8 +1117,11 @@ async fn ensure_media(
                             info!("Insert variant: {}", variant_filename.bright_magenta());
                         }
                     }
-                    Err(e) => {
-                        warn!("Failed to generate variants for media {id}: {e}");
+                    Ok(Err(error)) => {
+                        warn!("Failed to generate variants for media {id}: {error}");
+                    }
+                    Err(error) => {
+                        warn!("Image variant task failed for media {id}: {error}");
                     }
                 }
             }

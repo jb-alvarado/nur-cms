@@ -794,7 +794,7 @@ pub async fn process_variants(
     .await?
     .map_err(NurError::Conflict)?;
 
-    if variants.is_empty() {
+    if variants.is_empty() && mime_type != "image/gif" {
         return Err(NurError::Conflict(
             "No image variants were generated.".into(),
         ));

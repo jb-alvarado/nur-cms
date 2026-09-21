@@ -148,6 +148,8 @@ pub async fn select_categories(
                     'path', m.path,
                     'filename', m.filename,
                     'type', m.type,
+                    'width', m.width,
+                    'height', m.height,
                     'processing_status', m.processing_status,
                     'variants', COALESCE(
                         (

@@ -284,26 +284,42 @@ fn write_responsive_picture<T>(
         return Ok(false);
     }
 
-    let original_mime = image_mime_type(&image.url);
-    let fallback_variant = sources
-        .iter()
-        .find(|(mime, _)| Some(mime.as_str()) == original_mime.as_deref())
-        .or_else(|| {
-            sources
-                .iter()
-                .find(|(mime, _)| matches!(mime.as_str(), "image/jpeg" | "image/png"))
-        })
-        .or_else(|| sources.first())
-        .and_then(|(_, variants)| variants.last());
-    let Some(fallback_variant) = fallback_variant else {
-        return Ok(false);
+    let original_mime = media
+        .filename
+        .as_deref()
+        .and_then(image_mime_type)
+        .or_else(|| image_mime_type(&image.url));
+    let (fallback_url, fallback_dimensions) = if original_mime.as_deref() == Some("image/gif") {
+        (
+            image.url.clone(),
+            media.width.zip(media.height).unwrap_or_default(),
+        )
+    } else {
+        let fallback_variant = sources
+            .iter()
+            .find(|(mime, _)| Some(mime.as_str()) == original_mime.as_deref())
+            .or_else(|| {
+                sources
+                    .iter()
+                    .find(|(mime, _)| matches!(mime.as_str(), "image/jpeg" | "image/png"))
+            })
+            .or_else(|| sources.first())
+            .and_then(|(_, variants)| variants.last());
+        let Some(fallback_variant) = fallback_variant else {
+            return Ok(false);
+        };
+        let Some(fallback_url) = media_url(media, &fallback_variant.filename) else {
+            return Ok(false);
+        };
+
+        (
+            fallback_url,
+            (fallback_variant.width, fallback_variant.height),
+        )
     };
-    let Some(fallback_url) = media_url(media, &fallback_variant.filename) else {
-        return Ok(false);
-    };
-    let fallback_dimensions = (fallback_variant.width, fallback_variant.height);
 
     context.write_str("<picture>")?;
+
     for (mime, variants) in sources {
         context.write_str("<source type=\"")?;
         context.escape(&mime)?;
@@ -319,14 +335,17 @@ fn write_responsive_picture<T>(
         }
         context.write_str("\" />")?;
     }
+
     write_image_element(
         context,
         &fallback_url,
         image,
-        Some(fallback_dimensions),
+        (fallback_dimensions.0 > 0 && fallback_dimensions.1 > 0).then_some(fallback_dimensions),
         alt,
     )?;
+
     context.write_str("</picture>")?;
+
     Ok(true)
 }
 
@@ -957,6 +976,35 @@ mod tests {
         assert!(!html.contains("cover-1280.webp"));
         assert!(html.contains(
             "<img src=\"/uploads/2026/09/cover-640.avif\" alt=\"Cover\" width=\"640\" height=\"360\" />"
+        ));
+    }
+
+    #[test]
+    fn keeps_the_original_gif_as_the_responsive_fallback() {
+        let media = MediaSerializer {
+            path: Some("/uploads/2026/09".into()),
+            filename: Some("animation.gif".into()),
+            width: Some(640),
+            height: Some(360),
+            variants: vec![MediaVariantSerializer {
+                id: 1,
+                width: 480,
+                height: 270,
+                filename: "animation-480.webp".into(),
+            }],
+            ..MediaSerializer::default()
+        };
+
+        let html = render_gfm_html(
+            "![Animation](/uploads/2026/09/animation.gif)",
+            &[media],
+            Some(480),
+        )
+        .expect("GFM rendering succeeds");
+
+        assert!(html.contains("animation-480.webp 480w"));
+        assert!(html.contains(
+            "<img src=\"/uploads/2026/09/animation.gif\" alt=\"Animation\" width=\"640\" height=\"360\" />"
         ));
     }
 

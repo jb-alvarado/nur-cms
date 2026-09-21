@@ -748,6 +748,13 @@ Allowed fields are `jwt_secret`, `output_type`, `mail_smtp`, `mail_port`,
 `jwt_secret` or `mail_password`. The backend reloads its runtime configuration
 immediately after a successful update.
 
+Animated GIF uploads retain their original file. When `webp` is included in
+`image_extensions`, their responsive variants are encoded as animated WebP;
+the original GIF remains the HTML fallback. Other configured image formats are
+not generated for animated GIFs because they would discard the animation.
+Versions before 0.20 generated static variants for animated GIFs. Reprocess
+affected GIFs after upgrading to replace those existing variant files.
+
 The CMS configuration is stored separately and PUT expects the complete
 object. `logo_media_id` must reference an uploaded image (including SVG):
 

@@ -359,6 +359,8 @@ fn media_join(entry_alias: &str) -> String {
                 'path', m.path,
                 'filename', m.filename,
                 'type', m.type,
+                'width', m.width,
+                'height', m.height,
                 'processing_status', m.processing_status,
                 'variants', mv.variants,
                 'video_variants', vv.video_variants
@@ -424,6 +426,8 @@ fn authors_join(query_obj: &QueryObj<CF>, entry_alias: &str, include_filter_join
                             'path', m.path,
                             'filename', m.filename,
                             'type', m.type,
+                            'width', m.width,
+                            'height', m.height,
                             'processing_status', m.processing_status,
                             'variants', mv.variants,
                             'video_variants', vv.video_variants
@@ -516,6 +520,8 @@ fn category_join(query_obj: &QueryObj<CF>, entry_alias: &str) -> String {
                                     'path', m.path,
                                     'filename', m.filename,
                                     'type', m.type,
+                                    'width', m.width,
+                                    'height', m.height,
                                     'processing_status', m.processing_status,
                                     'variants', mv.variants,
                                     'video_variants', vv.video_variants
@@ -630,6 +636,8 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                                     'path', m.path,
                                     'filename', m.filename,
                                     'type', m.type,
+                                    'width', m.width,
+                                    'height', m.height,
                                     'processing_status', m.processing_status,
                                     'variants', mv.variants,
                                     'video_variants', vv.video_variants
@@ -684,6 +692,8 @@ fn push_nodes_join(qb: &mut QueryBuilder<Postgres>, query_obj: &QueryObj<CF>, en
                             'filename', m.filename,
                             'path', m.path,
                             'type', m.type,
+                            'width', m.width,
+                            'height', m.height,
                             'processing_status', m.processing_status,
                             'position_index', cnm.position_index,
                             'variants', mv.variants,
@@ -1913,6 +1923,15 @@ mod tests {
         assert!(sql.contains("FROM media_video_variants vv"));
         assert!(sql.contains("m.processing_status = 'completed'"));
         assert!(sql.contains("'video_variants', vv.video_variants"));
+    }
+
+    #[test]
+    fn embedded_media_includes_original_dimensions() {
+        let sql = sql_for("/api/content/entries?fields=id,node.text");
+
+        assert!(sql.contains(
+            "'type', m.type,\n                            'width', m.width,\n                            'height', m.height,\n                            'processing_status', m.processing_status,\n                            'position_index', cnm.position_index"
+        ));
     }
 
     #[test]
