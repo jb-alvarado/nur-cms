@@ -34,7 +34,7 @@ describe('faviconLink', () => {
         ['/uploads/logo.png?v=42', null],
     ])('keeps the default favicon for an unsupported logo', (url, mimeType) => {
         expect(faviconLink(url, mimeType)).toEqual({
-            href: '/favicon.ico',
+            href: `${import.meta.env.BASE_URL}favicon.ico`,
             type: 'image/x-icon',
         })
     })

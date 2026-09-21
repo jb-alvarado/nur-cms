@@ -31,9 +31,10 @@ onBeforeMount(async () => {
 })
 
 async function logout() {
-    await auth.logout()
+    const logoutRequest = auth.logout()
     auth.username = ''
-    router.push({ name: 'login' })
+    await router.push({ name: 'login' })
+    await logoutRequest
 }
 
 function toggleTheme() {

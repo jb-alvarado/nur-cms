@@ -33,6 +33,7 @@ onBeforeMount(async () => {
 })
 
 const showMenu = computed(() => route.meta.showMenu === true && auth.isLogin)
+const showRoute = computed(() => route.meta.public === true || (auth.isLogin && store.isLoaded))
 const mainClass = computed(() =>
     showMenu.value
         ? 'min-h-0 flex-1 overflow-y-auto bg-base-100 px-4 py-3 sm:px-7'
@@ -104,7 +105,7 @@ useHead({
                         {{ store.branding.frontend_name }}
                     </RouterLink>
                 </header>
-                <main v-if="store.isLoaded || route.meta.public" :class="mainClass">
+                <main v-if="showRoute" :class="mainClass">
                     <RouterView :key="routerViewKey" />
                 </main>
             </div>
@@ -116,7 +117,7 @@ useHead({
         </div>
 
         <div v-else class="h-full">
-            <main v-if="store.isLoaded || route.meta.public" :class="mainClass">
+            <main v-if="showRoute" :class="mainClass">
                 <RouterView :key="routerViewKey" />
             </main>
         </div>

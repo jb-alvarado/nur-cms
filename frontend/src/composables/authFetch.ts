@@ -52,9 +52,15 @@ export async function authFetchRaw(input: RequestInfo | URL, init?: RequestInit)
     if (response.status !== 401) {
         return response
     }
+    if (!auth.isLogin) {
+        return response
+    }
 
     // A concurrent request may already have refreshed the access token.
     if (auth.jwtToken === accessToken && !(await auth.refreshToken())) {
+        return response
+    }
+    if (!auth.isLogin) {
         return response
     }
 

@@ -4,7 +4,7 @@ export interface FaviconLink {
 }
 
 const DEFAULT_FAVICON: FaviconLink = {
-    href: '/favicon.ico',
+    href: `${import.meta.env.BASE_URL}favicon.ico`,
     type: 'image/x-icon',
 }
 
