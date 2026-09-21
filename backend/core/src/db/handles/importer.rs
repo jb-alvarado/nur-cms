@@ -2,6 +2,89 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 
+use crate::{
+    db::{
+        fields::Table,
+        handles::{normalize_entry_node_templates, sync_entry_nodes, update_record},
+        models::{ContentEntry, ContentMeta},
+    },
+    utils::errors::NurError,
+};
+
+pub async fn find_entry_by_slug(
+    pool: &PgPool,
+    slug: &str,
+    locale_id: i32,
+    type_id: i32,
+) -> Result<Option<i32>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT id FROM content_entries WHERE slug = $1 AND locale_id = $2 AND type_id = $3",
+    )
+    .bind(slug)
+    .bind(locale_id)
+    .bind(type_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_imported_entry(
+    pool: &PgPool,
+    entry_id: i32,
+    entry: &ContentEntry,
+    nodes: &[Value],
+    meta: Option<&ContentMeta>,
+    author_ids: &[i32],
+    tag_ids: &[i32],
+) -> Result<(), NurError> {
+    let mut transaction = pool.begin().await?;
+    let mut nodes = nodes.to_vec();
+
+    normalize_entry_node_templates(&mut transaction, &mut nodes).await?;
+    update_record(&mut *transaction, &Table::ContentEntries, entry_id, entry).await?;
+    sync_entry_nodes(&mut transaction, entry_id, &nodes).await?;
+
+    if let Some(meta) = meta {
+        sqlx::query(
+            "INSERT INTO content_meta (entry_id, start_time, end_time) VALUES ($1, $2, $3) \
+             ON CONFLICT (entry_id) DO UPDATE SET start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time",
+        )
+        .bind(entry_id)
+        .bind(meta.start_time)
+        .bind(meta.end_time)
+        .execute(&mut *transaction)
+        .await?;
+    }
+
+    sqlx::query("DELETE FROM content_entry_authors WHERE entry_id = $1")
+        .bind(entry_id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM content_entry_tags WHERE entry_id = $1")
+        .bind(entry_id)
+        .execute(&mut *transaction)
+        .await?;
+
+    for author_id in author_ids {
+        sqlx::query("INSERT INTO content_entry_authors (entry_id, author_id) VALUES ($1, $2)")
+            .bind(entry_id)
+            .bind(author_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+
+    for tag_id in tag_ids {
+        sqlx::query("INSERT INTO content_entry_tags (entry_id, tag_id) VALUES ($1, $2)")
+            .bind(entry_id)
+            .bind(tag_id)
+            .execute(&mut *transaction)
+            .await?;
+    }
+
+    transaction.commit().await?;
+
+    Ok(())
+}
+
 pub async fn select_node_template(
     pool: &PgPool,
     name: &str,

@@ -30,6 +30,20 @@ export type PluginAdminLocation = {
 
 export type PluginAdminTheme = 'light' | 'dark'
 
+export type PluginAdminMedia = {
+    id: number | null
+    url: string
+    filename: string
+    mimeType: string | null
+    alt: string | null
+    width: number | null
+    height: number | null
+}
+
+export type PluginAdminMediaOptions = {
+    types?: string[]
+}
+
 export type PluginAdminContext = {
     pluginId: string
     roles: () => readonly string[]
@@ -42,6 +56,7 @@ export type PluginAdminContext = {
     onThemeChange: (listener: (theme: PluginAdminTheme) => void) => () => void
     request: (path: string, init?: RequestInit) => Promise<Response>
     navigate: (path?: string) => Promise<void>
+    selectMedia: (options?: PluginAdminMediaOptions) => Promise<PluginAdminMedia | null>
     notify: (variance: 'info' | 'success' | 'warning' | 'error', text: string) => void
 }
 

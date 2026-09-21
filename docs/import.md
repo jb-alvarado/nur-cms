@@ -19,4 +19,17 @@ nur-cms \
   --ignore-files _index.md,draft.md
 ```
 
-After running the command above, prompts will appear asking you to select the content type and author.
+After running the command above, prompts will appear asking how existing entries should be
+handled and which content type, author, and locale should be used.
+
+An existing entry is identified by its content type, locale, and slug. The importer can either
+update that entry or retain the previous behavior and create another entry with a random suffix
+added to its slug. Use an explicit, stable `slug` in the frontmatter for repeatable updates:
+
+```yaml
+---
+title: Example article
+slug: example-article
+date: 2008-04-17
+---
+```

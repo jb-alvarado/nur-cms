@@ -48,6 +48,9 @@ const props = defineProps({
         default: () => [],
     },
 })
+const emit = defineEmits<{
+    close: []
+}>()
 
 const mediaTypeVar = computed(() => {
     const types = props.mediaTypes.filter(Boolean)
@@ -96,7 +99,7 @@ async function selectMedia(u: string | null = null) {
 </script>
 <template>
     <div>
-        <dialog ref="mediaModal" id="media_modal" class="modal items-start">
+        <dialog ref="mediaModal" id="media_modal" class="modal items-start" @close="emit('close')">
             <div class="modal-box w-11/12 max-w-5xl mt-20">
                 <form method="dialog">
                     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">

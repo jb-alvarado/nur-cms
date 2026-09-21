@@ -28,7 +28,7 @@ use colored::Colorize;
 use inquire::Select;
 use regex::Regex;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::postgres::PgPool;
 use tokio::fs;
 use tracing::{error, info, warn};
@@ -64,6 +64,21 @@ pub struct ImportOptions {
     pub created_by: Option<i32>,
     pub media_root: Option<PathBuf>,
     pub ignores: Vec<PathBuf>,
+    conflict_strategy: ImportConflictStrategy,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ImportConflictStrategy {
+    Update,
+    #[default]
+    RandomSuffix,
+}
+
+#[derive(Debug)]
+struct PreparedDataNode {
+    name: String,
+    data: Value,
+    template_id: i32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -128,6 +143,7 @@ pub async fn import_markdown(
         created_by: None,
         media_root: media_path,
         ignores: ignore,
+        conflict_strategy: ImportConflictStrategy::default(),
     };
 
     if !path.exists() {
@@ -165,6 +181,20 @@ pub async fn import_markdown(
 }
 
 async fn prompt_missing_options(pool: &PgPool, opts: &mut ImportOptions) -> Result<(), NurError> {
+    let conflict_choice = Select::new(
+        "If an entry with the same content type, locale, and slug exists:",
+        vec![
+            "Update the existing entry",
+            "Import another entry with a random slug suffix",
+        ],
+    )
+    .prompt()?;
+    opts.conflict_strategy = if conflict_choice == "Update the existing entry" {
+        ImportConflictStrategy::Update
+    } else {
+        ImportConflictStrategy::RandomSuffix
+    };
+
     if opts.content_type_id.is_none() {
         let query: QueryObj<ContentTypeFields> = QueryObj {
             ordering: "id".to_string(),
@@ -279,7 +309,15 @@ async fn collect_markdown_files(dir: &Path, ignores: &[PathBuf]) -> Result<Vec<P
     Ok(files)
 }
 
-async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<(), NurError> {
+async fn insert_meta(pool: &PgPool, entry_id: i32, fm: &Frontmatter) -> Result<(), NurError> {
+    let meta = content_meta(entry_id, fm);
+
+    handles::insert_record::<_, ContentMeta, i32>(pool, &Table::ContentMeta, &meta).await?;
+
+    Ok(())
+}
+
+fn content_meta(entry_id: i32, fm: &Frontmatter) -> ContentMeta {
     let start_time = fm
         .event_start
         .as_ref()
@@ -288,18 +326,14 @@ async fn insert_meta(pool: &PgPool, type_id: i32, fm: &Frontmatter) -> Result<()
         .event_end
         .as_ref()
         .and_then(|value| parse_frontmatter_datetime(value));
-    let meta = ContentMeta {
+    ContentMeta {
         id: 0,
-        entry_id: type_id,
+        entry_id,
         data: None,
         start_time,
         end_time,
         total_count: None,
-    };
-
-    handles::insert_record::<_, ContentMeta, i32>(pool, &Table::ContentMeta, &meta).await?;
-
-    Ok(())
+    }
 }
 
 /// Applies an existing template's defaults without discarding values supplied by
@@ -359,12 +393,13 @@ fn template_fields(value: &Value) -> Vec<ContentNodeDataField> {
         .unwrap_or_default()
 }
 
-async fn insert_meta_nodes(
+async fn prepare_meta_nodes(
     pool: &PgPool,
-    entry_id: i32,
     data: &BTreeMap<String, Value>,
-) -> Result<(), NurError> {
-    for (index, (name, values)) in data.iter().enumerate() {
+) -> Result<Vec<PreparedDataNode>, NurError> {
+    let mut nodes = Vec::with_capacity(data.len());
+
+    for (name, values) in data {
         let name = name.trim();
         if name.is_empty() {
             return Err(NurError::BadRequest(
@@ -416,8 +451,35 @@ async fn insert_meta_nodes(
             }
         };
 
-        handles::insert_data_node(pool, entry_id, (index + 1) as i32, name, data, template_id)
-            .await?;
+        nodes.push(PreparedDataNode {
+            name: name.to_string(),
+            data,
+            template_id,
+        });
+    }
+
+    Ok(nodes)
+}
+
+async fn insert_meta_nodes(
+    pool: &PgPool,
+    entry_id: i32,
+    data: &BTreeMap<String, Value>,
+) -> Result<(), NurError> {
+    for (index, node) in prepare_meta_nodes(pool, data)
+        .await?
+        .into_iter()
+        .enumerate()
+    {
+        handles::insert_data_node(
+            pool,
+            entry_id,
+            (index + 1) as i32,
+            &node.name,
+            node.data,
+            node.template_id,
+        )
+        .await?;
     }
 
     Ok(())
@@ -518,6 +580,51 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
                 _ => {}
             }
         }
+    }
+
+    if opts.conflict_strategy == ImportConflictStrategy::Update
+        && let Some(entry_id) =
+            handles::find_entry_by_slug(pool, &entry.slug, entry.locale_id, entry.type_id).await?
+    {
+        let mut nodes = vec![json!({ "text": body })];
+
+        if let Some(data) = frontmatter.as_ref().and_then(|fm| fm.data.as_ref()) {
+            nodes.extend(
+                prepare_meta_nodes(pool, data)
+                    .await?
+                    .into_iter()
+                    .map(|node| {
+                        json!({
+                            "name": node.name,
+                            "data": node.data,
+                            "template_id": node.template_id,
+                        })
+                    }),
+            );
+        }
+
+        let author_ids = resolve_author_ids(pool, frontmatter.as_ref(), created_at).await?;
+        let tag_ids = resolve_tag_ids(pool, frontmatter.as_ref()).await?;
+        let meta = (entry.type_id == 3).then(|| match &frontmatter {
+            Some(frontmatter) => content_meta(entry_id, frontmatter),
+            None => ContentMeta {
+                entry_id,
+                ..Default::default()
+            },
+        });
+
+        handles::update_imported_entry(
+            pool,
+            entry_id,
+            &entry,
+            &nodes,
+            meta.as_ref(),
+            &author_ids,
+            &tag_ids,
+        )
+        .await?;
+
+        return Ok(());
     }
 
     // Use the same collision-safe slug handling as the regular entry API.
@@ -809,6 +916,51 @@ async fn lookup_or_create_tag(pool: &PgPool, name: &str) -> Result<Option<i32>, 
     let id = handles::insert_tag(pool, name, &slug).await?;
 
     Ok(Some(id))
+}
+
+async fn resolve_author_ids(
+    pool: &PgPool,
+    frontmatter: Option<&Frontmatter>,
+    created_at: DateTime<Utc>,
+) -> Result<Vec<i32>, sqlx::Error> {
+    let Some(authors) = frontmatter.and_then(|fm| fm.author.as_ref()) else {
+        return Ok(Vec::new());
+    };
+    let names: Vec<&str> = match authors {
+        AuthorField::List(names) => names.iter().map(String::as_str).collect(),
+        AuthorField::Single(name) => vec![name],
+    };
+    let mut ids = Vec::new();
+
+    for name in names {
+        if let Some(id) = lookup_or_create_author(pool, name, created_at).await?
+            && !ids.contains(&id)
+        {
+            ids.push(id);
+        }
+    }
+
+    Ok(ids)
+}
+
+async fn resolve_tag_ids(
+    pool: &PgPool,
+    frontmatter: Option<&Frontmatter>,
+) -> Result<Vec<i32>, sqlx::Error> {
+    let Some(tags) = frontmatter.and_then(|fm| fm.tags.as_ref()) else {
+        return Ok(Vec::new());
+    };
+    let mut ids = Vec::new();
+
+    for name in tags {
+        if let Some(id) = lookup_or_create_tag(pool, name).await?
+            && !ids.contains(&id)
+        {
+            ids.push(id);
+        }
+    }
+
+    Ok(ids)
 }
 
 fn resolve_source_path(

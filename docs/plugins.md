@@ -220,6 +220,16 @@ type PluginAdminLocation = {
     hash: string
 }
 
+type PluginAdminMedia = {
+    id: number | null
+    url: string
+    filename: string
+    mimeType: string | null
+    alt: string | null
+    width: number | null
+    height: number | null
+}
+
 type PluginAdminContext = {
     pluginId: string
     roles: () => readonly string[]
@@ -232,6 +242,7 @@ type PluginAdminContext = {
     onThemeChange: (listener: (theme: 'light' | 'dark') => void) => () => void
     request: (path: string, init?: RequestInit) => Promise<Response>
     navigate: (path?: string) => Promise<void>
+    selectMedia: (options?: { types?: string[] }) => Promise<PluginAdminMedia | null>
     notify: (variance: 'info' | 'success' | 'warning' | 'error', text: string) => void
 }
 ```
@@ -251,6 +262,11 @@ to another plugin removes the old element and all host-side listeners.
 `notify(variance, text)` displays a CMS notification. The context does not pass tokens as function arguments,
 but same-origin plugin JavaScript executes with the administrator's browser privileges and must be considered
 capable of reading or using credentials available to the CMS frontend.
+
+`selectMedia(options)` opens the built-in CMS media browser and resolves with the selected medium or `null`
+when the dialog is closed. Pass broad media filters such as `{ types: ['image'] }` when the plugin accepts
+only certain media. The returned `url` uses the CMS media path and can be stored by the plugin without
+reconstructing upload URLs.
 
 Admin web components execute as JavaScript in the administrator's browser and therefore are trusted code.
 The Wasmtime sandbox protects backend WasM modules only; install frontend-capable plugins from trusted

@@ -4,18 +4,22 @@ const styles = new Map<string, HTMLLinkElement>()
 </script>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { authFetchRaw } from '@/composables/authFetch'
+import MediaBrowser from '@/components/media/MediaBrowser.vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores/index'
+import { mediaPath } from '@/utils/helper'
 import {
     pluginAllowsPath,
     roleName,
     type PluginAdminContext,
     type PluginAdminLocation,
+    type PluginAdminMedia,
+    type PluginAdminMediaOptions,
     type PluginAdminTheme,
     type PluginMetadata,
 } from '@/types/plugins'
@@ -37,14 +41,62 @@ const { t } = useI18n()
 const container = ref<HTMLElement>()
 const error = ref<string>()
 const loading = ref(true)
+const pluginMediaModal = ref<InstanceType<typeof MediaBrowser>>()
+const pluginMediaTypes = ref<string[]>([])
 let mountRevision = 0
 let mountedPluginId: string | undefined
 let subscriptions: PluginSubscriptions | undefined
+let mediaSelection: ((media: PluginAdminMedia | null) => void) | undefined
 
 type PluginSubscriptions = {
     location: Subscription<PluginAdminLocation>
     locale: Subscription<string>
     theme: Subscription<PluginAdminTheme>
+}
+
+async function selectPluginMedia(options: PluginAdminMediaOptions = {}): Promise<PluginAdminMedia | null> {
+    cancelPluginMediaSelection()
+    pluginMediaModal.value?.close()
+    pluginMediaTypes.value = (options.types ?? [])
+        .filter((type) => typeof type === 'string' && type.length <= 100)
+        .slice(0, 8)
+    await nextTick()
+
+    const modal = pluginMediaModal.value
+    if (!modal) return null
+
+    return new Promise((resolve) => {
+        mediaSelection = resolve
+        void modal.showModal().catch(() => {
+            if (mediaSelection === resolve) {
+                mediaSelection = undefined
+                resolve(null)
+            }
+        })
+    })
+}
+
+function resolvePluginMediaSelection(media: Media) {
+    const resolve = mediaSelection
+    if (!resolve || !media.path || !media.filename) return
+
+    mediaSelection = undefined
+    pluginMediaModal.value?.close()
+    resolve({
+        id: media.id ?? null,
+        url: mediaPath(media),
+        filename: media.filename,
+        mimeType: media.type ?? null,
+        alt: media.alt ?? null,
+        width: media.width ?? null,
+        height: media.height ?? null,
+    })
+}
+
+function cancelPluginMediaSelection() {
+    const resolve = mediaSelection
+    mediaSelection = undefined
+    resolve?.(null)
 }
 
 function pluginFromRoute(): PluginMetadata | undefined {
@@ -127,6 +179,7 @@ function contextFor(plugin: PluginMetadata, listeners: PluginSubscriptions): Plu
             }
             await router.push(target)
         },
+        selectMedia: selectPluginMedia,
         notify: (variance, text) => {
             if (
                 ['info', 'success', 'warning', 'error'].includes(variance) &&
@@ -152,6 +205,8 @@ function createPluginSubscriptions(): PluginSubscriptions {
 }
 
 function clearMountedPlugin() {
+    cancelPluginMediaSelection()
+    pluginMediaModal.value?.close()
     subscriptions?.location.clear()
     subscriptions?.locale.clear()
     subscriptions?.theme.clear()
@@ -231,4 +286,10 @@ onBeforeUnmount(() => {
         <div v-else-if="error" role="alert" class="alert alert-error">{{ error }}</div>
         <div ref="container"></div>
     </div>
+    <MediaBrowser
+        ref="pluginMediaModal"
+        :update="resolvePluginMediaSelection"
+        :media-types="pluginMediaTypes"
+        @close="cancelPluginMediaSelection"
+    />
 </template>
