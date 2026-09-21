@@ -59,6 +59,7 @@ pub fn render_entry_nodes(
                             &node.embeds,
                             max_image_variant_width,
                             Some(&footnote_scope),
+                            character_limit.map(|limit| limit as usize),
                         )?);
                     }
                     OutputType::Markdown => {}
@@ -183,5 +184,26 @@ mod tests {
                 .as_deref()
                 .is_some_and(|html| html.contains("id=\"fn-node-42-__inline_1\""))
         );
+    }
+
+    #[test]
+    fn applies_character_limit_to_html_output() {
+        let mut entries = vec![ContentEntrySerializer {
+            nodes: vec![NodeSerializer::Single(Box::new(ContentNodeSerializer {
+                text: Some("A short **formatted passage** followed by hidden text.".into()),
+                ..ContentNodeSerializer::default()
+            }))],
+            ..ContentEntrySerializer::default()
+        }];
+
+        render_entry_nodes(&mut entries, &OutputType::HTML, Some(24), false, None)
+            .expect("HTML rendering succeeds");
+
+        let NodeSerializer::Single(node) = &entries[0].nodes[0] else {
+            panic!("single node expected");
+        };
+        let html = node.html.as_deref().expect("HTML output exists");
+        assert!(html.contains("<strong>formatted …</strong>"));
+        assert!(!html.contains("hidden text"));
     }
 }

@@ -1,13 +1,16 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fmt::{self, Write},
+    sync::LazyLock,
 };
 
 use comrak::{
     Arena, Options, create_formatter,
     html::{ChildRendering, Context, dangerous_url, format_node_default},
     nodes::{AstNode, Node, NodeLink, NodeValue, Sourcepos},
+    options::Plugins,
     parse_document,
+    plugins::syntect::{SyntectAdapter, SyntectAdapterBuilder},
 };
 
 use crate::{
@@ -21,6 +24,9 @@ pub(crate) struct MarkdownImageRef {
     pub url: String,
     pub document_index: i32,
 }
+
+static SYNTAX_HIGHLIGHTER: LazyLock<SyntectAdapter> =
+    LazyLock::new(|| SyntectAdapterBuilder::new().css().build());
 
 /// Whether an image-style Markdown URL denotes a browser-playable video.
 ///
@@ -624,7 +630,92 @@ pub fn render_gfm_html(
     media: &[MediaSerializer],
     max_image_variant_width: Option<i32>,
 ) -> Result<String, NurError> {
-    render_gfm_html_scoped(markdown, media, max_image_variant_width, None)
+    render_gfm_html_scoped(markdown, media, max_image_variant_width, None, None)
+}
+
+fn visible_text_len(node: Node<'_>) -> usize {
+    let own_len = match &node.data.borrow().value {
+        NodeValue::Text(value) => value.chars().count(),
+        NodeValue::Code(code) => code.literal.chars().count(),
+        NodeValue::CodeBlock(code) => code.literal.chars().count(),
+        NodeValue::HtmlInline(value) => value.chars().count(),
+        NodeValue::HtmlBlock(html) => html.literal.chars().count(),
+        NodeValue::Math(math) => math.literal.chars().count(),
+        _ => 0,
+    };
+
+    own_len + node.children().map(visible_text_len).sum::<usize>()
+}
+
+fn truncated_literal(value: &str, remaining: &mut usize) -> Option<String> {
+    let length = value.chars().count();
+    if length < *remaining {
+        *remaining -= length;
+        return None;
+    }
+
+    let mut shortened = if length > *remaining {
+        let mut shortened = value.chars().take(*remaining).collect::<String>();
+        if let Some(position) = shortened.rfind(char::is_whitespace) {
+            shortened.truncate(position);
+        }
+        shortened.trim_end().to_owned()
+    } else {
+        value.to_owned()
+    };
+
+    shortened.push_str(" …");
+    *remaining = 0;
+
+    Some(shortened)
+}
+
+fn truncate_html_ast(node: Node<'_>, remaining: &mut usize) -> bool {
+    let reached_limit = {
+        let mut data = node.data.borrow_mut();
+
+        match &mut data.value {
+            NodeValue::Text(value) => truncated_literal(value, remaining)
+                .map(|shortened| *value = shortened.into())
+                .is_some(),
+            NodeValue::Code(code) => truncated_literal(&code.literal, remaining)
+                .map(|shortened| code.literal = shortened)
+                .is_some(),
+            NodeValue::CodeBlock(code) => truncated_literal(&code.literal, remaining)
+                .map(|shortened| code.literal = shortened)
+                .is_some(),
+            NodeValue::HtmlInline(value) => truncated_literal(value, remaining)
+                .map(|shortened| *value = shortened)
+                .is_some(),
+            NodeValue::HtmlBlock(html) => truncated_literal(&html.literal, remaining)
+                .map(|shortened| html.literal = shortened)
+                .is_some(),
+            NodeValue::Math(math) => truncated_literal(&math.literal, remaining)
+                .map(|shortened| math.literal = shortened)
+                .is_some(),
+            _ => false,
+        }
+    };
+
+    if reached_limit {
+        for child in node.children().collect::<Vec<_>>() {
+            child.detach();
+        }
+        return true;
+    }
+
+    let children = node.children().collect::<Vec<_>>();
+
+    for (index, child) in children.iter().enumerate() {
+        if truncate_html_ast(child, remaining) {
+            for sibling in &children[index + 1..] {
+                sibling.detach();
+            }
+            return true;
+        }
+    }
+
+    false
 }
 
 pub(crate) fn render_gfm_html_scoped(
@@ -632,21 +723,33 @@ pub(crate) fn render_gfm_html_scoped(
     media: &[MediaSerializer],
     max_image_variant_width: Option<i32>,
     footnote_scope: Option<&str>,
+    character_limit: Option<usize>,
 ) -> Result<String, NurError> {
     let arena = Arena::new();
     let options = gfm_options();
     let root = parse_gfm(&arena, markdown);
+    if let Some(limit) = character_limit
+        && visible_text_len(root) > limit
+    {
+        let mut remaining = limit;
+        truncate_html_ast(root, &mut remaining);
+    }
     if let Some(scope) = footnote_scope {
         namespace_footnotes(root, scope);
     }
     let mut html = String::with_capacity(markdown.len());
-    ResponsiveMediaHtmlFormatter::format_document(
+    let mut plugins = Plugins::default();
+    plugins.render.codefence_syntax_highlighter = Some(&*SYNTAX_HIGHLIGHTER);
+
+    ResponsiveMediaHtmlFormatter::format_document_with_plugins(
         root,
         &options,
         &mut html,
+        &plugins,
         HtmlMediaLookup::from_media(media, max_image_variant_width),
     )
     .map_err(|_| NurError::InternalServerError)?;
+
     Ok(html)
 }
 
@@ -657,6 +760,7 @@ fn collect_image_references<'a>(
     references: &mut Vec<MarkdownImageRef>,
 ) {
     let data = node.data.borrow();
+
     if let NodeValue::Image(link) = &data.value
         && !source
             .slice(data.sourcepos)
@@ -672,6 +776,7 @@ fn collect_image_references<'a>(
             });
         }
     }
+
     drop(data);
 
     for child in node.children() {
@@ -688,7 +793,9 @@ pub(crate) fn media_references(markdown: &str) -> Vec<MarkdownImageRef> {
     let source = MarkdownSource::new(markdown);
     let mut references = Vec::new();
     let mut next_position = 0;
+
     collect_image_references(root, &source, &mut next_position, &mut references);
+
     references
 }
 
@@ -698,7 +805,7 @@ mod tests {
         MediaSerializer, MediaVariantSerializer, MediaVideoVariantSerializer,
     };
 
-    use super::{is_video_url, media_references, render_gfm_html};
+    use super::{is_video_url, media_references, render_gfm_html, render_gfm_html_scoped};
 
     #[test]
     fn renders_gfm_tables_and_keeps_raw_html_escaped() {
@@ -712,6 +819,32 @@ mod tests {
         assert!(html.contains(
             "&lt;img src=&quot;https://example.test/image.jpg&quot; alt=&quot;Example&quot; /&gt;"
         ));
+    }
+
+    #[test]
+    fn highlights_fenced_code_with_syntect() {
+        let html = render_gfm_html("```rust\nlet answer = 42;\n```", &[], None)
+            .expect("GFM rendering succeeds");
+
+        assert!(html.contains("language-rust"));
+        assert!(html.contains("class=\"syntax-highlighting\""));
+        assert!(html.contains("<span"));
+        assert!(html.contains("let"));
+    }
+
+    #[test]
+    fn truncates_html_at_a_character_limit_without_breaking_markup() {
+        let html = render_gfm_html_scoped(
+            "A short **formatted passage** followed by text that must disappear.",
+            &[],
+            None,
+            None,
+            Some(24),
+        )
+        .expect("GFM rendering succeeds");
+
+        assert!(html.contains("<strong>formatted …</strong>"));
+        assert!(!html.contains("must disappear"));
     }
 
     #[test]

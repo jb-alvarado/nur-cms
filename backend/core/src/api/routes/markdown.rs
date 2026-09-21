@@ -78,6 +78,7 @@ fn render_preview_nodes(
                 &node.media,
                 max_image_variant_width,
                 Some(&footnote_scope),
+                None,
             )?;
             Ok(MarkdownPreviewOutput {
                 key: node.key,

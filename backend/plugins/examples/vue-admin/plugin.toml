@@ -3,7 +3,7 @@ id = "vue-admin"
 name = "Vue Admin Example"
 version = "0.1.0"
 api_version = 1
-cms_version = ">=0.17"
+cms_version = ">=0.19"
 module = "target/wasm32-wasip2/release/nur_cms_vue_admin_plugin.wasm"
 
 [assets]
