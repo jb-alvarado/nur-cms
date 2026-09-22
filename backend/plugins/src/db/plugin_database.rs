@@ -3,7 +3,10 @@ use std::{collections::HashSet, ops::ControlFlow, time::Duration};
 use futures_util::TryStreamExt;
 use serde_json::Value as JsonValue;
 use sqlparser::{
-    ast::{Expr, ObjectName, Select, Statement as AstStatement, TableFactor, Visit, Visitor},
+    ast::{
+        Expr, ObjectName, Query as AstQuery, Select, Statement as AstStatement, TableFactor, Visit,
+        Visitor,
+    },
     dialect::PostgreSqlDialect,
     parser::Parser,
 };
@@ -50,6 +53,18 @@ pub(crate) enum DatabaseHostError {
 #[derive(Clone, Copy)]
 pub(crate) struct ValidatedStatement {
     returns_rows: bool,
+    read_only: bool,
+    cacheable: bool,
+}
+
+impl ValidatedStatement {
+    pub(crate) fn read_only(self) -> bool {
+        self.read_only
+    }
+
+    pub(crate) fn cacheable(self) -> bool {
+        self.cacheable
+    }
 }
 
 pub(crate) fn validate_statement(statement: &Statement) -> Result<ValidatedStatement, String> {
@@ -61,9 +76,40 @@ pub(crate) fn validate_statement(statement: &Statement) -> Result<ValidatedState
 
     let parsed = parse_statement(sql)?;
     let returns_rows = statement_returns_rows(&parsed)?;
+    let read_only = matches!(parsed, AstStatement::Query(_));
+    let cacheable = statement_is_cacheable(&parsed);
     validate_sql_subset(&parsed)?;
 
-    Ok(ValidatedStatement { returns_rows })
+    Ok(ValidatedStatement {
+        returns_rows,
+        read_only,
+        cacheable,
+    })
+}
+
+fn statement_is_cacheable(statement: &AstStatement) -> bool {
+    if !matches!(statement, AstStatement::Query(_)) {
+        return false;
+    }
+
+    struct LockDetector;
+
+    impl Visitor for LockDetector {
+        type Break = ();
+
+        fn pre_visit_query(&mut self, query: &AstQuery) -> ControlFlow<Self::Break> {
+            if query.locks.is_empty() {
+                ControlFlow::Continue(())
+            } else {
+                ControlFlow::Break(())
+            }
+        }
+    }
+
+    matches!(
+        statement.visit(&mut LockDetector),
+        ControlFlow::Continue(())
+    )
 }
 
 fn validate_statement_limits(statement: &Statement, sql: &str) -> Result<(), String> {
@@ -570,7 +616,7 @@ fn value_size(value: &Value) -> usize {
     }
 }
 
-fn result_size(result: &QueryResult) -> usize {
+pub(crate) fn result_size(result: &QueryResult) -> usize {
     RESULT_OVERHEAD
         + result
             .columns
@@ -625,6 +671,13 @@ mod tests {
         );
         assert!(
             validate_statement(&statement(
+                "SELECT default_locale, locale, label FROM settings CROSS JOIN site_localization LEFT JOIN navigation USING (locale) ORDER BY locale ASC, position ASC",
+                vec![],
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_statement(&statement(
                 "INSERT INTO messages (message) VALUES ($1) RETURNING id",
                 vec![Value::Text("message".into())],
             ))
@@ -647,6 +700,35 @@ mod tests {
             ))
             .is_ok()
         );
+    }
+
+    #[test]
+    fn only_select_statements_are_read_only() {
+        assert!(
+            validate_statement(&statement("SELECT id FROM messages", vec![]))
+                .unwrap()
+                .read_only()
+        );
+        assert!(
+            !validate_statement(&statement(
+                "INSERT INTO messages (message) VALUES ($1) RETURNING id",
+                vec![Value::Text("message".into())],
+            ))
+            .unwrap()
+            .read_only()
+        );
+        let locking_read =
+            validate_statement(&statement("SELECT id FROM messages FOR UPDATE", vec![])).unwrap();
+        assert!(locking_read.read_only());
+        assert!(!locking_read.cacheable());
+
+        let nested_locking_read = validate_statement(&statement(
+            "SELECT id FROM (SELECT id FROM messages FOR UPDATE) locked",
+            vec![],
+        ))
+        .unwrap();
+        assert!(nested_locking_read.read_only());
+        assert!(!nested_locking_read.cacheable());
     }
 
     #[test]

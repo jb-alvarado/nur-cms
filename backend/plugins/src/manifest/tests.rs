@@ -7,8 +7,8 @@ use super::{
     schema_name, valid_plugin_id,
     validation::{
         valid_admin_entry, valid_admin_menu_item, valid_admin_style, valid_custom_element_name,
-        valid_plugin_name, valid_route_id, validate_mail_permissions, validate_manifest,
-        validate_storage,
+        valid_plugin_name, valid_route_id, validate_cache, validate_mail_permissions,
+        validate_manifest, validate_storage,
     },
 };
 
@@ -303,9 +303,32 @@ fn plugin_cache_has_bounded_settings() {
     let cache = CacheManifest {
         ttl_seconds: 300,
         max_entries: 128,
+        vary_headers: vec!["accept-language".into()],
     };
     assert!((1..=86_400).contains(&cache.ttl_seconds));
     assert!((1..=10_000).contains(&cache.max_entries));
+}
+
+#[test]
+fn plugin_cache_accepts_only_unique_forwarded_vary_headers() {
+    let manifest = |vary_headers: Vec<String>| CacheManifest {
+        ttl_seconds: 300,
+        max_entries: 128,
+        vary_headers,
+    };
+
+    assert!(validate_cache(Some(&manifest(vec!["Accept-Language".into()])), "example").is_ok());
+    assert!(
+        validate_cache(
+            Some(&manifest(vec![
+                "accept-language".into(),
+                "Accept-Language".into(),
+            ])),
+            "example",
+        )
+        .is_err()
+    );
+    assert!(validate_cache(Some(&manifest(vec!["authorization".into()])), "example").is_err());
 }
 
 #[test]

@@ -129,6 +129,10 @@ pub struct PluginRuntimeConfig {
     pub request_body_limit_mb: u64,
     pub response_body_limit_mb: u64,
     pub route_cache_limit_mb: u64,
+    #[serde(default = "default_plugin_database_cache_limit_mb")]
+    pub database_cache_limit_mb: u64,
+    #[serde(default = "default_plugin_database_cache_ttl_seconds")]
+    pub database_cache_ttl_seconds: u64,
     #[serde(default)]
     pub metrics_enabled: bool,
 }
@@ -213,6 +217,14 @@ fn default_database_connections() -> u32 {
     50
 }
 
+const fn default_plugin_database_cache_limit_mb() -> u64 {
+    32
+}
+
+const fn default_plugin_database_cache_ttl_seconds() -> u64 {
+    300
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -279,6 +291,8 @@ impl Default for AppConfig {
                     request_body_limit_mb: 1,
                     response_body_limit_mb: 4,
                     route_cache_limit_mb: 64,
+                    database_cache_limit_mb: default_plugin_database_cache_limit_mb(),
+                    database_cache_ttl_seconds: default_plugin_database_cache_ttl_seconds(),
                     metrics_enabled: false,
                 },
                 compilation_cache: PluginCompilationCacheConfig {
@@ -524,6 +538,18 @@ impl AppConfig {
             self.plugins.runtime.route_cache_limit_mb,
             1,
             1_024,
+        )?;
+        bounded(
+            "plugins.runtime.database_cache_limit_mb",
+            self.plugins.runtime.database_cache_limit_mb,
+            1,
+            1_024,
+        )?;
+        bounded(
+            "plugins.runtime.database_cache_ttl_seconds",
+            self.plugins.runtime.database_cache_ttl_seconds,
+            1,
+            86_400,
         )?;
         bounded(
             "plugins.compilation_cache.max_size_mb",

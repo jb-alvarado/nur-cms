@@ -20,8 +20,28 @@ impl bindings::nur::cms::database::Host for HostState {
         let validated = validate_statement(&statement).map_err(database_error)?;
 
         let schema = self.plugin_schema.clone();
-        let limit = self.content_response_body_limit;
         let started = Instant::now();
+        let cache_key = if validated.cacheable() {
+            let (generation, digest, cached) = self.database_cache.lookup(&schema, &statement);
+            if let Some(cached) = cached {
+                if self.metrics_enabled {
+                    info!(
+                        plugin = %self.plugin_id,
+                        host_call = "database",
+                        operation = "execute",
+                        outcome = "cache_hit",
+                        duration_ms = %format!("{:.2}", started.elapsed().as_secs_f64() * 1_000.0).yellow(),
+                        "plugin host-call metrics"
+                    );
+                }
+                return Ok(cached);
+            }
+            Some((generation, digest))
+        } else {
+            None
+        };
+
+        let limit = self.content_response_body_limit;
         let statements = [statement];
         let validated = [validated];
         let result = self.tokio_handle.block_on(async {
@@ -42,9 +62,18 @@ impl bindings::nur::cms::database::Host for HostState {
         self.log_database_metrics("execute", &result, started.elapsed());
 
         match result {
-            Ok(Ok(mut results)) => results
-                .pop()
-                .ok_or_else(|| database_error("database query returned no result")),
+            Ok(Ok(mut results)) => {
+                let result = results
+                    .pop()
+                    .ok_or_else(|| database_error("database query returned no result"))?;
+                if let Some((generation, digest)) = cache_key {
+                    self.database_cache
+                        .insert(&schema, generation, digest, result.clone());
+                } else {
+                    self.database_cache.invalidate(&schema);
+                }
+                Ok(result)
+            }
             Ok(Err(error)) => {
                 error!(plugin = %self.plugin_id, %error, "plugin database query failed");
                 Err(database_error("database query failed"))
@@ -64,6 +93,7 @@ impl bindings::nur::cms::database::Host for HostState {
             .map(validate_statement)
             .collect::<Result<Vec<_>, _>>()
             .map_err(database_error)?;
+        let writes = validated.iter().any(|statement| !statement.read_only());
 
         let schema = self.plugin_schema.clone();
         let limit = self.content_response_body_limit;
@@ -86,7 +116,12 @@ impl bindings::nur::cms::database::Host for HostState {
         self.log_database_metrics("transaction", &result, started.elapsed());
 
         match result {
-            Ok(Ok(result)) => Ok(result),
+            Ok(Ok(result)) => {
+                if writes {
+                    self.database_cache.invalidate(&schema);
+                }
+                Ok(result)
+            }
             Ok(Err(error)) => {
                 error!(plugin = %self.plugin_id, %error, "plugin database transaction failed");
                 Err(database_error("database transaction failed"))

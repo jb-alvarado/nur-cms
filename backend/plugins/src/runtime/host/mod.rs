@@ -14,6 +14,7 @@ use super::{
     mail_limiter::{MailPermissions, PublicMailRateLimiter},
 };
 use crate::{
+    db::query_cache::PluginDatabaseCache,
     manifest::schema_name,
     storage::{PluginStorage, StorageDirectory},
 };
@@ -36,6 +37,7 @@ pub(super) struct HostState {
     table: ResourceTable,
     wasi: WasiCtx,
     pool: PgPool,
+    database_cache: Arc<PluginDatabaseCache>,
     tokio_handle: tokio::runtime::Handle,
     pub(super) host_calls_remaining: usize,
     host_call_timeout: Duration,
@@ -76,6 +78,7 @@ impl HostState {
             table: ResourceTable::new(),
             wasi: WasiCtxBuilder::new().build(),
             pool: runtime.pool.clone(),
+            database_cache: Arc::clone(&runtime.database_cache),
             tokio_handle: runtime.tokio_handle.clone(),
             host_calls_remaining: runtime.max_host_calls,
             host_call_timeout: runtime.timeout,

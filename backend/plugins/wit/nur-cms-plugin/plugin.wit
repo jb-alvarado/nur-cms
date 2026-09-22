@@ -60,6 +60,15 @@ interface content {
   /// `/api/content/entries` endpoint. Entries are always restricted to `published`.
   published-entries: func(query: string, output: output-type) -> result<list<u8>, plugin-error>;
 
+  /// Returns compact references for published entries across multiple content
+  /// types and locales. An optional group ID restricts the result to one
+  /// translation group.
+  published-entry-references: func(
+    content-types: list<string>,
+    locales: list<string>,
+    group-id: option<s64>,
+  ) -> result<list<u8>, plugin-error>;
+
   /// Executes a facet query with the same filters as the public
   /// `/api/content/entries/facets` endpoint. Facets include published entries only.
   published-entry-facets: func(query: string) -> result<list<u8>, plugin-error>;

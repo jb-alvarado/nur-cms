@@ -2776,6 +2776,7 @@ dependencies = [
  "colored",
  "futures-util",
  "include_dir",
+ "moka",
  "nur_core",
  "semver",
  "serde",

@@ -24,6 +24,7 @@ use super::{
 };
 use crate::{
     Error,
+    db::query_cache::PluginDatabaseCache,
     manifest::InstalledPlugin,
     plugin_timeout,
     storage::{PluginStorage, StorageDirectory},
@@ -37,6 +38,7 @@ pub struct Runtime {
     pub(super) timeout: Duration,
     pub(super) semaphore: Arc<Semaphore>,
     pub(super) pool: sqlx::PgPool,
+    pub(super) database_cache: Arc<PluginDatabaseCache>,
     pub(super) tokio_handle: tokio::runtime::Handle,
     pub(super) max_host_calls: usize,
     pub(super) content_response_body_limit: usize,
@@ -73,6 +75,10 @@ impl Runtime {
             timeout: plugin_timeout(),
             semaphore: Arc::new(Semaphore::new(runtime.max_concurrency)),
             pool,
+            database_cache: Arc::new(PluginDatabaseCache::new(
+                nur_core::config::mb(runtime.database_cache_limit_mb),
+                Duration::from_secs(runtime.database_cache_ttl_seconds),
+            )),
             tokio_handle: tokio::runtime::Handle::current(),
             max_host_calls: runtime.max_host_calls,
             content_response_body_limit: nur_core::config::mb(runtime.response_body_limit_mb)

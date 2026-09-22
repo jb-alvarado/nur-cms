@@ -1,4 +1,14 @@
-use std::{net::IpAddr, path::PathBuf, time::Duration};
+use std::{net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
+
+pub const FORWARDED_REQUEST_HEADERS: &[&str] = &[
+    "accept",
+    "accept-language",
+    "content-type",
+    "host",
+    "user-agent",
+];
+pub const TRUSTED_PROXY_REQUEST_HEADERS: &[&str] =
+    &["forwarded", "x-forwarded-host", "x-forwarded-proto"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
@@ -31,10 +41,11 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct CachePolicy {
     pub ttl: Duration,
     pub max_entries: u64,
+    pub vary_headers: Arc<[String]>,
 }
 
 #[derive(Clone, Debug)]

@@ -52,7 +52,7 @@ use utils::{
     config_management,
     extend_args::AppArgs,
     logging::{init_tracing, log_middleware},
-    plugins::{self, PluginCacheInvalidator},
+    plugins::{self, PluginCacheInvalidator, TrustedProxy},
 };
 
 static TRUSTED_PROXY_CIDRS: LazyLock<Vec<IpNet>> = LazyLock::new(|| {
@@ -132,6 +132,9 @@ async fn resolve_real_ip(
             peer
         }
     });
+    let trusted_proxy = peer_ip.is_some_and(|peer| is_trusted_proxy(&peer, &TRUSTED_PROXY_CIDRS));
+
+    req.extensions_mut().insert(TrustedProxy(trusted_proxy));
 
     if let Some(client_ip) = client_ip {
         req.extensions_mut().insert(RealIp(client_ip));
@@ -368,10 +371,12 @@ async fn main() -> Result<(), NurError> {
 
 #[cfg(test)]
 mod tests {
-    use super::forwarded_client_ip;
+    use std::net::{IpAddr, Ipv4Addr};
+
     use axum::http::{HeaderMap, HeaderValue};
     use ipnet::IpNet;
-    use std::net::{IpAddr, Ipv4Addr};
+
+    use super::forwarded_client_ip;
 
     fn trusted_proxies() -> Vec<IpNet> {
         vec!["10.0.0.0/8".parse().expect("valid test CIDR")]

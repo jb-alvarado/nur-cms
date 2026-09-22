@@ -84,6 +84,9 @@ request_body_limit_mb = 1
 response_body_limit_mb = 4
 # Shared in-memory budget for all enabled plugin route caches.
 route_cache_limit_mb = 64
+# Shared in-memory budget and TTL for validated plugin SELECT results.
+database_cache_limit_mb = 32
+database_cache_ttl_seconds = 300
 # Enable collection of plugin runtime metrics.
 metrics_enabled = false
 

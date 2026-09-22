@@ -365,6 +365,16 @@ fn import_legacy(
         bytes_to_mb
     );
     import!(
+        "NUR_PLUGIN_DATABASE_CACHE_MEMORY_LIMIT",
+        settings.plugins.runtime.database_cache_limit_mb,
+        bytes_to_mb
+    );
+    import!(
+        "NUR_PLUGIN_DATABASE_CACHE_TTL_SECONDS",
+        settings.plugins.runtime.database_cache_ttl_seconds,
+        parse
+    );
+    import!(
         "NUR_PLUGIN_METRICS",
         settings.plugins.runtime.metrics_enabled,
         boolean

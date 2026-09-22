@@ -10,7 +10,10 @@ use super::{
     AdminManifest, AdminMenuItem, CacheManifest, MailManifest, Manifest, PluginManifest,
     StorageManifest,
 };
-use crate::{API_VERSION, Error};
+use crate::{
+    API_VERSION, Error,
+    transport::{FORWARDED_REQUEST_HEADERS, TRUSTED_PROXY_REQUEST_HEADERS},
+};
 
 pub(super) fn parse_access(
     access: &str,
@@ -154,10 +157,27 @@ fn validate_cms_version(plugin: &PluginManifest) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_cache(cache: Option<&CacheManifest>, plugin_id: &str) -> Result<(), Error> {
-    if cache.is_some_and(|cache| {
-        !(1..=86_400).contains(&cache.ttl_seconds) || !(1..=10_000).contains(&cache.max_entries)
-    }) {
+pub(super) fn validate_cache(cache: Option<&CacheManifest>, plugin_id: &str) -> Result<(), Error> {
+    let Some(cache) = cache else {
+        return Ok(());
+    };
+
+    let vary_headers = cache
+        .vary_headers
+        .iter()
+        .map(|header| header.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let unsupported_vary_header = vary_headers.iter().any(|header| {
+        !FORWARDED_REQUEST_HEADERS.contains(&header.as_str())
+            && !TRUSTED_PROXY_REQUEST_HEADERS.contains(&header.as_str())
+    });
+
+    if !(1..=86_400).contains(&cache.ttl_seconds)
+        || !(1..=10_000).contains(&cache.max_entries)
+        || cache.vary_headers.len() > 16
+        || vary_headers.len() != cache.vary_headers.len()
+        || unsupported_vary_header
+    {
         return Err(Error::Manifest(format!(
             "plugin '{plugin_id}' cache settings are outside the supported limits"
         )));

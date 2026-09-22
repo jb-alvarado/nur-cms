@@ -23,7 +23,10 @@ pub mod transport;
 pub use self::{
     manifest::{AdminManifest, AdminMenuItem},
     storage::{BrowserUpload, PluginStorage, StorageDirectory, StorageVisibility, StoredFile},
-    transport::{AssetDirectory, CachePolicy, Header, Identity, Request, Response, Route},
+    transport::{
+        AssetDirectory, CachePolicy, FORWARDED_REQUEST_HEADERS, Header, Identity, Request,
+        Response, Route, TRUSTED_PROXY_REQUEST_HEADERS,
+    },
 };
 
 pub const API_VERSION: u32 = 1;
@@ -460,6 +463,11 @@ async fn load_plugins(
         let cache = plugin.manifest.cache.as_ref().map(|cache| CachePolicy {
             ttl: Duration::from_secs(cache.ttl_seconds),
             max_entries: cache.max_entries,
+            vary_headers: cache
+                .vary_headers
+                .iter()
+                .map(|header| header.to_ascii_lowercase())
+                .collect(),
         });
 
         for route in &plugin.manifest.routes {
@@ -482,7 +490,7 @@ async fn load_plugins(
                 route.method.to_ascii_uppercase(),
                 path,
                 roles,
-                cache_enabled.then_some(cache).flatten(),
+                cache_enabled.then(|| cache.clone()).flatten(),
             );
 
             routes.push(RegisteredRoute {

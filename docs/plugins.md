@@ -61,6 +61,7 @@ directory = "assets"
 [cache]
 ttl_seconds = 300
 max_entries = 128
+vary_headers = ["accept-language"]
 
 [[routes]]
 id = "list"
@@ -149,7 +150,11 @@ Query parameters are not route parameters and remain available as the raw query 
 `request.query`.
 
 The host performs authorization before invoking WebAssembly. Plugins never receive JWTs, cookies,
-database credentials, or unrestricted request headers.
+database credentials, or unrestricted request headers. The request header allow-list contains
+`accept`, `accept-language`, `content-type`, `host`, and `user-agent`. Requests received from a
+proxy configured through `server.trusted_proxy_cidrs` may additionally include `forwarded`,
+`x-forwarded-host`, and `x-forwarded-proto`. Plugins must still treat all header values as
+untrusted request data.
 
 `GET /api/p` returns enabled plugin metadata to authenticated users. Admin metadata is included
 only when the current user's role is listed in the component's `access` declaration. Its `menu` contains
@@ -284,8 +289,10 @@ The `nur:cms/content` WIT import provides `published-entries(query, output)`. It
 query parameters as the public `GET /api/content/entries` endpoint. `output` selects `markdown`, `ast`, or
 `html` for node text. `published-entry-facets(query)` accepts the filters from
 `GET /api/content/entries/facets` and returns the matching categories, tags, authors, and locales with
-their entry counts. Both calls include published entries only, so plugins cannot use them to read drafts
-or private content.
+their entry counts. `published-entry-references(content-types, locales, group-id)` returns a compact JSON
+array containing `group_id`, `type_slug`, `locale`, `slug`, and `updated_at`. It supports up to 16 content
+types, 32 locales, and 50,000 rows in one host call; `group-id` can restrict it to one translation group.
+All three calls include published entries only, so plugins cannot use them to read drafts or private content.
 
 The built-in `html` output escapes raw HTML contained in Markdown. Plugins must not restore escaped tags or
 insert raw `ast` HTML nodes directly into a page. Those AST nodes exist temporarily for backward compatibility
@@ -367,6 +374,12 @@ oversized result is retained in host memory. The normal plugin host-call limit a
 `execute` or `transaction` call. Database failures are logged by
 nur-cms but returned to a plugin as generic errors, so connection details and SQL diagnostics do not reach
 HTTP clients.
+
+Validated, non-locking `SELECT` results issued through `database.execute` are cached in the host process. The shared cache is bounded by
+`plugins.runtime.database_cache_limit_mb` and entries expire after
+`plugins.runtime.database_cache_ttl_seconds`. Its identity includes the plugin schema, SQL, parameter types,
+and parameter values. A successful `INSERT`, `UPDATE`, `DELETE`, or writing transaction invalidates the cache.
+Generation checks prevent a read that overlaps a write from re-inserting stale data after invalidation.
 
 ## Plugin mail access
 
@@ -569,7 +582,11 @@ configured plugin caches. Each cache is constrained by both its share of that bu
 set `cache = false` on an individual route to opt out. Cached routes reject request bodies because bodies
 are not part of their HTTP cache identity.
 
-The cache key includes the route, method, path, query string, and all request headers forwarded to the plugin.
+The cache key includes the route, method, path, query string, and only the request headers listed in
+`cache.vary_headers`. Header names are compared case-insensitively. Plugins should list every header that can
+change their rendered response; unrelated browser headers no longer fragment the cache. Missing or empty
+`vary_headers` means that all clients requesting the same route, method, path, and query share one cached
+response. Header names must come from the request header allow-list above and must not be repeated.
 Cached routes skip Wasm instantiation on a hit. The cache is local to one nur-cms process and is cleared on
 restart. Every successful writing request to `/api` (`POST`, `PUT`, `PATCH`, or `DELETE`) invalidates all
 plugin route caches in that process. A successful writing plugin route invalidates that plugin's cache as

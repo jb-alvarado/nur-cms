@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{
-    Postgres, QueryBuilder,
+    FromRow, Postgres, QueryBuilder,
     postgres::{PgConnection, PgPool},
 };
 use strum::IntoEnumIterator;
@@ -14,20 +15,22 @@ use colored::Colorize;
 #[cfg(debug_assertions)]
 use tracing::debug;
 
-use crate::db::{
-    fields::{
-        ContentAuthorFields, ContentCategoryFields, ContentEntryFields as CF,
-        ContentNodeFields as CN, Table,
+use crate::{
+    db::{
+        fields::{
+            ContentAuthorFields, ContentCategoryFields, ContentEntryFields as CF,
+            ContentNodeFields as CN, Table,
+        },
+        handles::core::{insert_record, update_record},
+        models::ContentNodeTemplate,
+        queries::{QueryObj, RespondObj, WhereBuilder},
+        serialize::{
+            ContentAuthorFacet, ContentCategoryFacet, ContentEntryFacets, ContentEntrySerializer,
+            ContentTagFacet, LocaleFacet,
+        },
     },
-    handles::core::{insert_record, update_record},
-    models::ContentNodeTemplate,
-    queries::{QueryObj, RespondObj, WhereBuilder},
-    serialize::{
-        ContentAuthorFacet, ContentCategoryFacet, ContentEntryFacets, ContentEntrySerializer,
-        ContentTagFacet, LocaleFacet,
-    },
+    utils::{errors::NurError, markdown::media_references},
 };
-use crate::utils::{errors::NurError, markdown::media_references};
 
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
@@ -58,6 +61,15 @@ pub struct ContentEntryFacetQuery {
         deserialize_with = "crate::db::queries::deserialize_data_filters"
     )]
     pub data_filters: Vec<Value>,
+}
+
+#[derive(FromRow, Serialize)]
+pub struct PublishedEntryReference {
+    group_id: i64,
+    type_slug: String,
+    locale: String,
+    slug: String,
+    updated_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -181,6 +193,33 @@ pub async fn select_content_entry_facets(
         authors,
         locales,
     })
+}
+
+pub async fn select_published_entry_references(
+    pool: &PgPool,
+    content_types: &[String],
+    locales: &[String],
+    group_id: Option<i64>,
+    limit: i64,
+) -> Result<Vec<PublishedEntryReference>, NurError> {
+    Ok(sqlx::query_as(
+        "SELECT ce.group_id, ct.slug AS type_slug, l.code AS locale, ce.slug, ce.updated_at \
+         FROM content_entries ce \
+         JOIN content_types ct ON ct.id = ce.type_id \
+         JOIN locales l ON l.id = ce.locale_id \
+         WHERE ce.status = 'published' \
+           AND ct.slug = ANY($1) \
+           AND l.code = ANY($2) \
+           AND ($3::BIGINT IS NULL OR ce.group_id = $3) \
+         ORDER BY ce.updated_at DESC, ce.id DESC \
+         LIMIT $4",
+    )
+    .bind(content_types)
+    .bind(locales)
+    .bind(group_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?)
 }
 
 fn random_slug_suffix() -> String {

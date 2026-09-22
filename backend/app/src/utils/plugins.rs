@@ -17,6 +17,13 @@ use axum::{
 };
 use bytes::Bytes;
 use moka::sync::Cache;
+use protect_axum::authorities::AuthDetails;
+use real::RealIp;
+use serde::{Deserialize, Serialize};
+use tokio_util::io::ReaderStream;
+use tower_http::{services::ServeDir, timeout::TimeoutLayer};
+use tracing::{error, info};
+
 use nur_core::{
     MAX_CHUNK_SIZE, MAX_UPLOAD_SIZE,
     db::models::{AuthUserMeta, Role},
@@ -27,18 +34,9 @@ use nur_core::{
     },
 };
 use nur_plugins::{
-    BrowserUpload, CachePolicy, Error, Header, Identity, PluginManager, Request as PluginRequest,
-    Response as PluginResponse, Route,
+    BrowserUpload, CachePolicy, Error, FORWARDED_REQUEST_HEADERS, Header, Identity, PluginManager,
+    Request as PluginRequest, Response as PluginResponse, Route, TRUSTED_PROXY_REQUEST_HEADERS,
 };
-use protect_axum::authorities::AuthDetails;
-use real::RealIp;
-use serde::{Deserialize, Serialize};
-use tokio_util::io::ReaderStream;
-use tower_http::{services::ServeDir, timeout::TimeoutLayer};
-use tracing::{error, info};
-
-const FORWARDED_REQUEST_HEADERS: &[&str] =
-    &["accept", "accept-language", "content-type", "user-agent"];
 
 #[derive(Deserialize)]
 struct StorageUploadQuery {
@@ -108,10 +106,14 @@ impl IntoResponse for FileRouteError {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct TrustedProxy(pub(crate) bool);
+
 #[derive(Clone)]
 pub struct PluginCacheInvalidator {
     caches: Arc<Vec<RouteCache>>,
 }
+
 impl PluginCacheInvalidator {
     pub fn invalidate(&self) {
         for cache in self.caches.iter() {
@@ -125,7 +127,9 @@ struct RouteCache {
     responses: Cache<String, CachedResponse>,
     ttl: Duration,
     generation: Arc<AtomicU64>,
+    vary_headers: Arc<[String]>,
 }
+
 #[derive(Clone)]
 struct CachedResponse {
     status: u16,
@@ -133,6 +137,7 @@ struct CachedResponse {
     body: Bytes,
     expires_at: Instant,
 }
+
 #[derive(Clone)]
 struct RouteState {
     manager: Arc<PluginManager>,
@@ -151,6 +156,7 @@ pub struct PluginRouter {
     pub router: Router,
     invalidator: PluginCacheInvalidator,
 }
+
 impl PluginRouter {
     pub fn cache_invalidator(&self) -> PluginCacheInvalidator {
         self.invalidator.clone()
@@ -161,6 +167,7 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
     for plugin in manager.metadata() {
         info!(plugin = %plugin.id, version = %plugin.version, "loaded plugin");
     }
+
     let routes = manager.routes();
     let configured = routes
         .iter()
@@ -170,17 +177,20 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
         .len();
     let capacity = cache_capacity(configured);
     let mut caches = HashMap::<String, RouteCache>::new();
+
     for route in &routes {
-        if let Some(policy) = route.cache {
+        if let Some(policy) = route.cache.clone() {
             caches
                 .entry(route.plugin_id.clone())
                 .or_insert_with(|| route_cache(policy, capacity));
         }
     }
+
     let invalidator = PluginCacheInvalidator {
         caches: Arc::new(caches.values().cloned().collect()),
     };
     let mut router = Router::new().route("/api/p", get(index).with_state(Arc::clone(&manager)));
+
     if manager.storage().is_some() {
         let file_state = FileRouteState {
             manager: Arc::clone(&manager),
@@ -225,6 +235,7 @@ pub fn router(manager: Arc<PluginManager>) -> Result<PluginRouter, Error> {
         let state = Arc::new(RouteState {
             cache: route
                 .cache
+                .as_ref()
                 .and_then(|_| caches.get(&route.plugin_id).cloned()),
             plugin_cache: caches.get(&route.plugin_id).cloned(),
             manager: Arc::clone(&manager),
@@ -781,6 +792,7 @@ async fn dispatch(
     details: AuthDetails<Role>,
     Extension(user): Extension<AuthUserMeta>,
     Extension(real_ip): Extension<RealIp>,
+    trusted_proxy: Option<Extension<TrustedProxy>>,
     path_params: Option<Path<HashMap<String, String>>>,
     request: Request,
 ) -> Response {
@@ -789,11 +801,13 @@ async fn dispatch(
     if !state.manager.authorized(&state.route, identity.as_ref()) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     let request = match into_plugin_request(
         request,
         path_params,
         identity,
         real_ip.ip(),
+        trusted_proxy.is_some_and(|Extension(TrustedProxy(trusted))| trusted),
         state.manager.request_body_limit(),
     )
     .await
@@ -801,13 +815,15 @@ async fn dispatch(
         Ok(request) => request,
         Err(status) => return status.into_response(),
     };
+
     if let Err(status) = validate_cached_request_body(state.cache.is_some(), &request.body) {
         return status.into_response();
     }
+
     let key = state
         .cache
         .as_ref()
-        .map(|cache| cache.key(cache_key(&state.route.id, &request)));
+        .map(|cache| cache.key(cache_key(&state.route.id, &request, &cache.vary_headers)));
     if let (Some(cache), Some(key)) = (&state.cache, &key)
         && let Some(cached) = cache.responses.get(key)
     {
@@ -816,11 +832,14 @@ async fn dispatch(
         }
         cache.responses.invalidate(key);
     }
+
     let is_write = is_plugin_write_method(&request.method);
     let result = state.manager.dispatch(&state.route, request).await;
+
     if is_write && let Some(cache) = &state.plugin_cache {
         cache.invalidate();
     }
+
     match result {
         Ok(response) => {
             if let (Some(cache), Some(key)) = (&state.cache, key)
@@ -852,17 +871,20 @@ async fn into_plugin_request(
     path_params: Option<Path<HashMap<String, String>>>,
     identity: Option<Identity>,
     client_ip: std::net::IpAddr,
+    trusted_proxy: bool,
     body_limit: usize,
 ) -> Result<PluginRequest, StatusCode> {
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
     let query = request.uri().query().map(ToOwned::to_owned);
-    let headers = request_headers(request.headers());
+    let headers = request_headers(request.headers(), trusted_proxy);
+
     let body = to_bytes(request.into_body(), body_limit)
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?
         .to_vec();
     let params = plugin_path_params(path_params);
+
     Ok(PluginRequest {
         method,
         path,
@@ -883,9 +905,11 @@ fn role_names(details: &AuthDetails<Role>) -> Vec<String> {
         .map(ToString::to_string)
         .collect()
 }
+
 fn request_identity(protected: bool, user_id: i32, roles: Vec<String>) -> Option<Identity> {
     (protected && user_id >= 0).then_some(Identity { user_id, roles })
 }
+
 fn plugin_path_params(path_params: Option<Path<HashMap<String, String>>>) -> Vec<(String, String)> {
     let mut params: Vec<_> = path_params
         .unwrap_or(Path(HashMap::new()))
@@ -893,8 +917,10 @@ fn plugin_path_params(path_params: Option<Path<HashMap<String, String>>>) -> Vec
         .into_iter()
         .collect();
     params.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
     params
 }
+
 fn validate_cached_request_body(cache_enabled: bool, body: &[u8]) -> Result<(), StatusCode> {
     if cache_enabled && !body.is_empty() {
         Err(StatusCode::BAD_REQUEST)
@@ -902,13 +928,18 @@ fn validate_cached_request_body(cache_enabled: bool, body: &[u8]) -> Result<(), 
         Ok(())
     }
 }
+
 fn is_plugin_write_method(method: &str) -> bool {
     matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
 }
-fn request_headers(headers: &axum::http::HeaderMap) -> Vec<Header> {
+
+fn request_headers(headers: &axum::http::HeaderMap, trusted_proxy: bool) -> Vec<Header> {
     headers
         .iter()
-        .filter(|(name, _)| FORWARDED_REQUEST_HEADERS.contains(&name.as_str()))
+        .filter(|(name, _)| {
+            FORWARDED_REQUEST_HEADERS.contains(&name.as_str())
+                || trusted_proxy && TRUSTED_PROXY_REQUEST_HEADERS.contains(&name.as_str())
+        })
         .take(32)
         .filter_map(|(name, value)| {
             value
@@ -922,6 +953,7 @@ fn request_headers(headers: &axum::http::HeaderMap) -> Vec<Header> {
         })
         .collect()
 }
+
 fn into_response(response: PluginResponse) -> Response {
     into_response_parts(
         response.status,
@@ -937,6 +969,7 @@ fn into_cached_response(response: CachedResponse) -> Response {
 fn into_response_parts(status: u16, headers: Vec<Header>, body: Bytes) -> Response {
     let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut builder = Response::builder().status(status);
+
     for header in headers {
         let Ok(name) = HeaderName::try_from(header.name) else {
             continue;
@@ -960,10 +993,12 @@ fn into_response_parts(status: u16, headers: Vec<Header>, body: Bytes) -> Respon
             builder = builder.header(name, value);
         }
     }
+
     builder
         .body(Body::from(body))
         .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
 }
+
 fn error_response(error: Error) -> Response {
     match error {
         Error::Timeout => StatusCode::GATEWAY_TIMEOUT.into_response(),
@@ -975,6 +1010,7 @@ fn error_response(error: Error) -> Response {
         _ => StatusCode::BAD_GATEWAY.into_response(),
     }
 }
+
 fn method_filter(method: &str) -> Result<MethodFilter, Error> {
     match Method::from_bytes(method.as_bytes())
         .map_err(|_| Error::Manifest("invalid plugin HTTP method".into()))?
@@ -989,10 +1025,12 @@ fn method_filter(method: &str) -> Result<MethodFilter, Error> {
         _ => Err(Error::Manifest("unsupported plugin HTTP method".into())),
     }
 }
+
 fn cache_capacity(count: usize) -> u64 {
     if count == 0 {
         return 0;
     }
+
     nur_core::config::mb(
         nur_core::config::settings()
             .plugins
@@ -1000,10 +1038,12 @@ fn cache_capacity(count: usize) -> u64 {
             .route_cache_limit_mb,
     ) / count as u64
 }
+
 fn route_cache(policy: CachePolicy, capacity: u64) -> RouteCache {
     let minimum_weight = capacity
         .div_ceil(policy.max_entries.max(1))
         .min(u64::from(u32::MAX)) as u32;
+
     RouteCache {
         responses: Cache::builder()
             .max_capacity(capacity)
@@ -1013,17 +1053,21 @@ fn route_cache(policy: CachePolicy, capacity: u64) -> RouteCache {
             .build(),
         ttl: policy.ttl,
         generation: Arc::new(AtomicU64::new(0)),
+        vary_headers: policy.vary_headers,
     }
 }
+
 impl RouteCache {
     fn key(&self, key: String) -> String {
         format!("{}:{key}", self.generation.load(Ordering::Acquire))
     }
+
     fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
         self.responses.invalidate_all();
     }
 }
+
 fn cache_entry_weight(key: &str, cached: &CachedResponse, minimum_weight: u32) -> u32 {
     let header_bytes = cached.headers.iter().fold(0_u64, |total, header| {
         total.saturating_add((header.name.len() + header.value.len()) as u64)
@@ -1037,18 +1081,29 @@ fn cache_entry_weight(key: &str, cached: &CachedResponse, minimum_weight: u32) -
     .unwrap_or(u32::MAX)
     .max(minimum_weight)
 }
-fn cache_key(route_id: &str, request: &PluginRequest) -> String {
+
+fn cache_key(route_id: &str, request: &PluginRequest, vary_headers: &[String]) -> String {
     let mut key = format!("{}\n{}\n{}", route_id, request.method, request.path);
+
     if let Some(query) = &request.query {
         key.push('?');
         key.push_str(query);
     }
-    for header in &request.headers {
+
+    for name in vary_headers {
         key.push('\n');
-        key.push_str(&header.name);
+        key.push_str(name);
         key.push(':');
-        key.push_str(&header.value);
+        for header in request
+            .headers
+            .iter()
+            .filter(|header| header.name.eq_ignore_ascii_case(name))
+        {
+            key.push_str(&header.value);
+            key.push('\0');
+        }
     }
+
     key
 }
 
@@ -1056,13 +1111,16 @@ fn cache_key(route_id: &str, request: &PluginRequest) -> String {
 mod tests {
     use std::{collections::HashMap, sync::Arc, time::Instant};
 
-    use axum::{extract::Path, http::StatusCode};
+    use axum::{
+        extract::Path,
+        http::{HeaderMap, HeaderValue, StatusCode},
+    };
     use bytes::Bytes;
     use nur_plugins::{CachePolicy, Header, Request as PluginRequest};
 
     use super::{
         CachedResponse, PluginCacheInvalidator, cache_entry_weight, cache_key, into_response_parts,
-        is_plugin_write_method, plugin_path_params, request_identity, route_cache,
+        is_plugin_write_method, plugin_path_params, request_headers, request_identity, route_cache,
         valid_upload_chunk_range, validate_cached_request_body,
     };
 
@@ -1108,11 +1166,40 @@ mod tests {
     }
 
     #[test]
+    fn proxy_origin_headers_require_a_trusted_proxy_without_forwarding_credentials() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", HeaderValue::from_static("blog.example.org"));
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        headers.insert("authorization", HeaderValue::from_static("Bearer secret"));
+
+        let untrusted = request_headers(&headers, false);
+        let trusted = request_headers(&headers, true);
+
+        assert!(
+            untrusted
+                .iter()
+                .any(|header| header.name == "host" && header.value == "blog.example.org")
+        );
+        assert!(
+            untrusted
+                .iter()
+                .all(|header| header.name != "x-forwarded-proto")
+        );
+        assert!(
+            trusted
+                .iter()
+                .any(|header| { header.name == "x-forwarded-proto" && header.value == "https" })
+        );
+        assert!(trusted.iter().all(|header| header.name != "authorization"));
+    }
+
+    #[test]
     fn cache_invalidation_changes_the_generation() {
         let cache = route_cache(
             CachePolicy {
                 ttl: std::time::Duration::from_secs(60),
                 max_entries: 4,
+                vary_headers: Arc::from([]),
             },
             4096,
         );
@@ -1141,7 +1228,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_keys_include_method_query_and_every_forwarded_header() {
+    fn cache_keys_include_method_query_and_configured_vary_headers() {
         let request = |method: &str, query: Option<&str>, user_agent: &str| PluginRequest {
             method: method.into(),
             path: "/events".into(),
@@ -1162,14 +1249,44 @@ mod tests {
             identity: None,
         };
 
-        let desktop = cache_key("events", &request("GET", Some("year=2026"), "desktop"));
-        let mobile = cache_key("events", &request("GET", Some("year=2026"), "mobile"));
-        let head = cache_key("events", &request("HEAD", Some("year=2026"), "mobile"));
-        let other_query = cache_key("events", &request("GET", Some("year=2027"), "desktop"));
+        let no_vary = Vec::new();
+        let vary = vec!["user-agent".into()];
+        let desktop = cache_key(
+            "events",
+            &request("GET", Some("year=2026"), "desktop"),
+            &vary,
+        );
+        let mobile = cache_key(
+            "events",
+            &request("GET", Some("year=2026"), "mobile"),
+            &vary,
+        );
+        let head = cache_key(
+            "events",
+            &request("HEAD", Some("year=2026"), "mobile"),
+            &vary,
+        );
+        let other_query = cache_key(
+            "events",
+            &request("GET", Some("year=2027"), "desktop"),
+            &vary,
+        );
 
         assert_ne!(desktop, mobile);
         assert_ne!(mobile, head);
         assert_ne!(desktop, other_query);
+        assert_eq!(
+            cache_key(
+                "events",
+                &request("GET", Some("year=2026"), "desktop"),
+                &no_vary,
+            ),
+            cache_key(
+                "events",
+                &request("GET", Some("year=2026"), "mobile"),
+                &no_vary,
+            )
+        );
     }
 
     #[test]

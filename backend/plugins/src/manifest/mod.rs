@@ -138,6 +138,8 @@ pub struct AssetsManifest {
 pub struct CacheManifest {
     pub ttl_seconds: u64,
     pub max_entries: u64,
+    #[serde(default)]
+    pub vary_headers: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
