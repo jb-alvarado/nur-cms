@@ -84,7 +84,7 @@ impl bindings::nur::cms::content::Host for HostState {
             .await
         });
 
-        self.log_content_query_metrics(&result, host_call_started.elapsed());
+        self.log_content_query_metrics("published_entries", &result, host_call_started.elapsed());
 
         match result {
             Ok(Ok(entries)) if entries.len() <= self.content_response_body_limit => Ok(entries),
@@ -98,11 +98,54 @@ impl bindings::nur::cms::content::Host for HostState {
             Err(_) => Err(PluginError::Failed("content query timed out".into())),
         }
     }
+
+    fn published_entry_facets(&mut self, query: String) -> PluginResult<Vec<u8>> {
+        self.consume_host_call()?;
+
+        if query.len() > 8 * 1024 {
+            return Err(PluginError::BadRequest("content query is too long".into()));
+        }
+
+        let params: handles::ContentEntryFacetQuery = match serde_urlencoded::from_str(&query) {
+            Ok(params) => params,
+            Err(_) => {
+                return Err(PluginError::BadRequest("invalid content query".into()));
+            }
+        };
+
+        let host_call_started = Instant::now();
+        let result = self.tokio_handle.block_on(async {
+            tokio::time::timeout(self.host_call_timeout, async {
+                let facets = handles::select_content_entry_facets(&self.pool, &params).await?;
+                serde_json::to_vec(&facets).map_err(nur_core::utils::errors::NurError::from)
+            })
+            .await
+        });
+
+        self.log_content_query_metrics(
+            "published_entry_facets",
+            &result,
+            host_call_started.elapsed(),
+        );
+
+        match result {
+            Ok(Ok(facets)) if facets.len() <= self.content_response_body_limit => Ok(facets),
+            Ok(Ok(_)) => Err(PluginError::Failed(
+                "content response exceeds plugin limit".into(),
+            )),
+            Ok(Err(error)) => {
+                error!(plugin = %self.plugin_id, %error, "plugin content facet query failed");
+                Err(PluginError::Failed("content query failed".into()))
+            }
+            Err(_) => Err(PluginError::Failed("content query timed out".into())),
+        }
+    }
 }
 
 impl HostState {
     fn log_content_query_metrics(
         &self,
+        operation: &str,
         result: &TimedHostResult<Vec<u8>, nur_core::utils::errors::NurError>,
         elapsed: Duration,
     ) {
@@ -121,7 +164,7 @@ impl HostState {
 
         info!(
             plugin = %self.plugin_id,
-            host_call = "published_entries",
+            host_call = operation,
             outcome,
             duration_ms = %format!("{:.2}", elapsed.as_secs_f64() * 1_000.0).yellow(),
             response_bytes = %response_bytes.to_string().yellow(),

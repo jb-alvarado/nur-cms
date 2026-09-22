@@ -67,8 +67,10 @@ impl Error {
     fn wasmtime(error: WasmtimeError) -> Self {
         if error.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
             Self::Timeout
+        } else if error.downcast_ref::<Trap>() == Some(&Trap::OutOfFuel) {
+            Self::Plugin("plugin exhausted its configured fuel budget".into())
         } else {
-            Self::Plugin(error.to_string())
+            Self::Plugin(format!("{error:#}"))
         }
     }
 }
@@ -908,6 +910,14 @@ mod tests {
         assert!(matches!(
             Error::wasmtime(wasmtime::Trap::Interrupt.into()),
             Error::Timeout
+        ));
+    }
+
+    #[test]
+    fn fuel_exhaustion_is_reported_explicitly() {
+        assert!(matches!(
+            Error::wasmtime(wasmtime::Trap::OutOfFuel.into()),
+            Error::Plugin(message) if message == "plugin exhausted its configured fuel budget"
         ));
     }
 

@@ -72,7 +72,9 @@ allow_root_routes = false
 allow_admin_components = false
 
 [plugins.runtime]
-fuel = 1_000_000
+fuel = 2_000_000
+# Optional per-plugin budgets keyed by plugin ID.
+fuel_overrides = {}
 memory_limit_mb = 64
 module_size_limit_mb = 64
 timeout_seconds = 5

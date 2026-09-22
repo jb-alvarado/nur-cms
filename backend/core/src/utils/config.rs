@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env, fmt, fs,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -118,6 +119,8 @@ pub struct PluginConfig {
 #[serde(deny_unknown_fields)]
 pub struct PluginRuntimeConfig {
     pub fuel: u64,
+    #[serde(default)]
+    pub fuel_overrides: BTreeMap<String, u64>,
     pub memory_limit_mb: u64,
     pub module_size_limit_mb: u64,
     pub timeout_seconds: u64,
@@ -128,6 +131,15 @@ pub struct PluginRuntimeConfig {
     pub route_cache_limit_mb: u64,
     #[serde(default)]
     pub metrics_enabled: bool,
+}
+
+impl PluginRuntimeConfig {
+    pub fn fuel_for(&self, plugin_id: &str) -> u64 {
+        self.fuel_overrides
+            .get(plugin_id)
+            .copied()
+            .unwrap_or(self.fuel)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -257,7 +269,8 @@ impl Default for AppConfig {
                 allow_root_routes: false,
                 allow_admin_components: false,
                 runtime: PluginRuntimeConfig {
-                    fuel: 1_000_000,
+                    fuel: 2_000_000,
+                    fuel_overrides: BTreeMap::new(),
                     memory_limit_mb: 64,
                     module_size_limit_mb: 64,
                     timeout_seconds: 5,
@@ -456,6 +469,14 @@ impl AppConfig {
             10_000,
             100_000_000,
         )?;
+        for (plugin_id, fuel) in &self.plugins.runtime.fuel_overrides {
+            bounded(
+                &format!("plugins.runtime.fuel_overrides.{plugin_id}"),
+                *fuel,
+                10_000,
+                100_000_000,
+            )?;
+        }
         bounded(
             "plugins.runtime.memory_limit_mb",
             self.plugins.runtime.memory_limit_mb,
@@ -722,5 +743,26 @@ mod tests {
             .unwrap()
             .replacen("version = 1", "version = 2", 1);
         assert!(migrate_source(Path::new("test.toml"), &source).is_err());
+    }
+
+    #[test]
+    fn plugin_fuel_overrides_are_scoped_and_validated() {
+        let mut config = AppConfig::default();
+        config
+            .plugins
+            .runtime
+            .fuel_overrides
+            .insert("blog".into(), 5_000_000);
+
+        assert_eq!(config.plugins.runtime.fuel_for("blog"), 5_000_000);
+        assert_eq!(config.plugins.runtime.fuel_for("another-plugin"), 2_000_000);
+        assert!(config.validate().is_ok());
+
+        config
+            .plugins
+            .runtime
+            .fuel_overrides
+            .insert("broken".into(), 9_999);
+        assert!(config.validate().is_err());
     }
 }

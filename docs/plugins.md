@@ -282,8 +282,10 @@ element that creates its own Shadow Root must bundle or inject the styles requir
 
 The `nur:cms/content` WIT import provides `published-entries(query, output)`. Its argument uses the same
 query parameters as the public `GET /api/content/entries` endpoint. `output` selects `markdown`, `ast`, or
-`html` for node text. The host always enforces `status=published`; plugins cannot use this import to read
-drafts or private content.
+`html` for node text. `published-entry-facets(query)` accepts the filters from
+`GET /api/content/entries/facets` and returns the matching categories, tags, authors, and locales with
+their entry counts. Both calls include published entries only, so plugins cannot use them to read drafts
+or private content.
 
 The built-in `html` output escapes raw HTML contained in Markdown. Plugins must not restore escaped tags or
 insert raw `ast` HTML nodes directly into a page. Those AST nodes exist temporarily for backward compatibility
@@ -291,7 +293,8 @@ and will be removed in a future release for security. Store new content as Markd
 `html` output when a plugin needs rendered markup.
 
 Host calls share the plugin request timeout, have a per-request call limit, and cannot return more bytes than
-`plugins.runtime.response_body_limit_mb`. The return value is otherwise the normal JSON entry-list response.
+`plugins.runtime.response_body_limit_mb`. Return values use the same JSON shape as their corresponding REST
+endpoints.
 
 ## Plugin database access
 
@@ -606,6 +609,11 @@ outer HTTP deadline also covers request preparation and response handling. Wasmt
 pool so plugin code does not block an asynchronous Axum worker. Epoch interruptions are reported as
 `504 Gateway Timeout`. Plugin responses may contain at most 64 headers, 8 KiB per header value, and 64 KiB
 of headers in total.
+
+`plugins.runtime.fuel` defaults to 2,000,000 instructions per request. Individual plugins can receive a
+different budget through `plugins.runtime.fuel_overrides`, for example
+`fuel_overrides = { blog = 5_000_000 }`. A process restart is required after changing these settings because
+every plugin runtime receives its configured budget when it is created.
 
 Compiled components are cached on disk by default. The cache key includes the component bytes, Wasmtime
 version, target, and relevant compiler configuration, so changed or incompatible components are compiled

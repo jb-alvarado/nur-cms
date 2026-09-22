@@ -106,10 +106,16 @@ impl Runtime {
         let component = Component::from_file(&self.engine, &plugin.module)
             .map_err(|error| Error::Plugin(format!("{}: {error}", plugin.module.display())))?;
 
+        let mut runtime = self.clone();
+        runtime.fuel = nur_core::config::settings()
+            .plugins
+            .runtime
+            .fuel_for(&plugin.manifest.plugin.id);
+
         Ok(PluginComponent {
             id: plugin.manifest.plugin.id.clone(),
             component,
-            runtime: self.clone(),
+            runtime,
             mail_permissions: MailPermissions::from_plugin(plugin),
             storage_directories: plugin_storage_directories(plugin)?,
         })

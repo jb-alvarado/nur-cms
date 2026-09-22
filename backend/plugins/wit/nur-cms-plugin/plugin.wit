@@ -59,6 +59,10 @@ interface content {
   /// Executes an entry-list query with the same filters and fields as the public
   /// `/api/content/entries` endpoint. Entries are always restricted to `published`.
   published-entries: func(query: string, output: output-type) -> result<list<u8>, plugin-error>;
+
+  /// Executes a facet query with the same filters as the public
+  /// `/api/content/entries/facets` endpoint. Facets include published entries only.
+  published-entry-facets: func(query: string) -> result<list<u8>, plugin-error>;
 }
 
 interface database {
