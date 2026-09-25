@@ -12,7 +12,7 @@ use {
 use crate::db::{
     fields::MediaFields,
     format_sql,
-    handles::{insert_record, select_auth_user, select_record},
+    handles::{insert_auth_user, select_auth_user, select_record},
     models::{AuthUser, Media},
 };
 
@@ -62,8 +62,7 @@ pub async fn dev_migrate(pool: &PgPool) -> Result<(), NurError> {
             1,
         );
 
-        insert_record::<_, AuthUser, i32>(pool, &crate::db::fields::Table::AuthUsers, &user)
-            .await?;
+        insert_auth_user(pool, &user).await?;
     }
 
     if dev_seed_database && media_resp.results.is_empty() {

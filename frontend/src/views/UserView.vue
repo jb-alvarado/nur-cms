@@ -5,12 +5,14 @@ import { useAuth } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores'
 import { authFetch } from '@/composables/authFetch'
+import CreateUserModal from '@/components/user/CreateUserModal.vue'
 
 const { t } = useI18n()
 const auth = useAuth()
 const store = useIndex()
 
 const confirmPass = ref('')
+const createUserModal = ref<InstanceType<typeof CreateUserModal>>()
 
 useHead({
     title: 'User',
@@ -40,7 +42,13 @@ async function saveUser() {
 
 <template>
     <div>
-        <h1 class="text-2xl">{{ $t('user.title') }}</h1>
+        <div class="flex items-center justify-between gap-4">
+            <h1 class="text-2xl">{{ $t('user.title') }}</h1>
+            <button v-if="auth.role === 'admin'" type="button" class="btn btn-accent" @click="createUserModal?.showModal()">
+                <i class="bi bi-person-plus" aria-hidden="true" />
+                {{ $t('user.add') }}
+            </button>
+        </div>
         <form class="w-80 mt-8" @submit.prevent="saveUser">
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('user.name') }}</legend>
@@ -73,5 +81,6 @@ async function saveUser() {
                 <button class="btn btn-sm btn-accent mt-5" type="submit">{{ $t('user.save') }}</button>
             </div>
         </form>
+        <CreateUserModal v-if="auth.role === 'admin'" ref="createUserModal" />
     </div>
 </template>

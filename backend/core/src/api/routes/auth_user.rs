@@ -108,8 +108,9 @@ pub async fn auth_user_insert(
     Json(auth_user): Json<AuthUser>,
 ) -> Result<Json<i32>, NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
-        return match handles::insert_record(&pool, &Table::AuthUsers, &auth_user).await {
+        return match handles::insert_auth_user(&pool, &auth_user).await {
             Ok(id) => Ok(Json(id)),
+            Err(error @ (NurError::Conflict(_) | NurError::BadRequest(_))) => Err(error),
             Err(e) => {
                 error!("{e}");
                 Err(NurError::InternalServerError)
@@ -133,8 +134,9 @@ pub async fn auth_user_update(
         auth_user.updated_at = Some(Utc::now());
         auth_user.last_login = None;
 
-        return match handles::update_record(&pool, &Table::AuthUsers, id, &auth_user).await {
+        return match handles::update_auth_user(&pool, id, &auth_user).await {
             Ok(_) => Ok(()),
+            Err(error @ (NurError::Conflict(_) | NurError::BadRequest(_))) => Err(error),
             Err(e) => {
                 error!("{e}");
                 Err(NurError::InternalServerError)

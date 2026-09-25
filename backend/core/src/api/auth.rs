@@ -28,6 +28,13 @@ use crate::{
     utils::{cmd_args::Args, errors::NurError},
 };
 
+// An email may contain 255 Unicode characters, each occupying up to four bytes.
+const MAX_LOGIN_IDENTIFIER_BYTES: usize = 255 * 4;
+
+fn valid_login_identifier(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_LOGIN_IDENTIFIER_BYTES
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Claims {
     pub id: i32,
@@ -233,7 +240,9 @@ pub async fn login(
     let ip = real_ip.ip();
     let username = credentials.username.clone();
     let password = credentials.password.clone();
-    if username.is_empty() || username.len() > 150 || password.is_empty() || password.len() > 1_024
+    if !valid_login_identifier(&username)
+        || password.is_empty()
+        || password.len() > handles::MAX_AUTH_PASSWORD_BYTES
     {
         return Err(NurError::BadRequest("Invalid credentials.".into()));
     }
@@ -429,8 +438,7 @@ pub async fn verify(
     let ip = real_ip.ip();
     let username = request.username;
     let provided_code = request.code;
-    if username.is_empty()
-        || username.len() > 150
+    if !valid_login_identifier(&username)
         || provided_code.len() != 7
         || !provided_code.bytes().all(|byte| byte.is_ascii_digit())
     {
@@ -621,6 +629,15 @@ fn mail_body(verification_code: &str, add_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_accepts_the_full_stored_identifier_length() {
+        assert!(valid_login_identifier(&"é".repeat(150)));
+        assert!(valid_login_identifier(&"a".repeat(255)));
+        assert!(valid_login_identifier(&"😀".repeat(255)));
+        assert!(!valid_login_identifier(""));
+        assert!(!valid_login_identifier(&"a".repeat(1021)));
+    }
 
     static TEST_JWT_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 

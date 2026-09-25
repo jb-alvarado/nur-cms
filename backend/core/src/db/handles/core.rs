@@ -61,6 +61,19 @@ fn table_field_allowed(table: &Table, field: &str) -> bool {
     }
 }
 
+fn write_error(table: &Table, error: sqlx::Error) -> NurError {
+    if *table == Table::AuthUsers
+        && error
+            .as_database_error()
+            .and_then(sqlx::error::DatabaseError::code)
+            .is_some_and(|code| code == "23505")
+    {
+        NurError::Conflict("Username or email is already in use.".into())
+    } else {
+        error.into()
+    }
+}
+
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 
@@ -279,7 +292,10 @@ where
 
     let query = qb.build_query_scalar();
 
-    let id = query.fetch_one(executor).await?;
+    let id = query
+        .fetch_one(executor)
+        .await
+        .map_err(|error| write_error(table, error))?;
 
     Ok(id)
 }
@@ -394,7 +410,10 @@ where
 
     let query = qb.build();
 
-    query.execute(executor).await?;
+    query
+        .execute(executor)
+        .await
+        .map_err(|error| write_error(table, error))?;
 
     Ok(())
 }
