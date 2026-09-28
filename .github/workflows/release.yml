@@ -23,6 +23,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
+      - name: Check release tag against Cargo version
+        run: |
+          pkgid="$(cargo pkgid --locked -p nur-cms)"
+          version="${pkgid##*@}"
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Release tag $GITHUB_REF_NAME does not match Cargo version v$version" >&2
+            exit 1
+          fi
       - name: Install Linux packaging dependencies
         run: sudo apt-get update && sudo apt-get install -y musl-tools rpm
       - name: Build frontend

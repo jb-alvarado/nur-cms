@@ -8,8 +8,13 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig(() => {
-    const frontendPkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
-    const appVersion = frontendPkg.version || '0.0.0'
+    const cargoManifest = readFileSync(new URL('./Cargo.toml', import.meta.url), 'utf8')
+    const workspacePackage = cargoManifest.split(/^\[workspace\.package\]\s*$/m)[1]?.split(/^\[/m)[0]
+    const appVersion = workspacePackage?.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1]
+
+    if (!appVersion) {
+        throw new Error('Missing workspace package version in Cargo.toml')
+    }
 
     return {
         build: {
