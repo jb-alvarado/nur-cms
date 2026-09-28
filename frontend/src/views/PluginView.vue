@@ -26,6 +26,7 @@ import {
 import {
     createSubscription,
     pluginAdminLocation,
+    pluginAdminRoutePath,
     resolvePluginApiRequest,
     resolvePluginAdminNavigation,
     type Subscription,
@@ -106,7 +107,7 @@ function pluginFromRoute(): PluginMetadata | undefined {
             plugin.id === id &&
             plugin.admin?.entry &&
             plugin.admin.element &&
-            pluginAllowsPath(plugin, auth.role, route.path),
+            pluginAllowsPath(plugin, auth.role, pluginAdminLocation(id, route.fullPath).path),
     )
 }
 
@@ -177,7 +178,7 @@ function contextFor(plugin: PluginMetadata, listeners: PluginSubscriptions): Plu
             } catch {
                 throw new Error(t('plugin.navigationNamespace'))
             }
-            await router.push(target)
+            await router.push(pluginAdminRoutePath(target))
         },
         selectMedia: selectPluginMedia,
         notify: (variance, text) => {

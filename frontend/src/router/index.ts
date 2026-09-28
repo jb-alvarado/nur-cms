@@ -5,6 +5,7 @@ import LoginView from '@/views/LoginView.vue'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from './../stores/index'
 import { pluginAllowsPath } from '@/types/plugins'
+import { pluginAdminLocation } from '@/utils/pluginAdmin'
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -107,6 +108,10 @@ const router = createRouter({
         },
         {
             path: '/admin/p/:pluginId/:pathMatch(.*)*',
+            redirect: (to) => to.fullPath.replace(/^\/admin(?=\/p\/)/, ''),
+        },
+        {
+            path: '/p/:pluginId/:pathMatch(.*)*',
             name: 'plugin admin',
             component: () => import('../views/PluginView.vue'),
             meta: { showMenu: true },
@@ -162,7 +167,7 @@ router.beforeEach(async (to, from) => {
 
     if (auth.isLogin) {
         await store.selectCmsConfiguration()
-        if (to.path.startsWith('/admin/p/')) {
+        if (to.path.startsWith('/p/')) {
             await store.selectPlugins()
             const pluginId = typeof to.params.pluginId === 'string' ? to.params.pluginId : ''
             const plugin = store.plugins.find(
@@ -170,7 +175,7 @@ router.beforeEach(async (to, from) => {
                     item.id === pluginId &&
                     item.admin?.entry &&
                     item.admin.element &&
-                    pluginAllowsPath(item, auth.role, to.path),
+                    pluginAllowsPath(item, auth.role, pluginAdminLocation(pluginId, to.fullPath).path),
             )
             if (!plugin) return { name: '404' }
         }

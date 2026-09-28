@@ -13,6 +13,10 @@ export function pluginAdminPath(pluginId: string): string {
     return `${ADMIN_PREFIX}/${encodeURIComponent(pluginId)}`
 }
 
+export function pluginAdminRoutePath(path: string): string {
+    return path.startsWith(`${ADMIN_PREFIX}/`) ? path.slice('/admin'.length) : path
+}
+
 export function pluginViewKey(pluginId: string): string {
     return `plugin:${pluginId}`
 }
@@ -40,10 +44,11 @@ export function resolvePluginApiRequest(pluginId: string, path: string): string 
 export function pluginAdminLocation(pluginId: string, fullPath: string): PluginAdminLocation {
     const namespace = pluginAdminPath(pluginId)
     const url = new URL(fullPath, URL_ORIGIN)
-    const suffix = url.pathname.slice(namespace.length)
+    const path = url.pathname.startsWith('/p/') ? `/admin${url.pathname}` : url.pathname
+    const suffix = path.slice(namespace.length)
 
     return {
-        path: url.pathname,
+        path,
         relativePath: suffix.startsWith('/') ? suffix : '/',
         search: url.search,
         hash: url.hash,
@@ -54,6 +59,7 @@ export function resolvePluginAdminNavigation(pluginId: string, currentFullPath: 
     const namespace = pluginAdminPath(pluginId)
     const root = new URL(`${namespace}/`, URL_ORIGIN)
     const current = new URL(currentFullPath, URL_ORIGIN)
+    if (current.pathname.startsWith('/p/')) current.pathname = `/admin${current.pathname}`
     const base = path.startsWith('?') || path.startsWith('#') ? current : root
     const resolvedPath =
         path.startsWith(namespace) || path.startsWith('/admin/')

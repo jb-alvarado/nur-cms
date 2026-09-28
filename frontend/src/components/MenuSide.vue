@@ -7,6 +7,7 @@ import { useIndex } from '@/stores/index'
 import { locales as appLocales } from '@/i18n'
 import { normalizeCode } from '@/utils/helper'
 import { menuAllowsRole, pluginAllowsRole, pluginMenuLabel } from '@/types/plugins'
+import { pluginAdminRoutePath } from '@/utils/pluginAdmin'
 
 import SseHandler from './SseHandler.vue'
 
@@ -149,7 +150,7 @@ function setLanguage(code: string) {
                             (item) => plugin.admin && menuAllowsRole(item, plugin.admin, auth.role),
                         )"
                         :key="item.path"
-                        :to="item.path"
+                        :to="pluginAdminRoutePath(item.path)"
                         class="btn join-item w-31 p-1 justify-normal items-center"
                     >
                         <i class="bi ps-0.5 text-2xl leading-0" :class="item.icon ?? 'bi-puzzle'"></i>
@@ -173,7 +174,7 @@ function setLanguage(code: string) {
                             )"
                             :key="item.path"
                         >
-                            <RouterLink :to="item.path" class="justify-normal">
+                            <RouterLink :to="pluginAdminRoutePath(item.path)" class="justify-normal">
                                 <i class="bi text-xl leading-0" :class="item.icon ?? 'bi-puzzle'"></i>
                                 {{ pluginMenuLabel(item, store.locale) }}
                             </RouterLink>

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
     createSubscription,
     pluginAdminLocation,
+    pluginAdminRoutePath,
     pluginViewKey,
     resolvePluginAdminNavigation,
     resolvePluginApiRequest,
@@ -24,6 +25,20 @@ describe('plugin API requests', () => {
 })
 
 describe('plugin admin navigation', () => {
+    it('uses router paths below the /admin/ history base', () => {
+        expect(pluginAdminRoutePath('/admin/p/example/customers')).toBe('/p/example/customers')
+        expect(pluginAdminRoutePath('/admin/p/example/customers?offset=20')).toBe('/p/example/customers?offset=20')
+        expect(pluginAdminLocation('example', '/p/example/customers')).toEqual({
+            path: '/admin/p/example/customers',
+            relativePath: '/customers',
+            search: '',
+            hash: '',
+        })
+        expect(resolvePluginAdminNavigation('example', '/p/example/customers?offset=20', '?offset=40')).toBe(
+            '/admin/p/example/customers?offset=40',
+        )
+    })
+
     it('resolves relative routes, query-only navigation, and hashes', () => {
         expect(resolvePluginAdminNavigation('example', '/admin/p/example', 'products/12')).toBe(
             '/admin/p/example/products/12',
