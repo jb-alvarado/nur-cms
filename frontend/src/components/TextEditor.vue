@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
+import MarkdownHelpModal from '@/components/generic/MarkdownHelpModal.vue'
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
 
 const { t } = useI18n()
@@ -13,6 +14,7 @@ const store = useIndex()
 
 const textareaRef = ref()
 const linkModal = ref()
+const markdownHelpModal = ref<InstanceType<typeof MarkdownHelpModal>>()
 const mediaModal = ref()
 const linkName = ref('')
 const linkURL = ref('https://')
@@ -344,6 +346,15 @@ function table() {
                     <button class="join-item btn rounded p-3 hidden 2xl:flex" @click="store.preview = !store.preview">
                         <i class="bi bi-markdown scale-130"></i>
                     </button>
+                    <button
+                        type="button"
+                        class="join-item btn p-3"
+                        :title="$t('markdownHelp.open')"
+                        :aria-label="$t('markdownHelp.open')"
+                        @click="markdownHelpModal?.showModal()"
+                    >
+                        <i class="bi bi-question-circle"></i>
+                    </button>
                     <input
                         v-if="orderPosition !== null && orderMaximum > 1"
                         :value="orderPosition"
@@ -383,6 +394,7 @@ function table() {
             </fieldset>
         </GenericModal>
 
+        <MarkdownHelpModal ref="markdownHelpModal" />
         <MediaBrowser ref="mediaModal" :update="addMedia" />
     </div>
 </template>
