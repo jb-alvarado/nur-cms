@@ -3,6 +3,7 @@ use std::{
     io::{BufReader, Write},
     path::Path,
     ptr,
+    sync::atomic::{AtomicU8, Ordering},
 };
 
 use colored::Colorize;
@@ -190,6 +191,7 @@ fn save_animated_gif(
     image_types: &[String],
     input_file: &Path,
     tx: Option<&Sender<String>>,
+    progress: Option<&AtomicU8>,
 ) -> Result<Option<VarianceType>, Box<dyn std::error::Error>> {
     if image::ImageReader::open(input_file)?
         .with_guessed_format()?
@@ -225,6 +227,7 @@ fn save_animated_gif(
         .and_then(|name| name.to_str())
         .unwrap_or("image");
     let mut outputs = Vec::with_capacity(resolutions.len());
+    let total = resolutions.len();
 
     for width in resolutions {
         let height =
@@ -280,6 +283,7 @@ fn save_animated_gif(
         let buffer = encoder.finish(timestamp_ms)?;
         replace_file(&output_path, &buffer)?;
         outputs.push((width, height as i32, filename.clone()));
+        update_image_progress(progress, outputs.len(), total);
 
         match tx {
             Some(tx) => {
@@ -338,16 +342,52 @@ fn encode_webp(
 }
 
 pub fn save_image(
+    image_resolutions: Vec<i32>,
+    image_types: &[String],
+    input_file: &Path,
+    tx: Option<Sender<String>>,
+) -> Result<VarianceType, Box<dyn std::error::Error>> {
+    save_image_inner(image_resolutions, image_types, input_file, tx, None)
+}
+
+pub fn save_image_with_progress(
+    image_resolutions: Vec<i32>,
+    image_types: &[String],
+    input_file: &Path,
+    tx: Option<Sender<String>>,
+    progress: &AtomicU8,
+) -> Result<VarianceType, Box<dyn std::error::Error>> {
+    save_image_inner(
+        image_resolutions,
+        image_types,
+        input_file,
+        tx,
+        Some(progress),
+    )
+}
+
+fn update_image_progress(progress: Option<&AtomicU8>, completed: usize, total: usize) {
+    if let Some(progress) = progress
+        && total > 0
+    {
+        let percent = (completed as u128 * 90 / total as u128).min(90) as u8;
+        progress.store(percent, Ordering::Relaxed);
+    }
+}
+
+fn save_image_inner(
     mut image_resolutions: Vec<i32>,
     image_types: &[String],
     input_file: &Path,
     tx: Option<Sender<String>>,
+    progress: Option<&AtomicU8>,
 ) -> Result<VarianceType, Box<dyn std::error::Error>> {
     if let Some(variants) = save_animated_gif(
         image_resolutions.clone(),
         image_types,
         input_file,
         tx.as_ref(),
+        progress,
     )? {
         return Ok(variants);
     }
@@ -383,6 +423,12 @@ pub fn save_image(
     }
 
     let mut variants = Vec::new();
+    let total = image_resolutions
+        .iter()
+        .filter(|width| **width <= orig_w as i32)
+        .count()
+        * image_types.len();
+    let mut completed = 0;
 
     for in_w in image_resolutions {
         if orig_w < in_w as u32 {
@@ -439,6 +485,9 @@ pub fn save_image(
                 );
 
                 variants.push((w as i32, h as i32, output_name.clone()));
+
+                completed += 1;
+                update_image_progress(progress, completed, total);
 
                 continue;
             }
@@ -498,6 +547,8 @@ pub fn save_image(
                 }
                 None => info!("Created: '{output_name}'"),
             }
+            completed += 1;
+            update_image_progress(progress, completed, total);
         }
     }
 
@@ -522,7 +573,12 @@ pub async fn delete_image(size: &(u32, u32), path: &Path, name: &str) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::BufReader, time::Duration};
+    use std::{
+        fs::File,
+        io::BufReader,
+        sync::atomic::{AtomicU8, Ordering},
+        time::Duration,
+    };
 
     use image::{
         AnimationDecoder, Delay, Frame, GenericImageView, Rgba, RgbaImage,
@@ -533,7 +589,27 @@ mod tests {
         metadata::LoopCount,
     };
 
-    use super::save_image;
+    use super::{save_image, save_image_with_progress};
+
+    #[test]
+    fn image_progress_reaches_variant_stage_end() {
+        let directory =
+            std::env::temp_dir().join(format!("nur-cms-progress-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).expect("test directory can be created");
+        let source = directory.join("source.png");
+        RgbaImage::from_pixel(32, 16, Rgba([20, 40, 60, 255]))
+            .save(&source)
+            .expect("source image can be written");
+        let progress = AtomicU8::new(0);
+
+        let variants =
+            save_image_with_progress(vec![16, 32], &["png".to_string()], &source, None, &progress)
+                .expect("variants can be generated");
+
+        assert_eq!(variants.len(), 2);
+        assert_eq!(progress.load(Ordering::Relaxed), 90);
+        std::fs::remove_dir_all(directory).expect("test directory can be removed");
+    }
 
     #[test]
     fn generates_only_configured_image_variants_without_upscaling() {

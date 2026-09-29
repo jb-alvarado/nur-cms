@@ -9,6 +9,7 @@ import { attachHls } from '@/utils/hls'
 import { authFetch } from '@/composables/authFetch'
 
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
+import MediaProcessingProgress from '@/components/media/MediaProcessingProgress.vue'
 
 const { t } = useI18n()
 const store = useIndex()
@@ -209,6 +210,7 @@ async function updateMedia() {
                     {{ $t(`media.processing.${thumbnailQueued ? 'queued' : (media.processing_status ?? 'completed')}`) }}
                 </span>
             </div>
+            <MediaProcessingProgress v-if="store.mediaProgress[props.id]" :media-id="props.id" />
         </div>
     </div>
     <MediaBrowser ref="thumbnailModal" :media-types="['image']" :update="replaceThumbnail" />

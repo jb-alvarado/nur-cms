@@ -78,12 +78,22 @@ impl fmt::Display for SSELevel {
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export, export_to = "sse.d.ts")]
+pub struct MediaProgress {
+    pub phase: String,
+    pub percent: u8,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export, export_to = "sse.d.ts")]
 pub struct SSEMessage {
     pub variance: SSELevel,
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub media_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub progress: Option<MediaProgress>,
 }
 
 impl SSEMessage {
@@ -92,6 +102,19 @@ impl SSEMessage {
             variance,
             text: text.to_owned(),
             media_id: None,
+            progress: None,
+        }
+    }
+
+    pub fn media_progress(media_id: i32, phase: &str, percent: u8) -> Self {
+        Self {
+            variance: SSELevel::Info,
+            text: String::new(),
+            media_id: Some(media_id),
+            progress: Some(MediaProgress {
+                phase: phase.to_owned(),
+                percent: percent.min(100),
+            }),
         }
     }
 
@@ -162,5 +185,18 @@ mod tests {
             serde_json::from_str(&message).expect("SSE message is valid JSON");
 
         assert!(json.get("media_id").is_none());
+        assert!(json.get("progress").is_none());
+    }
+
+    #[test]
+    fn media_progress_is_structured_and_bounded() {
+        let message = SSEMessage::media_progress(42, "encoding", 120).to_string();
+        let json: serde_json::Value =
+            serde_json::from_str(&message).expect("SSE message is valid JSON");
+
+        assert_eq!(json["media_id"], 42);
+        assert_eq!(json["progress"]["phase"], "encoding");
+        assert_eq!(json["progress"]["percent"], 100);
+        assert_eq!(json["text"], "");
     }
 }

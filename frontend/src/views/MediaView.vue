@@ -9,6 +9,7 @@ import FileUpload from '@/components/media/FileUpload.vue'
 import GenericModal from '@/components/generic/GenericModal.vue'
 import GenericPagination from '@/components/generic/GenericPagination.vue'
 import GenericProgress from '@/components/generic/GenericProgress.vue'
+import MediaProcessingProgress from '@/components/media/MediaProcessingProgress.vue'
 import EditMedia from '@/components/edit/EditMedia.vue'
 
 const store = useIndex()
@@ -266,6 +267,9 @@ function resetUpload() {
                         <li v-if="media.type?.startsWith('video/')">
                             <strong>{{ $t('media.processingStatus') }}:</strong>
                             {{ $t(`media.processing.${media.processing_status ?? 'completed'}`) }}
+                        </li>
+                        <li v-if="media.id && store.mediaProgress[media.id]">
+                            <MediaProcessingProgress :media-id="media.id" />
                         </li>
                         <li v-if="media.variants">
                             <p><i class="bi bi-collection me-1"></i> {{ variantsExt(media.variants) }}</p>

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { errMsg } from '@/utils/error'
 import { authFetch } from '@/composables/authFetch'
 import type { PluginMetadata } from '@/types/plugins'
+import type { MediaProgress } from '@/types/sse.d'
 
 let cmsConfigurationRequest: Promise<CmsConfiguration> | null = null
 let brandingRequest: Promise<BrandingConfiguration> | null = null
@@ -55,6 +56,7 @@ export const useIndex = defineStore('index', {
         routeType: '',
         progress: 0,
         progressShow: false,
+        mediaProgress: {} as Record<number, MediaProgress>,
         randomKey: 'aHcyWqp',
         loaded: false,
         selectAll: false,
@@ -83,6 +85,14 @@ export const useIndex = defineStore('index', {
 
     getters: {},
     actions: {
+        setMediaProgress(mediaId: number, progress: MediaProgress) {
+            this.mediaProgress[mediaId] = progress
+        },
+
+        clearMediaProgress(mediaId: number) {
+            delete this.mediaProgress[mediaId]
+        },
+
         msgAlert(variance: string, text: string) {
             const seconds = variance === 'error' ? 6 : variance === 'warning' ? 5 : 3
             const msg = { text, variance, seconds }

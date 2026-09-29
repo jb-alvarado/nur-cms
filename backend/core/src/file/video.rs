@@ -10,6 +10,7 @@ use serde::Deserialize;
 use sqlx::{Postgres, Transaction, postgres::PgPool};
 use tokio::{
     fs,
+    io::{AsyncBufReadExt, BufReader},
     process::Command,
     sync::{OnceCell, broadcast::Sender, watch},
     task::JoinHandle,
@@ -34,7 +35,7 @@ use crate::{
         helper::{contained_storage_target, hls_directory_name},
         processing::save_image,
     },
-    sse::{SSELevel as Level, SSEMessage},
+    sse::{MediaProgress, SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
 
@@ -52,6 +53,40 @@ static AVAILABLE_ENCODERS: OnceCell<HashSet<String>> = OnceCell::const_new();
 struct ProcessingControl {
     shutdown: watch::Receiver<bool>,
     lease_lost: watch::Receiver<bool>,
+}
+
+struct EncodingProgress {
+    updates: watch::Sender<MediaProgress>,
+    duration_ms: i64,
+    start_percent: u8,
+    end_percent: u8,
+}
+
+fn update_video_progress(updates: &watch::Sender<MediaProgress>, phase: &str, percent: u8) {
+    updates.send_replace(MediaProgress {
+        phase: phase.to_owned(),
+        percent,
+    });
+}
+
+fn percent_from_ffmpeg_time(output_us: u64, duration_ms: i64, start: u8, end: u8) -> u8 {
+    if duration_ms <= 0 {
+        return start;
+    }
+    let duration_us = (duration_ms as u128).saturating_mul(1_000);
+    if duration_us == 0 || end <= start {
+        return start;
+    }
+    let completed = (u128::from(output_us).saturating_mul(u128::from(end - start)) / duration_us)
+        .min(u128::from(end - start)) as u8;
+    start + completed
+}
+
+fn ffmpeg_output_time(line: &str) -> Option<u64> {
+    line.strip_prefix("out_time_us=")
+        .or_else(|| line.strip_prefix("out_time_ms="))?
+        .parse()
+        .ok()
 }
 
 impl ProcessingControl {
@@ -367,22 +402,48 @@ async fn process_claimed_job(
 
     let media_id = job.media_id;
     let filename = job.filename.clone();
+    let (progress_updates, mut progress_values) = watch::channel(MediaProgress {
+        phase: "preparing".into(),
+        percent: 0,
+    });
+    let progress_task = (job.kind == JOB_KIND).then(|| {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut heartbeat = time::interval(Duration::from_secs(1));
+            loop {
+                heartbeat.tick().await;
+                let progress = progress_values.borrow_and_update().clone();
+                let _ = tx.send(
+                    SSEMessage::media_progress(media_id, &progress.phase, progress.percent)
+                        .to_string(),
+                );
+            }
+        })
+    });
     let (lease_task, lease_lost) = start_lease_renewal(pool, &job);
     let control = ProcessingControl {
         shutdown,
         lease_lost,
     };
     let result = match job.kind.as_str() {
-        JOB_KIND => process_job(pool, tx, &job, control.clone()).await,
+        JOB_KIND => process_job(pool, tx, &job, control.clone(), &progress_updates).await,
         MANUAL_THUMBNAIL_JOB_KIND | RANDOM_THUMBNAIL_JOB_KIND => {
             process_thumbnail_job(pool, &job, control).await
         }
         _ => Err("Unknown video processing job kind.".into()),
     };
     lease_task.abort();
+    if let Some(task) = progress_task {
+        task.abort();
+        // Wait for any in-flight heartbeat before publishing the terminal event.
+        let _ = task.await;
+    }
 
     match result {
         Ok(()) => {
+            if job.kind == JOB_KIND {
+                let _ = tx.send(SSEMessage::media_progress(media_id, "completed", 100).to_string());
+            }
             ENTRY_CACHE.invalidate();
             info!(
                 job_id = job.id,
@@ -558,6 +619,7 @@ async fn process_job(
     tx: &Sender<String>,
     job: &VideoJob,
     control: ProcessingControl,
+    progress: &watch::Sender<MediaProgress>,
 ) -> Result<(), String> {
     if !job
         .mime_type
@@ -621,26 +683,39 @@ async fn process_job(
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "Invalid video filename.".to_string())?;
         if job.delivery_mode == "hls" {
-            return process_hls_job(
+            process_hls_job(
                 pool,
-                tx,
                 job,
                 &control,
                 &source_info,
                 &profiles,
                 &staging_dir,
+                progress,
             )
-            .await;
+            .await?;
+            let _ = tx.send(
+                SSEMessage::new(Level::Info, &format!("HLS video ready: {}", job.filename))
+                    .with_media_id(job.media_id)
+                    .to_string(),
+            );
+            return Ok(());
         }
         let mut variants = Vec::new();
         let mut generated_bytes = 0_u64;
 
-        for profile in profiles {
+        let profile_count = profiles.len();
+        for (index, profile) in profiles.into_iter().enumerate() {
             let filename = variant_filename(stem, &profile);
             let staging_path = staging_dir.join(&filename);
             run_ffmpeg(
                 variant_command_args(&source, &staging_path, &profile),
                 control.clone(),
+                Some(EncodingProgress {
+                    updates: progress.clone(),
+                    duration_ms: source_info.duration_ms.unwrap_or_default(),
+                    start_percent: 5 + (index * 80 / profile_count) as u8,
+                    end_percent: 5 + ((index + 1) * 80 / profile_count) as u8,
+                }),
             )
             .await?;
 
@@ -692,6 +767,7 @@ async fn process_job(
         }
 
         let thumbnail_output = thumbnail_output_config().await;
+        update_video_progress(progress, "thumbnails", 85);
         let thumbnails = create_thumbnails(
             &source,
             &staging_dir,
@@ -722,6 +798,7 @@ async fn process_job(
             }
         }
 
+        update_video_progress(progress, "finalizing", 95);
         let mut transaction = lock_owned_job(pool, job).await?;
         ensure_output_targets_available(&mut transaction, job, &variants, &thumbnails).await?;
 
@@ -1093,12 +1170,12 @@ async fn choose_hls_directory(
 
 async fn process_hls_job(
     pool: &PgPool,
-    tx: &Sender<String>,
     job: &VideoJob,
     control: &ProcessingControl,
     source_info: &VideoInfo,
     profiles: &[VideoProfile],
     staging_dir: &Path,
+    progress: &watch::Sender<MediaProgress>,
 ) -> Result<(), String> {
     let source = contained_storage_target(&job.path, &job.filename)
         .await
@@ -1121,12 +1198,19 @@ async fn process_hls_job(
             source_info.audio_codec.is_some(),
         ),
         control.clone(),
+        Some(EncodingProgress {
+            updates: progress.clone(),
+            duration_ms: source_info.duration_ms.unwrap_or_default(),
+            start_percent: 5,
+            end_percent: 85,
+        }),
     )
     .await?;
     let hls_bytes = hls_output_size(&hls_output, &profiles).await?;
     let mut generated_bytes = hls_bytes;
 
     let thumbnail_output = thumbnail_output_config().await;
+    update_video_progress(progress, "thumbnails", 85);
     let thumbnails = create_thumbnails(
         &source,
         staging_dir,
@@ -1154,6 +1238,7 @@ async fn process_hls_job(
         }
     }
 
+    update_video_progress(progress, "finalizing", 95);
     let mut transaction = lock_owned_job(pool, job).await?;
     let (directory, replacing_existing) = choose_hls_directory(&mut transaction, job, stem).await?;
     let master_filename = format!("{directory}/master.m3u8");
@@ -1197,11 +1282,6 @@ async fn process_hls_job(
         return Err(error);
     }
     remove_publication_backups(&published).await;
-    let _ = tx.send(
-        SSEMessage::new(Level::Info, &format!("HLS video ready: {}", job.filename))
-            .with_media_id(job.media_id)
-            .to_string(),
-    );
     Ok(())
 }
 
@@ -1994,11 +2074,16 @@ async fn create_thumbnail_at(
             output.to_string_lossy().to_string(),
         ],
         control,
+        None,
     )
     .await
 }
 
-async fn run_ffmpeg(args: Vec<String>, control: ProcessingControl) -> Result<(), String> {
+async fn run_ffmpeg(
+    args: Vec<String>,
+    control: ProcessingControl,
+    progress: Option<EncodingProgress>,
+) -> Result<(), String> {
     let mut command = Command::new(ffmpeg_bin());
     command
         .arg("-nostdin")
@@ -2008,11 +2093,21 @@ async fn run_ffmpeg(args: Vec<String>, control: ProcessingControl) -> Result<(),
         .arg("-y")
         .arg("-filter_threads")
         .arg(VIDEO_PROCESSING_THREADS.to_string())
-        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    if progress.is_some() {
+        command
+            .args(["-progress", "pipe:1", "-stats_period", "1"])
+            .stdout(Stdio::piped());
+    }
+    command.args(args);
+
+    if let Some(progress) = progress {
+        return run_ffmpeg_with_progress(command, control, progress).await;
+    }
+
     let output = tokio::select! {
         output = time::timeout(
             Duration::from_secs(*VIDEO_PROCESSING_TIMEOUT_SECONDS),
@@ -2032,6 +2127,63 @@ async fn run_ffmpeg(args: Vec<String>, control: ProcessingControl) -> Result<(),
         output.status,
         truncate_error(&String::from_utf8_lossy(&output.stderr))
     ))
+}
+
+async fn run_ffmpeg_with_progress(
+    mut command: Command,
+    control: ProcessingControl,
+    progress: EncodingProgress,
+) -> Result<(), String> {
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Failed to start ffmpeg: {error}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Could not read ffmpeg progress output.".to_string())?;
+    let mut lines = BufReader::new(stdout).lines();
+    let output = child.wait_with_output();
+    tokio::pin!(output);
+    let timeout = time::sleep(Duration::from_secs(*VIDEO_PROCESSING_TIMEOUT_SECONDS));
+    tokio::pin!(timeout);
+    let mut stdout_open = true;
+    let mut last_percent = progress.start_percent;
+    update_video_progress(&progress.updates, "encoding", last_percent);
+
+    loop {
+        tokio::select! {
+            result = &mut output => {
+                let output = result.map_err(|error| format!("Failed to run ffmpeg: {error}"))?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "ffmpeg exited with {}: {}",
+                        output.status,
+                        truncate_error(&String::from_utf8_lossy(&output.stderr))
+                    ));
+                }
+                update_video_progress(&progress.updates, "encoding", progress.end_percent);
+                return Ok(());
+            }
+            _ = &mut timeout => return Err("ffmpeg timed out.".into()),
+            _ = control.cancelled() => return Err(PROCESSING_CANCELLED.into()),
+            line = lines.next_line(), if stdout_open => match line {
+                Ok(Some(line)) => {
+                    if let Some(output_us) = ffmpeg_output_time(&line) {
+                        let percent = percent_from_ffmpeg_time(
+                            output_us,
+                            progress.duration_ms,
+                            progress.start_percent,
+                            progress.end_percent,
+                        );
+                        last_percent = last_percent.max(percent);
+                        update_video_progress(&progress.updates, "encoding", last_percent);
+                    }
+                }
+                Ok(None) => stdout_open = false,
+                Err(error) => return Err(format!("Could not read ffmpeg progress: {error}")),
+            },
+        }
+    }
 }
 
 async fn probe_video(path: &Path) -> Result<VideoInfo, String> {
@@ -2410,13 +2562,24 @@ mod tests {
     use super::{
         MANUAL_THUMBNAIL_JOB_KIND, ProcessedVariant, PublishedFile, RANDOM_THUMBNAIL_JOB_KIND,
         VideoInfo, VideoProfile, claim_job, enqueue_video_processing, enqueue_video_thumbnail,
-        fail_job, hls_command_args, hls_profiles, media_status_after_failure, persist_outputs,
-        profile_command_args, publish_staged_file, random_thumbnail_seek, remove_published_outputs,
-        select_hls_profiles, select_profiles, validate_source, validate_variant,
-        validate_video_profile, variant_command_args, variant_filename,
+        fail_job, ffmpeg_output_time, hls_command_args, hls_profiles, media_status_after_failure,
+        percent_from_ffmpeg_time, persist_outputs, profile_command_args, publish_staged_file,
+        random_thumbnail_seek, remove_published_outputs, select_hls_profiles, select_profiles,
+        validate_source, validate_variant, validate_video_profile, variant_command_args,
+        variant_filename,
     };
 
     const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+    #[test]
+    fn ffmpeg_progress_maps_to_the_current_encoding_stage() {
+        assert_eq!(ffmpeg_output_time("out_time_us=30000000"), Some(30_000_000));
+        assert_eq!(ffmpeg_output_time("out_time_ms=30000000"), Some(30_000_000));
+        assert_eq!(ffmpeg_output_time("progress=continue"), None);
+        assert_eq!(percent_from_ffmpeg_time(30_000_000, 60_000, 5, 85), 45);
+        assert_eq!(percent_from_ffmpeg_time(90_000_000, 60_000, 5, 85), 85);
+        assert_eq!(percent_from_ffmpeg_time(30_000_000, 0, 5, 85), 5);
+    }
 
     fn sample_profile() -> VideoProfile {
         VideoProfile {

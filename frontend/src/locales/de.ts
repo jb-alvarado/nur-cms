@@ -277,6 +277,14 @@ export default {
         regenerateThumbnail: 'Neues Thumbnail erzeugen',
         thumbnailQueued: 'Die Thumbnail-Erzeugung wurde eingereiht.',
         processingStatus: 'Verarbeitung',
+        progress: {
+            preparing: 'Video vorbereiten',
+            encoding: 'Video codieren',
+            thumbnails: 'Vorschaubilder erzeugen',
+            imageVariants: 'Bildvarianten erzeugen',
+            finalizing: 'Dateien speichern',
+            completed: 'Verarbeitung abgeschlossen',
+        },
         videoRetryQueued: 'Die Videoverarbeitung wurde eingereiht.',
         processing: {
             queued: 'Die Videoverarbeitung wartet.',

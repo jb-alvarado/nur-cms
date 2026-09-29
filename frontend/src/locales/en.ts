@@ -274,6 +274,14 @@ export default {
         regenerateThumbnail: 'Generate new thumbnail',
         thumbnailQueued: 'Thumbnail generation has been queued.',
         processingStatus: 'Processing',
+        progress: {
+            preparing: 'Preparing video',
+            encoding: 'Encoding video',
+            thumbnails: 'Creating thumbnails',
+            imageVariants: 'Creating image variants',
+            finalizing: 'Saving files',
+            completed: 'Processing complete',
+        },
         videoRetryQueued: 'Video processing has been queued.',
         processing: {
             queued: 'Video processing is queued.',

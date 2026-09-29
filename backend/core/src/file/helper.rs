@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     ops::Range,
     path::{Component, Path, PathBuf},
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicU8, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -11,6 +14,7 @@ use sqlx::postgres::PgPool;
 use tokio::{
     fs,
     sync::{Mutex, broadcast::Sender},
+    time,
 };
 use tracing::{error, info};
 
@@ -22,7 +26,7 @@ use crate::{
         models::Configuration,
         serialize::MediaSerializer,
     },
-    file::processing::save_image,
+    file::processing::save_image_with_progress,
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
@@ -788,16 +792,38 @@ pub async fn process_variants(
 
     let output_file = output_file.to_path_buf();
     let tx_clone = tx.clone();
-    let _permit = IMAGE_PROCESSING_SEMAPHORE
-        .acquire()
-        .await
-        .map_err(|_| NurError::ServiceUnavailable("Image processor unavailable.".into()))?;
-    let variants = tokio::task::spawn_blocking(move || {
-        save_image(resolutions, &extensions, &output_file, Some(tx_clone))
-            .map_err(|error| error.to_string())
-    })
-    .await?
-    .map_err(NurError::Conflict)?;
+    let progress = Arc::new(AtomicU8::new(0));
+    let worker_progress = Arc::clone(&progress);
+    let mut heartbeat = time::interval(Duration::from_secs(1));
+    let _permit = loop {
+        tokio::select! {
+            permit = IMAGE_PROCESSING_SEMAPHORE.acquire() => {
+                break permit.map_err(|_| NurError::ServiceUnavailable("Image processor unavailable.".into()))?;
+            }
+            _ = heartbeat.tick() => {
+                let _ = tx.send(SSEMessage::media_progress(media_id, "imageVariants", 0).to_string());
+            }
+        }
+    };
+    let mut worker = tokio::task::spawn_blocking(move || {
+        save_image_with_progress(
+            resolutions,
+            &extensions,
+            &output_file,
+            Some(tx_clone),
+            &worker_progress,
+        )
+        .map_err(|error| error.to_string())
+    });
+    let variants = loop {
+        tokio::select! {
+            result = &mut worker => break result?.map_err(NurError::Conflict)?,
+            _ = heartbeat.tick() => {
+                let percent = progress.load(Ordering::Relaxed);
+                let _ = tx.send(SSEMessage::media_progress(media_id, "imageVariants", percent).to_string());
+            }
+        }
+    };
 
     if variants.is_empty() && mime_type != "image/gif" {
         return Err(NurError::Conflict(
@@ -806,6 +832,8 @@ pub async fn process_variants(
     }
 
     handles::insert_media_variants(pool, media_id, &variants).await?;
+
+    let _ = tx.send(SSEMessage::media_progress(media_id, "finalizing", 95).to_string());
 
     Ok(())
 }

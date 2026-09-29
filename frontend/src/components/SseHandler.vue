@@ -4,6 +4,7 @@ import { useEventSource } from '@vueuse/core'
 import { useAuth } from '@/stores/auth'
 import { useIndex } from '@/stores'
 import { filenameFromProcessingMessage } from '@/utils/mediaProcessing'
+import { completeMediaProgress, resetMediaProgress } from '@/utils/mediaProgress'
 
 const auth = useAuth()
 const store = useIndex()
@@ -24,6 +25,7 @@ const { status, data, error, close } = useEventSource(streamUrl, [], {
 
 onBeforeUnmount(() => {
     close()
+    resetMediaProgress(store.mediaProgress)
     sseConnected.value = false
 })
 
@@ -32,6 +34,9 @@ watch([status, error], async () => {
         sseConnected.value = true
         errorCounter.value = 0
     } else {
+        resetMediaProgress(store.mediaProgress)
+        // Allow an identical heartbeat after reconnect to trigger the data watcher.
+        data.value = null
         sseConnected.value = false
         errorCounter.value += 1
 
@@ -47,9 +52,21 @@ watch([data], () => {
     if (data.value) {
         try {
             const msg = JSON.parse(data.value) as SSEMessage
+            if (msg.progress && msg.media_id !== undefined) {
+                store.setMediaProgress(msg.media_id, msg.progress)
+                return
+            }
             store.msgAlert(msg.variance, msg.text)
             const mediaFilename = filenameFromProcessingMessage(msg.text)
             if (mediaFilename) {
+                const mediaId = msg.media_id
+                if (mediaId !== undefined && store.mediaProgress[mediaId]) {
+                    if (msg.variance === 'success') {
+                        completeMediaProgress(store.mediaProgress, mediaId)
+                    } else {
+                        store.clearMediaProgress(mediaId)
+                    }
+                }
                 window.dispatchEvent(
                     new CustomEvent('nur-cms:media-variants-ready', {
                         detail: { filename: mediaFilename, mediaId: msg.media_id, message: msg.text },
