@@ -20,7 +20,6 @@ const store = useIndex()
 const profiles = ref<SelectableProfile[]>([])
 const select = ref(false)
 const selectCount = computed(() => profiles.value.reduce((count, item) => count + (item.check ? 1 : 0), 0))
-const ordering = ref('sort_order')
 const profile = ref<ProfileDraft>(emptyProfile())
 const settings = ref<VideoSettings>({ delivery_mode: 'file' })
 
@@ -28,16 +27,18 @@ const deleteModal = ref()
 const profileModal = ref()
 const isEditing = ref(false)
 
-const profileRows = computed<Array<{ name: string; field: 'name' | 'container' | 'height' | 'enabled' | 'hls_enabled' }>>(() => [
+const profileRows = computed<Array<{ name: string; field: 'name' | 'container' | 'height' | 'enabled' | 'hls_enabled' | 'sort_order' }>>(() => [
     { name: t('common.name'), field: 'name' },
     { name: t('videoProfiles.container'), field: 'container' },
     { name: t('videoProfiles.height'), field: 'height' },
+    { name: t('videoProfiles.sortOrder'), field: 'sort_order' },
     { name: t('videoProfiles.enabled'), field: 'enabled' },
     { name: t('videoProfiles.hlsEnabled'), field: 'hls_enabled' },
 ])
 
 function emptyProfile(): ProfileDraft {
-    return { id: 0, name: '', container: 'mp4', height: 720, enabled: true, hls_enabled: false, sort_order: 0, cmd: [] }
+    const nextSortOrder = Math.max(-1, ...profiles.value.map((item) => item.sort_order)) + 1
+    return { id: 0, name: '', container: 'mp4', height: 720, enabled: true, hls_enabled: false, sort_order: nextSortOrder, cmd: [] }
 }
 
 async function selectSettings() {
@@ -64,7 +65,7 @@ async function saveSettings() {
 async function selectProfiles() {
     try {
         const response = await authFetch<RespondObj<VideoProfile>>(
-            `/api/configuration/video-profiles?ordering=${ordering.value}`,
+            '/api/configuration/video-profiles?ordering=sort_order,name',
         )
         profiles.value = response.results.map((item) => ({ ...item, check: false, cmd: item.cmd ?? [] }))
     } catch (e) {
@@ -229,7 +230,7 @@ async function saveProfile() {
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="(col, i) in profiles" :key="i">
+                    <tr v-for="(col, i) in profiles" :key="col.id">
                         <th><input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" /></th>
                         <td v-for="row in profileRows" :key="row.field">
                             <input
@@ -266,7 +267,7 @@ async function saveProfile() {
         :ok-action="saveProfile"
     >
         <div class="flex flex-col gap-4">
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
                 <fieldset class="fieldset py-0 grow">
                     <legend class="fieldset-legend">{{ $t('common.name') }}</legend>
                     <input v-model="profile.name" type="text" class="input w-full" :placeholder="$t('common.name')" />
@@ -278,6 +279,10 @@ async function saveProfile() {
                 <fieldset class="fieldset py-0">
                     <legend class="fieldset-legend">{{ $t('videoProfiles.height') }}</legend>
                     <input v-model.number="profile.height" type="number" min="1" class="input w-24" />
+                </fieldset>
+                <fieldset class="fieldset py-0">
+                    <legend class="fieldset-legend">{{ $t('videoProfiles.sortOrder') }}</legend>
+                    <input v-model.number="profile.sort_order" type="number" step="1" class="input w-24" />
                 </fieldset>
             </div>
 

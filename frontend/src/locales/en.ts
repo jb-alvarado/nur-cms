@@ -377,6 +377,7 @@ export default {
         settingsSaved: 'Video delivery settings saved.',
         container: 'Container',
         height: 'Height',
+        sortOrder: 'Sort order',
         enabled: 'Enabled',
         cmd: 'ffmpeg arguments',
         flag: 'Flag',

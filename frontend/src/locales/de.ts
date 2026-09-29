@@ -381,6 +381,7 @@ export default {
         settingsSaved: 'Einstellungen für die Videoausgabe gespeichert.',
         container: 'Container',
         height: 'Höhe',
+        sortOrder: 'Sortierposition',
         enabled: 'Aktiv',
         cmd: 'ffmpeg-Argumente',
         flag: 'Flag',
