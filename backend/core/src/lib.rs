@@ -214,6 +214,10 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
         .route("/cms", get(cms_config_select).put(cms_config_update))
         .route("/branding", get(branding_config_select))
         .route(
+            "/video-settings",
+            get(video_settings_select).put(video_settings_update),
+        )
+        .route(
             "/video-profiles",
             get(video_profile_select).post(video_profile_insert),
         )

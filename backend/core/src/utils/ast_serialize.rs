@@ -5,13 +5,11 @@ use comrak::{
     nodes::{AstNode, NodeValue},
 };
 use serde_json::{Map, Value, json};
-use sqlx::postgres::{PgConnection, PgPool};
 
 use crate::{
-    NurError,
-    db::{handles, serialize::MediaSerializer},
+    db::serialize::MediaSerializer,
     utils::markdown::{
-        MarkdownImageRef, MarkdownSource, is_reference_definition, is_video_url, media_location,
+        MarkdownSource, is_reference_definition, is_video_url, media_location,
         uses_reference_syntax,
     },
 };
@@ -690,48 +688,6 @@ pub fn truncate_structure_root(root: &mut Value, limit: usize) {
             let _ = truncate_structure_node(root, &mut remaining);
         }
     }
-}
-
-pub(crate) async fn persist_content_media(
-    pool: &PgPool,
-    node_id: i64,
-    images: &[MarkdownImageRef],
-) -> Result<(), NurError> {
-    let (paths, filenames, positions) = content_media_locations(images);
-
-    handles::persist_content_media_locations_in_pool(pool, node_id, &paths, &filenames, &positions)
-        .await?;
-
-    Ok(())
-}
-
-pub(crate) async fn persist_content_media_on(
-    connection: &mut PgConnection,
-    node_id: i64,
-    images: &[MarkdownImageRef],
-) -> Result<(), NurError> {
-    let (paths, filenames, positions) = content_media_locations(images);
-
-    handles::persist_content_media_locations(connection, node_id, &paths, &filenames, &positions)
-        .await?;
-
-    Ok(())
-}
-
-fn content_media_locations(images: &[MarkdownImageRef]) -> (Vec<String>, Vec<String>, Vec<i32>) {
-    let mut paths = Vec::new();
-    let mut filenames = Vec::new();
-    let mut positions = Vec::new();
-
-    for image in images {
-        if let Some((path, filename)) = media_location(&image.url) {
-            paths.push(path);
-            filenames.push(filename);
-            positions.push(image.document_index);
-        }
-    }
-
-    (paths, filenames, positions)
 }
 
 #[cfg(test)]

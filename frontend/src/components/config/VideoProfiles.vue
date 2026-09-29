@@ -4,12 +4,12 @@ import { cloneDeep } from 'es-toolkit/object'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
-import type { VideoProfile, VideoProfileArg } from '@/types/models.d'
+import type { VideoProfile, VideoProfileArg, VideoSettings } from '@/types/models.d'
 import type { RespondObj } from '@/types/query.d'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 
-type ProfileDraft = Pick<VideoProfile, 'id' | 'name' | 'container' | 'height' | 'enabled' | 'sort_order'> & {
+type ProfileDraft = Pick<VideoProfile, 'id' | 'name' | 'container' | 'height' | 'enabled' | 'hls_enabled' | 'sort_order'> & {
     cmd: VideoProfileArg[]
 }
 type SelectableProfile = ProfileDraft & { check: boolean }
@@ -22,20 +22,43 @@ const select = ref(false)
 const selectCount = computed(() => profiles.value.reduce((count, item) => count + (item.check ? 1 : 0), 0))
 const ordering = ref('sort_order')
 const profile = ref<ProfileDraft>(emptyProfile())
+const settings = ref<VideoSettings>({ delivery_mode: 'file' })
 
 const deleteModal = ref()
 const profileModal = ref()
 const isEditing = ref(false)
 
-const profileRows = computed<Array<{ name: string; field: 'name' | 'container' | 'height' | 'enabled' }>>(() => [
+const profileRows = computed<Array<{ name: string; field: 'name' | 'container' | 'height' | 'enabled' | 'hls_enabled' }>>(() => [
     { name: t('common.name'), field: 'name' },
     { name: t('videoProfiles.container'), field: 'container' },
     { name: t('videoProfiles.height'), field: 'height' },
     { name: t('videoProfiles.enabled'), field: 'enabled' },
+    { name: t('videoProfiles.hlsEnabled'), field: 'hls_enabled' },
 ])
 
 function emptyProfile(): ProfileDraft {
-    return { id: 0, name: '', container: 'mp4', height: 720, enabled: true, sort_order: 0, cmd: [] }
+    return { id: 0, name: '', container: 'mp4', height: 720, enabled: true, hls_enabled: false, sort_order: 0, cmd: [] }
+}
+
+async function selectSettings() {
+    try {
+        settings.value = await authFetch<VideoSettings>('/api/configuration/video-settings')
+    } catch (error) {
+        store.msgAlert('error', String(error))
+    }
+}
+
+async function saveSettings() {
+    try {
+        await authFetch('/api/configuration/video-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings.value),
+        })
+        store.msgAlert('success', t('videoProfiles.settingsSaved'))
+    } catch (error) {
+        store.msgAlert('error', String(error))
+    }
 }
 
 async function selectProfiles() {
@@ -50,6 +73,7 @@ async function selectProfiles() {
 }
 
 selectProfiles()
+selectSettings()
 
 function selectAll() {
     for (const item of profiles.value) item.check = select.value
@@ -104,6 +128,7 @@ function editProfileByIndex(index: number) {
         container: item.container,
         height: item.height,
         enabled: item.enabled,
+        hls_enabled: item.hls_enabled,
         sort_order: item.sort_order,
         cmd: cloneDeep(item.cmd),
     }
@@ -150,6 +175,7 @@ async function saveProfile() {
                 container: profile.value.container,
                 height: profile.value.height,
                 enabled: profile.value.enabled,
+                hls_enabled: profile.value.hls_enabled,
                 sort_order: profile.value.sort_order,
                 cmd: profile.value.cmd.filter((arg) => arg.flag.trim() !== ''),
             }),
@@ -165,6 +191,16 @@ async function saveProfile() {
 
 <template>
     <div class="bg-base-200 p-2 border border-base-content/25 rounded-sm w-full md:w-auto">
+        <div class="flex flex-wrap items-end gap-2 mb-5">
+            <label class="fieldset grow">
+                <span class="fieldset-legend">{{ $t('videoProfiles.deliveryMode') }}</span>
+                <select v-model="settings.delivery_mode" class="select w-full">
+                    <option value="file">{{ $t('videoProfiles.fileMode') }}</option>
+                    <option value="hls">{{ $t('videoProfiles.hlsMode') }}</option>
+                </select>
+            </label>
+            <button class="btn btn-primary" @click="saveSettings">{{ $t('button.save') }}</button>
+        </div>
         <div class="flex">
             <div class="grow font-bold">{{ $t('videoProfiles.title') }}</div>
             <button class="btn btn-sm btn-primary text-base" @click="openCreateModal">{{ $t('button.new') }}</button>
@@ -197,10 +233,10 @@ async function saveProfile() {
                         <th><input v-model="col.check" type="checkbox" class="checkbox checkbox-sm" /></th>
                         <td v-for="row in profileRows" :key="row.field">
                             <input
-                                v-if="row.field === 'enabled'"
+                                v-if="row.field === 'enabled' || row.field === 'hls_enabled'"
                                 type="checkbox"
                                 class="checkbox checkbox-sm"
-                                :checked="col.enabled"
+                                :checked="col[row.field]"
                                 disabled
                             />
                             <template v-else>{{ col[row.field] }}</template>
@@ -249,6 +285,10 @@ async function saveProfile() {
                 <label class="label cursor-pointer w-fit gap-2">
                     <input v-model="profile.enabled" type="checkbox" class="checkbox" />
                     <span>{{ $t('videoProfiles.enabled') }}</span>
+                </label>
+                <label class="label cursor-pointer w-fit gap-2">
+                    <input v-model="profile.hls_enabled" type="checkbox" class="checkbox" />
+                    <span>{{ $t('videoProfiles.hlsEnabled') }}</span>
                 </label>
             </fieldset>
 

@@ -54,7 +54,7 @@ use crate::{
         processing::save_image,
         video::{enqueue_video_processing, mark_video_processing_failed},
     },
-    utils::{ast_serialize::persist_content_media, errors::NurError, markdown::media_references},
+    utils::{errors::NurError, markdown::media_references},
 };
 
 #[derive(Debug, Clone)]
@@ -639,7 +639,7 @@ async fn import_file(pool: &PgPool, path: &Path, opts: &ImportOptions) -> Result
     let node_id = handles::insert_text_node(pool, entry_id, 0, &body).await?;
 
     // Build AST from body content and persist content_media links (with positions)
-    persist_content_media(pool, node_id, &images).await?;
+    handles::persist_content_media_images_in_pool(pool, node_id, &images).await?;
 
     // Insert authors, content-node metadata and tags if present.
     if let Some(ref fm) = frontmatter {
@@ -1136,7 +1136,7 @@ async fn ensure_media(
     Ok(Some(id))
 }
 
-// content_media linking is handled via utils::ast_serialize::persist_content_media
+// content_media linking is handled by db::handles::persist_content_media_images_in_pool.
 
 #[cfg(test)]
 mod tests {

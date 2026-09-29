@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, Instant},
@@ -30,7 +30,10 @@ use crate::{
         },
         models::{VideoProfile, VideoProfileArg},
     },
-    file::{helper::contained_storage_target, processing::save_image},
+    file::{
+        helper::{contained_storage_target, hls_directory_name},
+        processing::save_image,
+    },
     sse::{SSELevel as Level, SSEMessage},
     utils::errors::NurError,
 };
@@ -580,8 +583,19 @@ async fn process_job(
     let source_height =
         i32::try_from(source_info.height).map_err(|_| "Video height exceeds database range.")?;
 
-    let configured_profiles = configured_profiles(pool).await?;
-    let profiles = select_profiles(configured_profiles, source_height)?;
+    let configured_profiles = configured_profiles(pool, &job.delivery_mode).await?;
+    let mut profiles = if job.delivery_mode == "hls" {
+        select_hls_profiles(&configured_profiles, source_height)?
+    } else {
+        select_profiles(configured_profiles, source_height)?
+    };
+    if job.delivery_mode == "file" {
+        let preferred = profiles
+            .into_iter()
+            .max_by_key(|profile| profile.height)
+            .ok_or_else(|| "At least one video profile must be configured.".to_string())?;
+        profiles = vec![preferred];
+    }
     validate_available_encoders(&profiles).await?;
 
     let staging_dir = processing_root().join(format!("{}-{}", job.id, job.lease_token));
@@ -606,6 +620,18 @@ async fn process_job(
             .and_then(|value| value.to_str())
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "Invalid video filename.".to_string())?;
+        if job.delivery_mode == "hls" {
+            return process_hls_job(
+                pool,
+                tx,
+                job,
+                &control,
+                &source_info,
+                &profiles,
+                &staging_dir,
+            )
+            .await;
+        }
         let mut variants = Vec::new();
         let mut generated_bytes = 0_u64;
 
@@ -746,6 +772,437 @@ fn select_profiles(
     }
 
     Ok(profiles)
+}
+
+fn select_hls_profiles(
+    configured_profiles: &[VideoProfile],
+    source_height: i32,
+) -> Result<Vec<VideoProfile>, String> {
+    hls_profiles(configured_profiles)?;
+
+    let mut selected = Vec::new();
+    for codec in ["libx264", "libsvtav1"] {
+        let profiles: Vec<_> = configured_profiles
+            .iter()
+            .filter(|profile| {
+                codec_from_cmd_any(&profile.cmd, &["-c:v", "-codec:v", "-vcodec"]).as_deref()
+                    == Some(codec)
+            })
+            .cloned()
+            .collect();
+        if !profiles.is_empty() {
+            selected.extend(select_profiles(profiles, source_height)?);
+        }
+    }
+
+    Ok(selected)
+}
+
+const HLS_VIDEO_OPTIONS: &[&str] = &[
+    "-b:v",
+    "-profile:v",
+    "-level:v",
+    "-tag:v",
+    "-x264-params",
+    "-svtav1-params",
+    "-tune",
+    "-g",
+    "-keyint_min",
+];
+
+pub(crate) fn hls_profiles(profiles: &[VideoProfile]) -> Result<Vec<VideoProfile>, String> {
+    let mut selected = Vec::with_capacity(profiles.len());
+    let mut has_h264 = false;
+
+    for profile in profiles {
+        let codec = codec_from_cmd_any(&profile.cmd, &["-c:v", "-codec:v", "-vcodec"]);
+        if profile.container != "mp4" || !matches!(codec.as_deref(), Some("libx264" | "libsvtav1"))
+        {
+            return Err(format!(
+                "HLS profile '{}' must use MP4 with libx264 or libsvtav1.",
+                profile.name
+            ));
+        }
+        if matches!(profile.name.as_str(), "audio" | "master") {
+            return Err(format!(
+                "HLS profile name '{}' conflicts with a playlist name.",
+                profile.name
+            ));
+        }
+        if profile.cmd.iter().any(|argument| argument.flag == "-vf") {
+            return Err(format!(
+                "HLS profile '{}' cannot use '-vf'; its height controls scaling.",
+                profile.name
+            ));
+        }
+        for argument in &profile.cmd {
+            // Audio and MP4 muxer options apply to progressive files. HLS uses
+            // one shared AAC rendition and its own fMP4 muxer settings.
+            if !matches!(
+                argument.flag.as_str(),
+                "-c:v"
+                    | "-codec:v"
+                    | "-vcodec"
+                    | "-preset"
+                    | "-crf"
+                    | "-pix_fmt"
+                    | "-c:a"
+                    | "-codec:a"
+                    | "-acodec"
+                    | "-b:a"
+                    | "-ar"
+                    | "-ac"
+                    | "-movflags"
+            ) && !HLS_VIDEO_OPTIONS.contains(&argument.flag.as_str())
+            {
+                return Err(format!(
+                    "HLS profile '{}' does not support '{}'.",
+                    profile.name, argument.flag
+                ));
+            }
+        }
+        has_h264 |= codec.as_deref() == Some("libx264");
+        selected.push(profile.clone());
+    }
+
+    if !has_h264 {
+        return Err("At least one H.264 profile is required for HLS playback.".into());
+    }
+
+    Ok(selected)
+}
+
+fn hls_command_args(
+    source: &Path,
+    output_dir: &Path,
+    profiles: &[VideoProfile],
+    has_audio: bool,
+) -> Vec<String> {
+    let mut heights: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    for (index, profile) in profiles.iter().enumerate() {
+        heights.entry(profile.height).or_default().push(index);
+    }
+
+    let mut filters = Vec::new();
+    if heights.len() > 1 {
+        let outputs = (0..heights.len())
+            .map(|index| format!("[input{index}]"))
+            .collect::<String>();
+        filters.push(format!("[0:v:0]split={}{}", heights.len(), outputs));
+    }
+    for (group_index, (height, indexes)) in heights.iter().enumerate() {
+        let input = if heights.len() > 1 {
+            format!("[input{group_index}]")
+        } else {
+            "[0:v:0]".into()
+        };
+        let outputs = indexes
+            .iter()
+            .map(|index| format!("[video{index}]"))
+            .collect::<String>();
+        let split = if indexes.len() > 1 {
+            format!(",split={}", indexes.len())
+        } else {
+            String::new()
+        };
+        filters.push(format!("{input}scale=-2:{height}{split}{outputs}"));
+    }
+
+    let mut args = vec![
+        "-i".into(),
+        source.to_string_lossy().into_owned(),
+        "-filter_complex".into(),
+        filters.join(";"),
+    ];
+    for index in 0..profiles.len() {
+        args.extend(["-map".into(), format!("[video{index}]")]);
+    }
+    if has_audio {
+        args.extend(["-map".into(), "0:a:0".into()]);
+    }
+
+    for (index, profile) in profiles.iter().enumerate() {
+        let codec = codec_from_cmd_any(&profile.cmd, &["-c:v", "-codec:v", "-vcodec"])
+            .unwrap_or_else(|| "libx264".into());
+        let (preset, crf) = if codec == "libsvtav1" {
+            ("6", "32")
+        } else {
+            ("medium", "23")
+        };
+        args.extend([video_stream_flag("-c:v", index), codec]);
+        for (flag, default) in [("-preset", preset), ("-crf", crf), ("-pix_fmt", "yuv420p")] {
+            let value = codec_from_cmd(&profile.cmd, flag).unwrap_or_else(|| default.into());
+            args.extend([video_stream_flag(flag, index), value]);
+        }
+        for argument in &profile.cmd {
+            if HLS_VIDEO_OPTIONS.contains(&argument.flag.as_str()) {
+                args.extend([
+                    video_stream_flag(&argument.flag, index),
+                    argument.value.clone(),
+                ]);
+            }
+        }
+        args.extend([
+            format!("-force_key_frames:v:{index}"),
+            "expr:gte(t,n_forced*6)".into(),
+            format!("-threads:v:{index}"),
+            (*VIDEO_PROCESSING_THREADS / profiles.len().max(1))
+                .max(1)
+                .to_string(),
+        ]);
+    }
+
+    let mut stream_map = Vec::new();
+    if has_audio {
+        args.extend([
+            "-c:a".into(),
+            "aac".into(),
+            "-b:a".into(),
+            "128k".into(),
+            "-ac".into(),
+            "2".into(),
+            "-ar".into(),
+            "48000".into(),
+        ]);
+        stream_map.push("a:0,agroup:audio,default:yes,name:audio".to_string());
+    }
+    for (index, profile) in profiles.iter().enumerate() {
+        let group = if has_audio { ",agroup:audio" } else { "" };
+        stream_map.push(format!("v:{index}{group},name:{}", profile.name));
+    }
+
+    args.extend([
+        "-f".into(),
+        "hls".into(),
+        "-hls_time".into(),
+        "6".into(),
+        "-hls_playlist_type".into(),
+        "vod".into(),
+        "-hls_segment_type".into(),
+        "fmp4".into(),
+        "-hls_flags".into(),
+        "independent_segments".into(),
+        "-hls_fmp4_init_filename".into(),
+        "init_%v.mp4".into(),
+        "-hls_segment_filename".into(),
+        output_dir
+            .join("%v_%03d.m4s")
+            .to_string_lossy()
+            .into_owned(),
+        "-var_stream_map".into(),
+        stream_map.join(" "),
+        "-master_pl_name".into(),
+        "master.m3u8".into(),
+        output_dir.join("%v.m3u8").to_string_lossy().into_owned(),
+    ]);
+    args
+}
+
+fn video_stream_flag(flag: &str, index: usize) -> String {
+    if flag.ends_with(":v") {
+        format!("{flag}:{index}")
+    } else {
+        format!("{flag}:v:{index}")
+    }
+}
+
+async fn hls_output_size(directory: &Path, profiles: &[VideoProfile]) -> Result<u64, String> {
+    let master = directory.join("master.m3u8");
+    let master_data = fs::read(&master).await.map_err(|error| error.to_string())?;
+    if !master_data.starts_with(b"#EXTM3U") {
+        return Err("ffmpeg did not generate a valid HLS master playlist.".into());
+    }
+    for profile in profiles {
+        if !fs::try_exists(directory.join(format!("{}.m3u8", profile.name)))
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            return Err(format!("Missing HLS playlist for '{}'.", profile.name));
+        }
+    }
+
+    let mut entries = fs::read_dir(directory)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut total = 0_u64;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        if !entry
+            .file_type()
+            .await
+            .map_err(|error| error.to_string())?
+            .is_file()
+        {
+            return Err("HLS output contains an unexpected directory or link.".into());
+        }
+        let metadata = entry.metadata().await.map_err(|error| error.to_string())?;
+        total = total
+            .checked_add(metadata.len())
+            .ok_or_else(|| "HLS output size exceeds the supported range.".to_string())?;
+        if let Some(limit) = *VIDEO_PROCESSING_MAX_OUTPUT_SIZE
+            && total > limit
+        {
+            return Err(format!(
+                "Generated video output exceeds the configured {limit} byte limit."
+            ));
+        }
+    }
+    Ok(total)
+}
+
+async fn choose_hls_directory(
+    transaction: &mut Transaction<'_, Postgres>,
+    job: &VideoJob,
+    stem: &str,
+) -> Result<(String, bool), String> {
+    handles::lock_hls_directory_namespace(transaction, &job.path)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if let Some(filename) = handles::hls_master_filename(transaction, job.media_id)
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        return hls_directory_name(&filename)
+            .map(|name| (name.to_string(), true))
+            .ok_or_else(|| "The stored HLS directory is invalid.".into());
+    }
+
+    for candidate in std::iter::once(stem.to_string()).chain((0..8).map(|index| {
+        if index == 0 {
+            format!("{stem}--{}", job.media_id)
+        } else {
+            format!("{stem}--{}-{index}", job.media_id)
+        }
+    })) {
+        let path = contained_storage_target(&job.path, &candidate)
+            .await
+            .map_err(|error| error.to_string())?;
+        if !fs::try_exists(&path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            return Ok((candidate, false));
+        }
+    }
+    Err("No free HLS directory name is available.".into())
+}
+
+async fn process_hls_job(
+    pool: &PgPool,
+    tx: &Sender<String>,
+    job: &VideoJob,
+    control: &ProcessingControl,
+    source_info: &VideoInfo,
+    profiles: &[VideoProfile],
+    staging_dir: &Path,
+) -> Result<(), String> {
+    let source = contained_storage_target(&job.path, &job.filename)
+        .await
+        .map_err(|error| error.to_string())?;
+    let stem = Path::new(&job.filename)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Invalid video filename.".to_string())?;
+    let profiles = hls_profiles(profiles)?;
+    let hls_output = staging_dir.join("hls");
+    fs::create_dir(&hls_output)
+        .await
+        .map_err(|error| error.to_string())?;
+    run_ffmpeg(
+        hls_command_args(
+            &source,
+            &hls_output,
+            &profiles,
+            source_info.audio_codec.is_some(),
+        ),
+        control.clone(),
+    )
+    .await?;
+    let hls_bytes = hls_output_size(&hls_output, &profiles).await?;
+    let mut generated_bytes = hls_bytes;
+
+    let thumbnail_output = thumbnail_output_config().await;
+    let thumbnails = create_thumbnails(
+        &source,
+        staging_dir,
+        stem,
+        source_info.width,
+        source_info.duration_ms.unwrap_or_default(),
+        thumbnail_output,
+        control.clone(),
+    )
+    .await?;
+    for thumbnail in &thumbnails {
+        let size = fs::metadata(&thumbnail.staging_path)
+            .await
+            .map_err(|error| error.to_string())?
+            .len();
+        generated_bytes = generated_bytes
+            .checked_add(size)
+            .ok_or_else(|| "Generated output size exceeds the supported range.".to_string())?;
+        if let Some(limit) = *VIDEO_PROCESSING_MAX_OUTPUT_SIZE
+            && generated_bytes > limit
+        {
+            return Err(format!(
+                "Generated video output exceeds the configured {limit} byte limit."
+            ));
+        }
+    }
+
+    let mut transaction = lock_owned_job(pool, job).await?;
+    let (directory, replacing_existing) = choose_hls_directory(&mut transaction, job, stem).await?;
+    let master_filename = format!("{directory}/master.m3u8");
+    if handles::output_filename_conflicts(
+        &mut transaction,
+        &job.path,
+        &master_filename,
+        job.media_id,
+    )
+    .await
+    .map_err(|error| error.to_string())?
+    {
+        return Err("The HLS output directory belongs to another media item.".into());
+    }
+    ensure_output_targets_available(&mut transaction, job, &[], &thumbnails).await?;
+
+    let target = contained_storage_target(&job.path, &directory)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut published =
+        vec![publish_hls_directory(&hls_output, &target, replacing_existing).await?];
+    match publish_outputs(&job.path, &[], &thumbnails).await {
+        Ok(files) => published.extend(files),
+        Err(error) => {
+            remove_published_outputs(&published).await;
+            return Err(error);
+        }
+    }
+
+    let result = persist_hls_outputs(
+        transaction,
+        job,
+        &master_filename,
+        hls_bytes,
+        source_info,
+        &thumbnails,
+    )
+    .await;
+    if let Err(error) = result {
+        remove_published_outputs(&published).await;
+        return Err(error);
+    }
+    remove_publication_backups(&published).await;
+    let _ = tx.send(
+        SSEMessage::new(Level::Info, &format!("HLS video ready: {}", job.filename))
+            .with_media_id(job.media_id)
+            .to_string(),
+    );
+    Ok(())
 }
 
 async fn process_thumbnail_job(
@@ -1185,6 +1642,58 @@ async fn publish_file(
     publish_staged_file(staging_path, &target).await
 }
 
+async fn publish_hls_directory(
+    staging_path: &Path,
+    target: &Path,
+    replacing_existing: bool,
+) -> Result<PublishedFile, String> {
+    let backup = if fs::try_exists(target)
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        if !replacing_existing {
+            return Err("The HLS directory name was claimed while processing.".into());
+        }
+        if !fs::metadata(target)
+            .await
+            .map_err(|error| error.to_string())?
+            .is_dir()
+        {
+            return Err("The HLS output path is not a directory.".into());
+        }
+        let backup = staging_path.with_file_name(format!(".replaced-{}", Uuid::new_v4()));
+        fs::rename(target, &backup)
+            .await
+            .map_err(|error| error.to_string())?;
+        Some(backup)
+    } else {
+        None
+    };
+
+    if let Err(error) = fs::rename(staging_path, target).await {
+        if let Some(backup) = &backup
+            && let Err(restore_error) = fs::rename(backup, target).await
+        {
+            error!(%restore_error, "Failed to restore previous HLS directory");
+        }
+        return Err(error.to_string());
+    }
+
+    Ok(PublishedFile {
+        target: target.to_path_buf(),
+        backup,
+    })
+}
+
+async fn remove_published_path(path: &Path) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path).await?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(path).await
+    } else {
+        fs::remove_file(path).await
+    }
+}
+
 async fn publish_staged_file(staging_path: &Path, target: &Path) -> Result<PublishedFile, String> {
     let backup = if fs::try_exists(&target)
         .await
@@ -1218,7 +1727,7 @@ async fn publish_staged_file(staging_path: &Path, target: &Path) -> Result<Publi
 
 async fn remove_published_outputs(files: &[PublishedFile]) {
     for file in files.iter().rev() {
-        if let Err(error) = fs::remove_file(&file.target).await
+        if let Err(error) = remove_published_path(&file.target).await
             && error.kind() != std::io::ErrorKind::NotFound
         {
             warn!(path = %file.target.display(), %error, "Failed to roll back published video output");
@@ -1235,7 +1744,7 @@ async fn remove_published_outputs(files: &[PublishedFile]) {
 async fn remove_publication_backups(files: &[PublishedFile]) {
     for file in files {
         if let Some(backup) = &file.backup
-            && let Err(error) = fs::remove_file(backup).await
+            && let Err(error) = remove_published_path(backup).await
             && error.kind() != std::io::ErrorKind::NotFound
         {
             warn!(path = %backup.display(), %error, "Failed to remove replaced video output backup");
@@ -1252,6 +1761,7 @@ async fn persist_outputs(
     let variants: Vec<_> = variants
         .iter()
         .map(|variant| VideoVariantRecord {
+            kind: "progressive".into(),
             profile: variant.profile.name.clone(),
             width: variant.width,
             height: variant.height,
@@ -1279,27 +1789,83 @@ async fn persist_outputs(
         )
         .collect();
 
+    remove_replaced_video_outputs(job, replaced, &current_names).await;
+
+    Ok(())
+}
+
+async fn persist_hls_outputs(
+    transaction: Transaction<'_, Postgres>,
+    job: &VideoJob,
+    master_filename: &str,
+    hls_bytes: u64,
+    source_info: &VideoInfo,
+    thumbnails: &[ProcessedThumbnail],
+) -> Result<(), String> {
+    let variants = vec![VideoVariantRecord {
+        kind: "hls".into(),
+        profile: "master".into(),
+        width: source_info.width as i32,
+        height: source_info.height as i32,
+        container: "m3u8".into(),
+        video_codec: "h264".into(),
+        audio_codec: source_info.audio_codec.as_ref().map(|_| "aac".into()),
+        filename: master_filename.into(),
+        size: i64::try_from(hls_bytes).map_err(|_| "HLS output size exceeds database range.")?,
+        duration_ms: source_info.duration_ms,
+    }];
+    let thumbnails = thumbnail_records(thumbnails);
+    let replaced = handles::persist_video_outputs(transaction, job, &variants, &thumbnails)
+        .await
+        .map_err(persistence_error)?;
+    let current_names: HashSet<&str> = variants
+        .iter()
+        .map(|variant| variant.filename.as_str())
+        .chain(
+            thumbnails
+                .iter()
+                .map(|thumbnail| thumbnail.filename.as_str()),
+        )
+        .collect();
+    remove_replaced_video_outputs(job, replaced, &current_names).await;
+    Ok(())
+}
+
+async fn remove_replaced_video_outputs(
+    job: &VideoJob,
+    replaced: handles::ReplacedOutputFiles,
+    current_names: &HashSet<&str>,
+) {
     for filename in replaced
         .video_variants
         .into_iter()
         .chain(replaced.thumbnails)
-        .filter(|filename| !current_names.contains(filename.as_str()))
     {
-        let path = match contained_storage_target(&job.path, &filename).await {
+        if current_names.contains(filename.as_str()) {
+            continue;
+        }
+        let (name, directory) = match hls_directory_name(&filename) {
+            Some(name) => (name, true),
+            None => (filename.as_str(), false),
+        };
+        let path = match contained_storage_target(&job.path, name).await {
             Ok(path) => path,
             Err(error) => {
                 warn!(filename, %error, "Failed to resolve stale video output");
                 continue;
             }
         };
-        if let Err(error) = fs::remove_file(&path).await
+        let result = if directory {
+            fs::remove_dir_all(&path).await
+        } else {
+            fs::remove_file(&path).await
+        };
+        if let Err(error) = result
             && error.kind() != std::io::ErrorKind::NotFound
         {
             warn!(path = %path.display(), %error, "Failed to remove stale video output");
         }
     }
-
-    Ok(())
 }
 
 async fn persist_thumbnail_outputs(
@@ -1609,8 +2175,8 @@ fn parse_duration_ms(duration: &str) -> Option<i64> {
         .and_then(|duration| i64::try_from((duration * 1_000.0).round() as i128).ok())
 }
 
-async fn configured_profiles(pool: &PgPool) -> Result<Vec<VideoProfile>, String> {
-    let profiles = handles::enabled_video_profiles(pool)
+async fn configured_profiles(pool: &PgPool, mode: &str) -> Result<Vec<VideoProfile>, String> {
+    let profiles = handles::enabled_video_profiles(pool, mode)
         .await
         .map_err(|error| error.to_string())?;
     if profiles.is_empty() {
@@ -1844,10 +2410,10 @@ mod tests {
     use super::{
         MANUAL_THUMBNAIL_JOB_KIND, ProcessedVariant, PublishedFile, RANDOM_THUMBNAIL_JOB_KIND,
         VideoInfo, VideoProfile, claim_job, enqueue_video_processing, enqueue_video_thumbnail,
-        fail_job, media_status_after_failure, persist_outputs, profile_command_args,
-        publish_staged_file, random_thumbnail_seek, remove_published_outputs, select_profiles,
-        validate_source, validate_variant, validate_video_profile, variant_command_args,
-        variant_filename,
+        fail_job, hls_command_args, hls_profiles, media_status_after_failure, persist_outputs,
+        profile_command_args, publish_staged_file, random_thumbnail_seek, remove_published_outputs,
+        select_hls_profiles, select_profiles, validate_source, validate_variant,
+        validate_video_profile, variant_command_args, variant_filename,
     };
 
     const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -1863,6 +2429,7 @@ mod tests {
                 value: "libx264".into(),
             }],
             enabled: true,
+            hls_enabled: true,
             sort_order: 0,
             total_count: None,
         }
@@ -1877,6 +2444,123 @@ mod tests {
             video_codec: Some("h264".into()),
             audio_codec: Some("aac".into()),
         }
+    }
+
+    #[test]
+    fn hls_profiles_reject_vp9_and_require_h264() {
+        let mut profile = sample_profile();
+        profile.container = "webm".into();
+        profile.cmd[0].value = "libvpx-vp9".into();
+        assert!(hls_profiles(&[profile]).is_err());
+
+        let mut av1 = sample_profile();
+        av1.cmd[0].value = "libsvtav1".into();
+        assert!(hls_profiles(&[av1.clone()]).is_err());
+        assert!(hls_profiles(&[sample_profile(), av1]).is_ok());
+
+        let mut reserved = sample_profile();
+        reserved.name = "master".into();
+        assert!(hls_profiles(&[reserved]).is_err());
+    }
+
+    #[test]
+    fn hls_selection_keeps_both_codecs_without_upscaling() {
+        let mut h264 = sample_profile();
+        h264.height = 1080;
+        let mut av1 = sample_profile();
+        av1.name = "av1-480".into();
+        av1.cmd[0].value = "libsvtav1".into();
+        let configured = vec![h264, av1];
+
+        for source_height in [360, 720, 1080] {
+            let selected = select_hls_profiles(&configured, source_height)
+                .expect("a valid HLS set remains usable for smaller sources");
+            assert_eq!(selected.len(), 2);
+            assert_eq!(selected[0].height, source_height.min(1080));
+            assert_eq!(selected[1].height, source_height.min(480));
+            assert!(hls_profiles(&selected).is_ok());
+        }
+    }
+
+    #[test]
+    fn hls_profiles_reject_options_that_cannot_be_applied() {
+        for flag in ["-shortest", "-an", "-cpu-used", "-x265-params"] {
+            let mut profile = sample_profile();
+            profile.cmd.push(VideoProfileArg {
+                flag: flag.into(),
+                value: if matches!(flag, "-shortest" | "-an") {
+                    String::new()
+                } else {
+                    "1".into()
+                },
+            });
+            assert!(validate_video_profile(&profile).is_ok());
+            assert!(hls_profiles(&[profile]).is_err(), "{flag}");
+        }
+    }
+
+    #[test]
+    fn hls_command_uses_codec_defaults_and_preserves_video_options() {
+        let mut h264 = sample_profile();
+        for (flag, value) in [("-tune", "fastdecode"), ("-g", "48"), ("-keyint_min", "24")] {
+            h264.cmd.push(VideoProfileArg {
+                flag: flag.into(),
+                value: value.into(),
+            });
+        }
+        let mut av1 = sample_profile();
+        av1.name = "av1-480".into();
+        av1.cmd[0].value = "libsvtav1".into();
+        let profiles = vec![h264, av1];
+        assert!(hls_profiles(&profiles).is_ok());
+
+        let args = hls_command_args(
+            std::path::Path::new("source.mp4"),
+            std::path::Path::new("output"),
+            &profiles,
+            false,
+        );
+        for (flag, value) in [
+            ("-preset:v:0", "medium"),
+            ("-crf:v:0", "23"),
+            ("-preset:v:1", "6"),
+            ("-crf:v:1", "32"),
+            ("-tune:v:0", "fastdecode"),
+            ("-g:v:0", "48"),
+            ("-keyint_min:v:0", "24"),
+        ] {
+            assert!(args.windows(2).any(|pair| pair == [flag, value]), "{flag}");
+        }
+        assert!(!args.iter().any(|arg| arg == "0:a:0"));
+    }
+
+    #[test]
+    fn hls_command_maps_audio_and_video_to_named_playlists() {
+        let h264 = sample_profile();
+        let mut av1 = sample_profile();
+        av1.name = "av1-480".into();
+        av1.cmd[0].value = "libsvtav1".into();
+        av1.cmd.push(VideoProfileArg {
+            flag: "-preset".into(),
+            value: "6".into(),
+        });
+        let args = hls_command_args(
+            std::path::Path::new("/tmp/source.mp4"),
+            std::path::Path::new("/tmp/output"),
+            &[h264, av1],
+            true,
+        );
+        let value_after = |flag: &str| {
+            args.windows(2)
+                .find(|pair| pair[0] == flag)
+                .map(|pair| pair[1].as_str())
+        };
+        assert_eq!(value_after("-c:v:0"), Some("libx264"));
+        assert_eq!(value_after("-c:v:1"), Some("libsvtav1"));
+        assert_eq!(value_after("-preset:v:1"), Some("6"));
+        assert_eq!(value_after("-hls_segment_type"), Some("fmp4"));
+        assert!(value_after("-var_stream_map").is_some_and(|map| map.contains("name:av1-480")));
+        assert_eq!(value_after("-master_pl_name"), Some("master.m3u8"));
     }
 
     #[test]

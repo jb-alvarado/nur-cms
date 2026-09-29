@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "nur-cms"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "axum",
  "build-print",
@@ -2704,7 +2704,7 @@ dependencies = [
 
 [[package]]
 name = "nur_core"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "argon2",
  "async-stream",
@@ -2748,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "nur_plugins"
-version = "0.20.1"
+version = "0.21.0"
 dependencies = [
  "chrono",
  "colored",

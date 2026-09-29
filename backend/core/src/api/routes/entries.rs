@@ -20,10 +20,7 @@ use crate::{
         models::{AuthUserMeta, Role},
         queries::QueryObj,
     },
-    utils::{
-        ast_serialize::persist_content_media_on, content_output::render_entry_nodes,
-        errors::NurError, markdown::media_references,
-    },
+    utils::{content_output::render_entry_nodes, errors::NurError},
 };
 
 pub async fn entry_facets_select(
@@ -202,87 +199,9 @@ pub async fn entry_insert(
     content["created_by"] = user.id.into();
     content["updated_by"] = user.id.into();
 
-    let mut nodes = content.get("nodes").cloned();
-    let meta = content.get("meta").cloned();
-
-    if let Some(obj) = content.as_object_mut() {
-        obj.remove("nodes");
-    }
-
-    if let Some(obj) = content.as_object_mut() {
-        obj.remove("meta");
-    }
-
-    let mut transaction = pool.begin().await?;
-
-    if let Some(nodes_arr) = nodes.as_mut().and_then(Value::as_array_mut) {
-        handles::normalize_entry_node_templates(&mut transaction, nodes_arr).await?;
-    }
-
-    let id = handles::insert_entry_on(&mut transaction, &content).await?;
-
-    if let Some(mut m) = meta {
-        m["entry_id"] = Value::Number(id.into());
-
-        let _: i32 = handles::insert_record(&mut *transaction, &Table::ContentMeta, &m).await?;
-    }
-
-    let mut order_index = 1;
-
-    if let Some(nodes_arr) = nodes.as_ref().and_then(Value::as_array) {
-        for node in nodes_arr {
-            if let Some(blocks) = node.get("blocks").and_then(|b| b.as_array()) {
-                let mut parent_id: Option<Value> = None;
-
-                for block in blocks {
-                    let mut block = block.clone();
-                    block["entry_id"] = id.into();
-                    block["order_index"] = order_index.into();
-
-                    if let Some(obj) = block.as_object_mut() {
-                        obj.remove("media");
-                    }
-
-                    if let Some(ref p_id) = parent_id {
-                        block["parent_id"] = p_id.clone();
-                    }
-
-                    let block_id: i64 =
-                        handles::insert_record(&mut *transaction, &Table::ContentNodes, &block)
-                            .await?;
-
-                    if parent_id.is_none() {
-                        parent_id = Some(block_id.into());
-                    }
-
-                    order_index += 1;
-                }
-            } else {
-                let mut node = node.clone();
-                node["entry_id"] = id.into();
-                node["order_index"] = order_index.into();
-
-                if let Some(obj) = node.as_object_mut() {
-                    obj.remove("media");
-                }
-
-                let node_id: i64 =
-                    handles::insert_record(&mut *transaction, &Table::ContentNodes, &node).await?;
-
-                if let Some(text) = node.get("text").and_then(|t| t.as_str()) {
-                    let images = media_references(text);
-
-                    persist_content_media_on(&mut transaction, node_id, &images).await?;
-                }
-
-                order_index += 1;
-            }
-        }
-    }
-
-    transaction.commit().await?;
-
-    Ok(Json(id))
+    Ok(Json(
+        handles::insert_entry_with_nodes(&pool, &content).await?,
+    ))
 }
 
 pub async fn entry_update(

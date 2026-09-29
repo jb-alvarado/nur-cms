@@ -213,6 +213,11 @@ fn safe_file_name(file_name: &str) -> Result<&str, NurError> {
     Ok(file_name)
 }
 
+pub(crate) fn hls_directory_name(filename: &str) -> Option<&str> {
+    let directory = filename.strip_suffix("/master.m3u8")?;
+    safe_file_name(directory).ok()
+}
+
 fn storage_relative_path(public_path: &str) -> Result<PathBuf, NurError> {
     let path = Path::new(public_path);
     let relative = path.strip_prefix(PUBLIC_UPLOADS).unwrap_or(path);
@@ -810,6 +815,14 @@ pub async fn rename_media_file(
     media: &mut MediaSerializer,
     new_filename: &str,
 ) -> Result<(), NurError> {
+    rename_media_file_with_hls_directory(media, new_filename, None).await
+}
+
+pub async fn rename_media_file_with_hls_directory(
+    media: &mut MediaSerializer,
+    new_filename: &str,
+    preferred_hls_directory: Option<&str>,
+) -> Result<(), NurError> {
     let filename = media.filename.clone().unwrap_or_default();
     let media_path = media.path.clone().unwrap_or_default();
     let old_path = contained_storage_target(&media_path, &filename).await?;
@@ -829,7 +842,7 @@ pub async fn rename_media_file(
         .to_string_lossy();
 
     for (index, variant) in media.variants.iter().enumerate() {
-        if filename.starts_with(&*old_stem) && variant.filename != filename {
+        if variant.filename.starts_with(&*old_stem) && variant.filename != filename {
             let new_variant_name = variant.filename.replacen(&*old_stem, &new_stem, 1);
             let old_variant_path = contained_storage_target(&media_path, &variant.filename).await?;
             let new_variant_path = contained_storage_target(&media_path, &new_variant_name).await?;
@@ -839,7 +852,39 @@ pub async fn rename_media_file(
     }
 
     for (index, variant) in media.video_variants.iter().enumerate() {
-        if filename.starts_with(&*old_stem) && variant.filename != filename {
+        if variant.kind == "hls" {
+            let old_directory =
+                hls_directory_name(&variant.filename).ok_or(NurError::InvalidInput)?;
+            let old_variant_path = contained_storage_target(&media_path, old_directory).await?;
+            let directory = if let Some(preferred) = preferred_hls_directory {
+                safe_file_name(preferred)?;
+                preferred.to_string()
+            } else {
+                let media_id = media.id.ok_or(NurError::InvalidInput)?;
+                let mut candidate = None;
+                for name in std::iter::once(new_stem.to_string()).chain((0..8).map(|index| {
+                    if index == 0 {
+                        format!("{new_stem}--{media_id}")
+                    } else {
+                        format!("{new_stem}--{media_id}-{index}")
+                    }
+                })) {
+                    let path = contained_storage_target(&media_path, &name).await?;
+                    if !fs::try_exists(&path).await? || path == old_variant_path {
+                        candidate = Some(name);
+                        break;
+                    }
+                }
+                candidate.ok_or_else(|| {
+                    NurError::Conflict("No free HLS directory name is available.".into())
+                })?
+            };
+            if directory != old_directory {
+                let new_variant_path = contained_storage_target(&media_path, &directory).await?;
+                rename_pairs.push((old_variant_path, new_variant_path));
+            }
+            renamed_video_variants.push((index, format!("{directory}/master.m3u8")));
+        } else if variant.filename.starts_with(&*old_stem) && variant.filename != filename {
             let new_variant_name = variant.filename.replacen(&*old_stem, &new_stem, 1);
             let old_variant_path = contained_storage_target(&media_path, &variant.filename).await?;
             let new_variant_path = contained_storage_target(&media_path, &new_variant_name).await?;
@@ -857,7 +902,7 @@ pub async fn rename_media_file(
                 "Media file escapes the storage directory.".into(),
             ));
         }
-        if fs::try_exists(new).await? {
+        if old != new && fs::try_exists(new).await? {
             return Err(NurError::Conflict(format!(
                 "File already exists: {}",
                 new.display()
@@ -922,8 +967,15 @@ pub async fn delete_media_file(media: &MediaSerializer) -> Result<(), NurError> 
     }
 
     for variant in &media.video_variants {
-        let variant_path = contained_storage_target(&rel, &variant.filename).await?;
-        if let Err(error) = fs::remove_file(&variant_path).await
+        let directory = hls_directory_name(&variant.filename);
+        let variant_path =
+            contained_storage_target(&rel, directory.unwrap_or(&variant.filename)).await?;
+        let result = if directory.is_some() {
+            fs::remove_dir_all(&variant_path).await
+        } else {
+            fs::remove_file(&variant_path).await
+        };
+        if let Err(error) = result
             && error.kind() != std::io::ErrorKind::NotFound
         {
             return Err(error.into());
@@ -979,13 +1031,14 @@ fn is_generated_variant_filename(filename: &str, stem: &str) -> bool {
 mod tests {
     use super::{
         UPLOADS, add_media_record, cleanup_upload, delete_media_file, get_or_create_upload,
-        get_or_create_upload_for_owner, is_generated_variant_filename, is_upload_complete,
-        merge_ranges, received_ranges, safe_file_name, storage_relative_path, uploading_path,
-        valid_upload_session_id, write_upload_chunk,
+        get_or_create_upload_for_owner, hls_directory_name, is_generated_variant_filename,
+        is_upload_complete, merge_ranges, received_ranges, rename_media_file,
+        rename_media_file_with_hls_directory, safe_file_name, storage_relative_path,
+        uploading_path, valid_upload_session_id, write_upload_chunk,
     };
     use crate::{
         STORAGE,
-        db::serialize::{MediaSerializer, MediaVariantSerializer},
+        db::serialize::{MediaSerializer, MediaVariantSerializer, MediaVideoVariantSerializer},
     };
     use std::{
         ops::Range,
@@ -1042,6 +1095,71 @@ mod tests {
             storage_relative_path("/uploads/2026/07").expect("safe path"),
             Path::new("2026/07")
         );
+    }
+
+    #[test]
+    fn hls_master_must_be_inside_one_safe_directory() {
+        assert_eq!(hls_directory_name("clip--12/master.m3u8"), Some("clip--12"));
+        assert_eq!(hls_directory_name("../master.m3u8"), None);
+        assert_eq!(hls_directory_name("clip/other/master.m3u8"), None);
+        assert_eq!(hls_directory_name("clip/variant.m3u8"), None);
+    }
+
+    #[tokio::test]
+    async fn renaming_an_hls_video_moves_its_directory_and_can_rollback() {
+        let name = format!("hls-rename-test-{}", uuid::Uuid::new_v4());
+        let directory = PathBuf::from(STORAGE.as_str()).join(&name);
+        tokio::fs::create_dir_all(directory.join("clip--7"))
+            .await
+            .expect("test directory can be created");
+        tokio::fs::write(directory.join("clip.mp4"), b"video")
+            .await
+            .expect("source can be created");
+        tokio::fs::write(directory.join("clip--7/master.m3u8"), b"#EXTM3U")
+            .await
+            .expect("playlist can be created");
+        let mut media = MediaSerializer {
+            id: Some(7),
+            path: Some(format!("/uploads/{name}")),
+            filename: Some("clip.mp4".into()),
+            video_variants: vec![MediaVideoVariantSerializer {
+                kind: "hls".into(),
+                filename: "clip--7/master.m3u8".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        rename_media_file(&mut media, "new-clip.mp4")
+            .await
+            .expect("HLS video can be renamed");
+        assert_eq!(media.video_variants[0].filename, "new-clip/master.m3u8");
+        assert!(directory.join("new-clip/master.m3u8").exists());
+
+        rename_media_file_with_hls_directory(&mut media, "clip.mp4", Some("clip--7"))
+            .await
+            .expect("rename can be rolled back");
+        assert_eq!(media.video_variants[0].filename, "clip--7/master.m3u8");
+        assert!(directory.join("clip--7/master.m3u8").exists());
+
+        tokio::fs::create_dir(directory.join("new-clip"))
+            .await
+            .expect("colliding directory can be created");
+        rename_media_file(&mut media, "new-clip.mp4")
+            .await
+            .expect("colliding HLS video can be renamed");
+        assert_eq!(media.video_variants[0].filename, "new-clip--7/master.m3u8");
+        assert!(directory.join("new-clip--7/master.m3u8").exists());
+
+        delete_media_file(&media)
+            .await
+            .expect("HLS video and directory can be deleted");
+        assert!(!directory.join("new-clip.mp4").exists());
+        assert!(!directory.join("new-clip--7").exists());
+
+        tokio::fs::remove_dir_all(directory)
+            .await
+            .expect("test directory can be removed");
     }
 
     #[test]

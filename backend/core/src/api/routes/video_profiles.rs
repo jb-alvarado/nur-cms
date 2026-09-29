@@ -10,11 +10,41 @@ use tracing::error;
 use crate::db::{
     fields::{Table, VideoProfileFields},
     handles,
-    models::{Role, VideoProfile},
+    models::{Role, VideoProfile, VideoSettings},
     queries::{QueryObj, RespondObj},
 };
 use crate::file::video::validate_video_profile;
 use crate::utils::errors::NurError;
+
+pub async fn video_settings_select(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    details: AuthDetails<Role>,
+) -> Result<Json<VideoSettings>, NurError> {
+    if !details.has_any_authority(&[&Role::Admin]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+
+    Ok(Json(handles::select_video_settings(&pool).await?))
+}
+
+pub async fn video_settings_update(
+    State((pool, _)): State<(PgPool, Sender<String>)>,
+    details: AuthDetails<Role>,
+    Json(settings): Json<VideoSettings>,
+) -> Result<(), NurError> {
+    if !details.has_any_authority(&[&Role::Admin]) {
+        return Err(NurError::Forbidden(
+            "You do not have permission to access this resource.".into(),
+        ));
+    }
+    if !matches!(settings.delivery_mode.as_str(), "file" | "hls") {
+        return Err(NurError::BadRequest("Invalid video delivery mode.".into()));
+    }
+    handles::update_video_settings(&pool, &settings).await?;
+    Ok(())
+}
 
 pub async fn video_profile_select(
     State((pool, _)): State<(PgPool, Sender<String>)>,

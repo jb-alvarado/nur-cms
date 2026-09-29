@@ -45,7 +45,7 @@ export type Media = { id?: number, alt?: string | null, filename?: string, path?
 
 export type MediaVariant = { id?: number, media_id?: number, width?: number, height?: number, filename?: string, };
 
-export type VideoProfile = { id: number, name: string, container: string, height: number, cmd: Array<VideoProfileArg>, enabled: boolean, sort_order: number, };
+export type VideoProfile = { id: number, name: string, container: string, height: number, cmd: Array<VideoProfileArg>, enabled: boolean, hls_enabled: boolean, sort_order: number, };
 
 /**
  * One `-flag value` pair appended verbatim to the ffmpeg invocation for a
@@ -53,3 +53,5 @@ export type VideoProfile = { id: number, name: string, container: string, height
  * repeated flags are preserved (a JSON object would not guarantee either).
  */
 export type VideoProfileArg = { flag: string, value: string, };
+
+export type VideoSettings = { delivery_mode: string, };

@@ -29,7 +29,10 @@ use crate::{
             ContentTagFacet, LocaleFacet,
         },
     },
-    utils::{errors::NurError, markdown::media_references},
+    utils::{
+        errors::NurError,
+        markdown::{MarkdownImageRef, media_location, media_references},
+    },
 };
 
 #[cfg(debug_assertions)]
@@ -40,6 +43,42 @@ const SLUG_RANDOM_SUFFIX_LEN: usize = 6;
 const MAX_SLUG_RANDOM_SUFFIX_ATTEMPTS: usize = 8;
 const MAX_ENTRY_NODES: usize = 1_000;
 const TEXT_NODE_SELECTOR: &str = "@text";
+
+pub(crate) async fn persist_content_media_images_in_pool(
+    pool: &PgPool,
+    node_id: i64,
+    images: &[MarkdownImageRef],
+) -> Result<(), NurError> {
+    let (paths, filenames, positions) = content_media_locations(images);
+    persist_content_media_locations_in_pool(pool, node_id, &paths, &filenames, &positions).await?;
+    Ok(())
+}
+
+pub(crate) async fn persist_content_media_images_on(
+    connection: &mut PgConnection,
+    node_id: i64,
+    images: &[MarkdownImageRef],
+) -> Result<(), NurError> {
+    let (paths, filenames, positions) = content_media_locations(images);
+    persist_content_media_locations(connection, node_id, &paths, &filenames, &positions).await?;
+    Ok(())
+}
+
+fn content_media_locations(images: &[MarkdownImageRef]) -> (Vec<String>, Vec<String>, Vec<i32>) {
+    let mut paths = Vec::new();
+    let mut filenames = Vec::new();
+    let mut positions = Vec::new();
+
+    for image in images {
+        if let Some((path, filename)) = media_location(&image.url) {
+            paths.push(path);
+            filenames.push(filename);
+            positions.push(image.document_index);
+        }
+    }
+
+    (paths, filenames, positions)
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ContentEntryFacetQuery {
@@ -262,6 +301,69 @@ async fn entry_slug_exists(
 pub async fn insert_entry(pool: &PgPool, content: &Value) -> Result<i32, NurError> {
     let mut connection = pool.acquire().await?;
     insert_entry_on(&mut connection, content).await
+}
+
+pub async fn insert_entry_with_nodes(pool: &PgPool, content: &Value) -> Result<i32, NurError> {
+    let mut entry = content.clone();
+    let mut nodes = entry.get("nodes").cloned();
+    let meta = entry.get("meta").cloned();
+    if let Some(object) = entry.as_object_mut() {
+        object.remove("nodes");
+        object.remove("meta");
+    }
+
+    let mut transaction = pool.begin().await?;
+    if let Some(nodes) = nodes.as_mut().and_then(Value::as_array_mut) {
+        normalize_entry_node_templates(&mut transaction, nodes).await?;
+    }
+    let id = insert_entry_on(&mut transaction, &entry).await?;
+    if let Some(mut meta) = meta {
+        meta["entry_id"] = Value::Number(id.into());
+        let _: i32 = insert_record(&mut *transaction, &Table::ContentMeta, &meta).await?;
+    }
+
+    let mut order_index = 1;
+    if let Some(nodes) = nodes.as_ref().and_then(Value::as_array) {
+        for node in nodes {
+            if let Some(blocks) = node.get("blocks").and_then(Value::as_array) {
+                let mut parent_id: Option<Value> = None;
+                for block in blocks {
+                    let mut block = block.clone();
+                    block["entry_id"] = id.into();
+                    block["order_index"] = order_index.into();
+                    if let Some(object) = block.as_object_mut() {
+                        object.remove("media");
+                    }
+                    if let Some(parent) = &parent_id {
+                        block["parent_id"] = parent.clone();
+                    }
+                    let block_id: i64 =
+                        insert_record(&mut *transaction, &Table::ContentNodes, &block).await?;
+                    if parent_id.is_none() {
+                        parent_id = Some(block_id.into());
+                    }
+                    order_index += 1;
+                }
+            } else {
+                let mut node = node.clone();
+                node["entry_id"] = id.into();
+                node["order_index"] = order_index.into();
+                if let Some(object) = node.as_object_mut() {
+                    object.remove("media");
+                }
+                let node_id: i64 =
+                    insert_record(&mut *transaction, &Table::ContentNodes, &node).await?;
+                if let Some(text) = node.get("text").and_then(Value::as_str) {
+                    let images = media_references(text);
+                    persist_content_media_images_on(&mut transaction, node_id, &images).await?;
+                }
+                order_index += 1;
+            }
+        }
+    }
+
+    transaction.commit().await?;
+    Ok(id)
 }
 
 pub async fn insert_entry_on(
@@ -1769,12 +1871,7 @@ pub async fn sync_entry_nodes(
                         && !text_str.is_empty()
                     {
                         let images = media_references(text_str);
-                        crate::utils::ast_serialize::persist_content_media_on(
-                            &mut *connection,
-                            id,
-                            &images,
-                        )
-                        .await?;
+                        persist_content_media_images_on(&mut *connection, id, &images).await?;
                     }
                 }
                 None => {
@@ -1797,12 +1894,8 @@ pub async fn sync_entry_nodes(
                         && !text_str.is_empty()
                     {
                         let images = media_references(text_str);
-                        crate::utils::ast_serialize::persist_content_media_on(
-                            &mut *connection,
-                            new_node_id,
-                            &images,
-                        )
-                        .await?;
+                        persist_content_media_images_on(&mut *connection, new_node_id, &images)
+                            .await?;
                     }
 
                     retained_ids.insert(new_node_id);

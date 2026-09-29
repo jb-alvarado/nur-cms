@@ -18,7 +18,9 @@ use crate::db::{
     queries::{QueryObj, RespondObj},
     serialize::*,
 };
-use crate::file::helper::{delete_media_file, rename_media_file};
+use crate::file::helper::{
+    delete_media_file, hls_directory_name, rename_media_file, rename_media_file_with_hls_directory,
+};
 use crate::file::routes::web_media_filename;
 use crate::sse::{SSELevel as Level, SSEMessage};
 use crate::utils::errors::NurError;
@@ -139,6 +141,7 @@ pub async fn media_update(
         }
         let params: QueryObj<MediaFields> = QueryObj {
             fields: vec![
+                MediaFields::ID,
                 MediaFields::Filename,
                 MediaFields::Path,
                 MediaFields::Type,
@@ -154,6 +157,14 @@ pub async fn media_update(
             return Err(NurError::NotFound);
         }
         let mut renamed_from = None;
+        let old_hls_directory = media.results.first().and_then(|item| {
+            item.video_variants.iter().find_map(|variant| {
+                (variant.kind == "hls")
+                    .then(|| hls_directory_name(&variant.filename))
+                    .flatten()
+                    .map(str::to_string)
+            })
+        });
 
         if let Some(name) = content.get("filename").and_then(|v| v.as_str())
             && let Some(m) = media.results.first_mut()
@@ -221,7 +232,12 @@ pub async fn media_update(
         if let Err(error) = database_result {
             if let Some(old_filename) = renamed_from
                 && let Some(media) = media.results.first_mut()
-                && let Err(rollback_error) = rename_media_file(media, &old_filename).await
+                && let Err(rollback_error) = rename_media_file_with_hls_directory(
+                    media,
+                    &old_filename,
+                    old_hls_directory.as_deref(),
+                )
+                .await
             {
                 error!("Failed to roll back media rename: {rollback_error}");
             }

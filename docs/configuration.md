@@ -120,6 +120,28 @@ Install FFmpeg, including `ffprobe`, on every CMS instance that runs workers.
 FFmpeg 6 or newer is recommended. Enabled profiles are checked against the
 encoders reported by `ffmpeg -encoders`.
 
+The admin video profile page selects the delivery mode for new video uploads.
+`File` creates one progressive file at the highest enabled resolution that fits
+the source. `HLS` creates a named directory below the upload's date directory,
+with `master.m3u8`, variant playlists, fMP4 initialization files, and segments.
+HLS profiles support H.264 and AV1 in MP4; at least one H.264 profile must be
+enabled. Existing videos keep their delivery mode when processing is retried.
+Renaming an HLS video renames its directory and changes its public playlist URL.
+
+HLS selects resolutions separately for each codec. If a source is smaller than
+all profiles for a codec, its smallest profile is scaled down to the source
+height. Missing preset and CRF values default to `medium`/`23` for H.264 and
+`6`/`32` for AV1. Video options such as `-tune`, `-g`, and `-keyint_min` are
+preserved; unsupported HLS options are rejected. Audio and `-movflags` options
+in profiles apply only to progressive files. HLS uses one shared AAC audio
+rendition at 128 kbit/s, stereo, 48 kHz and its own fMP4 muxer settings.
+
+If a reverse proxy serves `/uploads`, configure `.m3u8` as
+`application/vnd.apple.mpegurl` and `.m4s` as `video/iso.segment`. The public
+website needs native HLS playback or a JavaScript HLS player for browsers that
+do not play HLS playlists directly. Keep playlists and segments under the same
+public URL prefix.
+
 | TOML key | Default | Description |
 | --- | ---: | --- |
 | `video.processing_concurrency` | `1` | Concurrent jobs per process. |

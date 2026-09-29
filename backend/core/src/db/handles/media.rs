@@ -234,8 +234,11 @@ pub async fn insert_uploaded_media(
 ) -> Result<Option<i32>, sqlx::Error> {
     sqlx::query_scalar(
         r#"INSERT INTO media
-               (alt, filename, path, type, width, height, size, uploaded_by, upload_id, processing_status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               (alt, filename, path, type, width, height, size, uploaded_by, upload_id, processing_status, video_delivery_mode)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               CASE WHEN $4 LIKE 'video/%'
+                    THEN (SELECT delivery_mode FROM video_settings WHERE id = 1)
+                    ELSE 'file' END)
            ON CONFLICT (path, filename) DO NOTHING
            RETURNING id"#,
     )
@@ -273,7 +276,13 @@ pub async fn insert_imported_media(
     media: &NewImportedMedia<'_>,
 ) -> Result<i32, sqlx::Error> {
     sqlx::query_scalar(
-        "INSERT INTO media (alt, filename, path, type, width, height, size, created_at, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+        r#"INSERT INTO media
+               (alt, filename, path, type, width, height, size, created_at, uploaded_by, video_delivery_mode)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+               CASE WHEN $4 LIKE 'video/%'
+                    THEN (SELECT delivery_mode FROM video_settings WHERE id = 1)
+                    ELSE 'file' END)
+           RETURNING id"#,
     )
     .bind(media.alt)
     .bind(media.filename)
@@ -420,4 +429,52 @@ pub async fn media_type_and_processing_status(
         .bind(media_id)
         .fetch_optional(pool)
         .await
+}
+
+#[cfg(test)]
+mod imported_media_tests {
+    use chrono::Utc;
+    use sqlx::PgPool;
+
+    use super::{NewImportedMedia, insert_imported_media};
+
+    const MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn imported_video_captures_the_current_delivery_mode(pool: PgPool) {
+        let user_id: i32 = sqlx::query_scalar(
+            "INSERT INTO auth_users (email, username, first_name, last_name, password) VALUES ('import@example.test', 'import', 'Test', 'Import', 'unused') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("test user can be inserted");
+        sqlx::query("UPDATE video_settings SET delivery_mode = 'hls' WHERE id = 1")
+            .execute(&pool)
+            .await
+            .expect("HLS can be selected");
+
+        let created_at = Utc::now();
+        let imported = NewImportedMedia {
+            alt: "",
+            filename: "imported.mp4",
+            path: "/uploads/test",
+            mime_type: "video/mp4",
+            width: None,
+            height: None,
+            size: 100,
+            uploaded_by: user_id,
+            created_at: &created_at,
+        };
+        let media_id = insert_imported_media(&pool, &imported)
+            .await
+            .expect("video can be imported");
+        let mode: String =
+            sqlx::query_scalar("SELECT video_delivery_mode FROM media WHERE id = $1")
+                .bind(media_id)
+                .fetch_one(&pool)
+                .await
+                .expect("delivery mode can be read");
+
+        assert_eq!(mode, "hls");
+    }
 }

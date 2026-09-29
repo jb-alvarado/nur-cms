@@ -866,6 +866,12 @@ pub struct VideoProfileArg {
     pub value: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, TS)]
+#[ts(export, export_to = "models.d.ts")]
+pub struct VideoSettings {
+    pub delivery_mode: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "models.d.ts")]
 pub struct VideoProfile {
@@ -878,6 +884,8 @@ pub struct VideoProfile {
     pub cmd: Vec<VideoProfileArg>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub hls_enabled: bool,
     #[serde(default)]
     pub sort_order: i32,
     #[ts(skip)]
@@ -897,6 +905,7 @@ impl FromRow<'_, PgRow> for VideoProfile {
                 .map(|value| value.0)
                 .unwrap_or_default(),
             enabled: row.try_get("enabled").unwrap_or_default(),
+            hls_enabled: row.try_get("hls_enabled").unwrap_or_default(),
             sort_order: row.try_get("sort_order").unwrap_or_default(),
             total_count: row.try_get("total_count").ok(),
         })

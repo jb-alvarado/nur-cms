@@ -2,6 +2,7 @@
 import { useElementVisibility } from '@vueuse/core'
 import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { mediaThumbnailPath } from '@/utils/helper'
+import { useHlsPlayers } from '@/composables/hlsPlayers'
 import { renderMarkdownPreview, type MarkdownPreviewInput } from '@/composables/markdownPreview'
 
 const props = defineProps({
@@ -12,6 +13,7 @@ const props = defineProps({
 })
 
 const previewRoot = ref<HTMLElement | null>(null)
+useHlsPlayers(previewRoot)
 const previewIsVisible = useElementVisibility(previewRoot)
 const htmlByIndex = reactive(new Map<number, string>())
 const renderedSignatures = new Map<number, string>()

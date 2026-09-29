@@ -25,6 +25,7 @@
     "bootstrap-icons": "^1.13.1",
     "dayjs": "^1.11.23",
     "es-toolkit": "^1.52.0",
+    "hls.js": "^1.7.3",
     "jwt-decode": "^4.0.0",
     "pinia": "^4.0.3",
     "sortablejs": "^1.15.7",

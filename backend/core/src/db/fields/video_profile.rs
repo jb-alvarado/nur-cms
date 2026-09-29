@@ -16,6 +16,7 @@ pub enum VideoProfileFields {
     Height,
     Cmd,
     Enabled,
+    HlsEnabled,
     SortOrder,
 }
 
@@ -28,6 +29,7 @@ impl StrCompare for VideoProfileFields {
             Self::Height => other == "height",
             Self::Cmd => other == "cmd",
             Self::Enabled => other == "enabled",
+            Self::HlsEnabled => other == "hls_enabled",
             Self::SortOrder => other == "sort_order",
         }
     }
@@ -44,6 +46,7 @@ impl FromStr for VideoProfileFields {
             "height" => Ok(Self::Height),
             "cmd" => Ok(Self::Cmd),
             "enabled" => Ok(Self::Enabled),
+            "hls_enabled" => Ok(Self::HlsEnabled),
             "sort_order" => Ok(Self::SortOrder),
             _ => Err(format!("Field '{input}' not found!")),
         }
@@ -59,6 +62,7 @@ impl fmt::Display for VideoProfileFields {
             Self::Height => write!(f, "height"),
             Self::Cmd => write!(f, "cmd"),
             Self::Enabled => write!(f, "enabled"),
+            Self::HlsEnabled => write!(f, "hls_enabled"),
             Self::SortOrder => write!(f, "sort_order"),
         }
     }

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cloneDeep } from 'es-toolkit/object'
 import { isEqual } from 'es-toolkit/predicate'
 import { useIndex } from '@/stores/index'
 import { mediaPath } from '@/utils/helper'
+import { attachHls } from '@/utils/hls'
 import { authFetch } from '@/composables/authFetch'
 
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
@@ -16,6 +17,15 @@ const mediaOriginal = ref<Media>({})
 const thumbnailModal = ref()
 const thumbnailQueued = ref(false)
 const video = ref<HTMLVideoElement>()
+
+watch(
+    [video, () => media.value.video_variants?.find((variant) => variant.kind === 'hls')?.filename],
+    ([element, filename], _, onCleanup) => {
+        if (!element || !filename || !media.value.path) return
+        onCleanup(attachHls(element, `${media.value.path}/${filename}`))
+    },
+    { flush: 'post' },
+)
 
 const props = defineProps({
     id: {
@@ -53,21 +63,24 @@ async function refreshAfterThumbnail(event: Event) {
     thumbnailQueued.value = false
 }
 
-async function selectMedia() {
+async function selectMedia(): Promise<boolean> {
     const url = `/api/media?id=${props.id}`
 
-    await authFetch<RespondObj>(url)
-        .then(async (res) => {
-            if (res.results?.length > 0) {
-                media.value = res.results[0]
-                mediaOriginal.value = cloneDeep(res.results[0])
-            } else {
-                media.value = {}
-            }
-        })
-        .catch((err) => {
-            store.msgAlert('error', err)
-        })
+    try {
+        const res = await authFetch<RespondObj>(url)
+        if (!res.results?.length) {
+            media.value = {}
+            mediaOriginal.value = {}
+            return false
+        }
+
+        media.value = res.results[0]
+        mediaOriginal.value = cloneDeep(res.results[0])
+        return true
+    } catch (err) {
+        store.msgAlert('error', err instanceof Error ? err.message : String(err))
+        return false
+    }
 }
 
 async function retryVideo() {
@@ -134,8 +147,10 @@ async function updateMedia() {
         },
         body: JSON.stringify(payload),
     })
-        .then(() => {
-            store.msgAlert('success', t('media.updateSuccess', { id: props.id }))
+        .then(async () => {
+            if (await selectMedia()) {
+                store.msgAlert('success', t('media.updateSuccess', { id: props.id }))
+            }
         })
         .catch((err) => {
             store.msgAlert('error', err)
@@ -149,7 +164,7 @@ async function updateMedia() {
             <video
                 v-else-if="media.type?.startsWith('video/')"
                 ref="video"
-                :src="mediaPath(media)"
+                :src="media.video_variants?.some((variant) => variant.kind === 'hls') ? undefined : mediaPath(media)"
                 controls
                 preload="metadata"
                 class="w-full lg:max-w-100"

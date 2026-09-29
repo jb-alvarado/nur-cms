@@ -374,6 +374,11 @@ export default {
     },
     videoProfiles: {
         title: 'Video-Profile',
+        deliveryMode: 'Ausgabe neuer Videos',
+        fileMode: 'Videodatei',
+        hlsMode: 'Adaptives HLS',
+        hlsEnabled: 'Für HLS verwenden',
+        settingsSaved: 'Einstellungen für die Videoausgabe gespeichert.',
         container: 'Container',
         height: 'Höhe',
         enabled: 'Aktiv',

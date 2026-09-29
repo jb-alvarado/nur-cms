@@ -21,6 +21,12 @@ The backend serves `/uploads/*` itself in debug mode and when the
 upstream web server must expose the configured storage directory under this
 URL prefix.
 
+For HLS videos, the public media response contains one `video_variants` entry
+with `kind: "hls"` and a `filename` ending in `/master.m3u8`. The generated
+article HTML includes a `<video data-hls-src="…">` element with an HLS source.
+Sites can use the `data-hls-src` URL with an HLS player where the browser lacks
+native HLS support. Playlists and fMP4 files are stored in the same directory.
+
 ### Authentication
 
 Protected endpoints expect an access token:

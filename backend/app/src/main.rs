@@ -8,8 +8,9 @@ use axum::{
     Router,
     body::Body,
     extract::{ConnectInfo, State},
-    http::{Method, Request, StatusCode},
-    middleware::{self},
+    http::{Method, Request, StatusCode, header},
+    middleware::{self, Next},
+    response::Response,
     routing::{any, get, post},
 };
 use clap::Parser;
@@ -330,7 +331,8 @@ async fn main() -> Result<(), NurError> {
                 "/uploads/.processing/{*path}",
                 any(|| async { StatusCode::NOT_FOUND }),
             )
-            .nest_service("/uploads", uploads_service);
+            .nest_service("/uploads", uploads_service)
+            .layer(middleware::from_fn(hls_upload_mime));
     }
 
     let listener = TcpListener::bind(args.core.listen.as_deref().unwrap_or("127.0.0.1:8777"))
@@ -367,6 +369,28 @@ async fn main() -> Result<(), NurError> {
     video_workers.wait().await;
 
     Ok(())
+}
+
+async fn hls_upload_mime(request: Request<Body>, next: Next) -> Response {
+    let content_type = if request.uri().path().starts_with("/uploads/") {
+        match request.uri().path().rsplit_once('.').map(|(_, ext)| ext) {
+            Some("m3u8") => Some("application/vnd.apple.mpegurl"),
+            Some("m4s") => Some("video/iso.segment"),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let mut response = next.run(request).await;
+    if response.status().is_success()
+        && let Some(content_type) = content_type
+    {
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static(content_type),
+        );
+    }
+    response
 }
 
 #[cfg(test)]

@@ -135,6 +135,7 @@ fn image_mime_type(filename: &str) -> Option<String> {
 
 fn video_mime_type(variant: &MediaVideoVariantSerializer) -> Option<String> {
     match variant.container.as_str() {
+        "m3u8" => Some("application/vnd.apple.mpegurl".to_string()),
         "mp4" | "m4v" => Some("video/mp4".to_string()),
         "mov" => Some("video/quicktime".to_string()),
         "webm" => Some("video/webm".to_string()),
@@ -383,6 +384,33 @@ fn write_video<T>(
         .collect::<Vec<_>>();
     if variants.is_empty() {
         return write_video(context, image, None, alt, preferred_poster_width);
+    }
+    if let Some((_, url, mime)) = variants
+        .iter()
+        .find(|(variant, _, _)| variant.kind == "hls")
+    {
+        context.write_str("<video controls")?;
+        if let Some(poster) = preferred_poster_variant(&media.variants, preferred_poster_width)
+            && let Some(poster_url) = media_url(media, &poster.filename)
+        {
+            context.write_str(" poster=\"")?;
+            write_safe_url(context, &poster_url)?;
+            context.write_str("\"")?;
+        }
+        if !image.title.is_empty() {
+            context.write_str(" title=\"")?;
+            context.escape(&image.title)?;
+            context.write_str("\"")?;
+        }
+        context.write_str(" data-hls-src=\"")?;
+        write_safe_url(context, url)?;
+        context.write_str("\"><source src=\"")?;
+        write_safe_url(context, url)?;
+        context.write_str("\" type=\"")?;
+        context.escape(mime)?;
+        context.write_str("\" />")?;
+        context.escape(alt)?;
+        return context.write_str("</video>");
     }
     variants.sort_by(|(left, _, left_mime), (right, _, right_mime)| {
         video_format_rank(left_mime)
@@ -1099,6 +1127,27 @@ mod tests {
         assert!(!html.contains("<source src=\"/uploads/2026/09/clip-h264-720.mp4\""));
         assert!(!html.contains("<source src=\"/uploads/2026/09/clip-av1-1440.webm\""));
         assert!(html.contains("Short clip</video>"));
+    }
+
+    #[test]
+    fn renders_hls_video_with_playlist_url() {
+        let media = MediaSerializer {
+            path: Some("/uploads/2026/09".into()),
+            filename: Some("clip.mp4".into()),
+            video_variants: vec![MediaVideoVariantSerializer {
+                kind: "hls".into(),
+                profile: "master".into(),
+                container: "m3u8".into(),
+                video_codec: "h264".into(),
+                filename: "clip/master.m3u8".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let html = render_gfm_html("![Clip](/uploads/2026/09/clip.mp4)", &[media], None)
+            .expect("GFM rendering succeeds");
+        assert!(html.contains("data-hls-src=\"/uploads/2026/09/clip/master.m3u8\""));
+        assert!(html.contains("type=\"application/vnd.apple.mpegurl\""));
     }
 
     #[test]

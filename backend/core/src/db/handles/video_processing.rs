@@ -15,6 +15,7 @@ pub struct VideoProcessingJob {
     pub filename: String,
     pub path: String,
     pub mime_type: Option<String>,
+    pub delivery_mode: String,
     pub kind: String,
     pub source_media_id: Option<i32>,
 }
@@ -37,6 +38,7 @@ pub struct MediaSource {
 }
 
 pub struct VideoVariantRecord {
+    pub kind: String,
     pub profile: String,
     pub width: i32,
     pub height: i32,
@@ -254,7 +256,8 @@ pub async fn claim_video_processing_job(
 
     let job = sqlx::query_as::<_, VideoProcessingJob>(
         r#"SELECT jobs.id, jobs.attempts, jobs.max_attempts, jobs.lease_token, jobs.media_id, media.filename, media.path,
-                  media.type AS mime_type, jobs.kind, jobs.source_media_id
+                  media.type AS mime_type, media.video_delivery_mode AS delivery_mode,
+                  jobs.kind, jobs.source_media_id
            FROM media_processing_jobs jobs
            JOIN media ON media.id = jobs.media_id
            WHERE jobs.id = $1"#,
@@ -430,6 +433,29 @@ pub async fn output_filename_conflicts(
     .await
 }
 
+pub async fn hls_master_filename(
+    transaction: &mut Transaction<'_, Postgres>,
+    media_id: i32,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT filename FROM media_video_variants WHERE media_id = $1 AND kind = 'hls' AND profile = 'master'",
+    )
+    .bind(media_id)
+    .fetch_optional(&mut **transaction)
+    .await
+}
+
+pub async fn lock_hls_directory_namespace(
+    transaction: &mut Transaction<'_, Postgres>,
+    public_path: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(public_path)
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
 pub async fn persist_video_outputs(
     mut transaction: Transaction<'_, Postgres>,
     job: &VideoProcessingJob,
@@ -447,7 +473,7 @@ pub async fn persist_video_outputs(
             r#"INSERT INTO media_video_variants
                    (media_id, kind, profile, width, height, container, video_codec,
                     audio_codec, filename, size, duration_ms)
-               VALUES ($1, 'progressive', $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                ON CONFLICT (media_id, kind, profile) DO UPDATE SET
                    width = EXCLUDED.width, height = EXCLUDED.height,
                    container = EXCLUDED.container, video_codec = EXCLUDED.video_codec,
@@ -455,6 +481,7 @@ pub async fn persist_video_outputs(
                    size = EXCLUDED.size, duration_ms = EXCLUDED.duration_ms"#,
         )
         .bind(job.media_id)
+        .bind(&variant.kind)
         .bind(&variant.profile)
         .bind(variant.width)
         .bind(variant.height)
@@ -472,8 +499,12 @@ pub async fn persist_video_outputs(
         .iter()
         .map(|variant| variant.profile.as_str())
         .collect();
-    sqlx::query("DELETE FROM media_video_variants WHERE media_id = $1 AND NOT (profile = ANY($2))")
+    let current_kind = variants
+        .first()
+        .map_or("progressive", |variant| variant.kind.as_str());
+    sqlx::query("DELETE FROM media_video_variants WHERE media_id = $1 AND NOT (kind = $2 AND profile = ANY($3))")
         .bind(job.media_id)
+        .bind(current_kind)
         .bind(&current_profiles)
         .execute(&mut *transaction)
         .await?;
