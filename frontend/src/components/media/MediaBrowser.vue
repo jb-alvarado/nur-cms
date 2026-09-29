@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, type PropType } from 'vue'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
-import { formatBytes, mediaPath, iconFrom } from '@/utils/helper'
+import { formatBytes, mediaThumbnailPath, iconFrom } from '@/utils/helper'
 
 import GenericPagination from '@/components/generic/GenericPagination.vue'
 
@@ -141,8 +141,8 @@ async function selectMedia(u: string | null = null) {
                     >
                         <figure class="relative bg-checker h-39">
                             <img
-                                v-if="media.type?.includes('image/')"
-                                :src="mediaPath(media)"
+                                v-if="mediaThumbnailPath(media)"
+                                :src="mediaThumbnailPath(media)"
                                 :alt="media.alt ?? media.filename ?? ''"
                                 class="w-full h-full object-contain rounded-t"
                             />

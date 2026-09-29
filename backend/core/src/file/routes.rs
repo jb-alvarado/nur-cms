@@ -111,8 +111,8 @@ fn upload_names(original_filename: &str) -> Result<(String, String), NurError> {
     }
 
     let mime_type = validate_mime_type(original_filename)?;
-    let filename = if mime_type.starts_with("video/") {
-        web_video_filename(original_filename)?
+    let filename = if mime_type.starts_with("video/") || mime_type.starts_with("image/") {
+        web_media_filename(original_filename)?
     } else {
         sanitize(original_filename)
     };
@@ -122,37 +122,37 @@ fn upload_names(original_filename: &str) -> Result<(String, String), NurError> {
     Ok((filename, mime_type))
 }
 
-pub(crate) fn web_video_filename(original_filename: &str) -> Result<String, NurError> {
+pub(crate) fn web_media_filename(original_filename: &str) -> Result<String, NurError> {
     let path = Path::new(original_filename);
     let stem = path
         .file_stem()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| NurError::BadRequest("Invalid video filename.".into()))?;
+        .ok_or_else(|| NurError::BadRequest("Invalid media filename.".into()))?;
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| NurError::BadRequest("Invalid video filename.".into()))?;
+        .ok_or_else(|| NurError::BadRequest("Invalid media filename.".into()))?;
     if !extension
         .chars()
         .all(|character| character.is_ascii_alphanumeric())
     {
-        return Err(NurError::BadRequest("Invalid video filename.".into()));
+        return Err(NurError::BadRequest("Invalid media filename.".into()));
     }
 
     let mut normalized = String::with_capacity(stem.len());
     for character in stem.chars() {
         if character.is_ascii_alphanumeric() {
             normalized.push(character.to_ascii_lowercase());
-        } else if matches!(character, '-' | '_' | '.') {
+        } else if matches!(character, '-' | '_') {
             normalized.push(character);
         } else if !normalized.ends_with('-') {
             normalized.push('-');
         }
     }
-    let stem = normalized.trim_matches(|character| matches!(character, '-' | '_' | '.'));
+    let stem = normalized.trim_matches(|character| matches!(character, '-' | '_'));
     if stem.is_empty() {
-        return Err(NurError::BadRequest("Invalid video filename.".into()));
+        return Err(NurError::BadRequest("Invalid media filename.".into()));
     }
     Ok(format!("{stem}.{}", extension.to_ascii_lowercase()))
 }
@@ -163,7 +163,7 @@ fn valid_batch_id(batch_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{upload_names, valid_batch_id, validate_mime_type, web_video_filename};
+    use super::{upload_names, valid_batch_id, validate_mime_type, web_media_filename};
 
     #[test]
     fn accepts_svg_uploads() {
@@ -181,13 +181,24 @@ mod tests {
     }
 
     #[test]
+    fn image_uploads_receive_a_web_safe_filename() {
+        let (filename, mime_type) = upload_names("My.Photo 2026!.PNG").unwrap();
+        assert_eq!(filename, "my-photo-2026.png");
+        assert_eq!(mime_type, "image/png");
+    }
+
+    #[test]
     fn normalizes_video_names_consistently() {
         assert_eq!(
-            web_video_filename("Ä Nice...VIDEO_file!.WebM").unwrap(),
-            "nice...video_file.webm"
+            web_media_filename("Ä Nice...VIDEO_file!.WebM").unwrap(),
+            "nice-video_file.webm"
         );
-        assert!(web_video_filename("!!.mp4").is_err());
-        assert!(web_video_filename("clip.m-p4").is_err());
+        assert_eq!(
+            web_media_filename("clip.final.MP4").unwrap(),
+            "clip-final.mp4"
+        );
+        assert!(web_media_filename("!!.mp4").is_err());
+        assert!(web_media_filename("clip.m-p4").is_err());
     }
 
     #[test]

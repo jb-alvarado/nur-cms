@@ -3,7 +3,7 @@ import { computed, ref, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import dayjs from 'dayjs'
 import { useIndex } from '@/stores/index'
 import { authFetch } from '@/composables/authFetch'
-import { formatBytes, shortID, mediaPath, iconFrom } from '@/utils/helper'
+import { formatBytes, shortID, mediaPath, mediaThumbnailPath, iconFrom } from '@/utils/helper'
 
 import FileUpload from '@/components/media/FileUpload.vue'
 import GenericModal from '@/components/generic/GenericModal.vue'
@@ -127,14 +127,6 @@ function mimeType(media: Media) {
     return type ? type : ext ? ext : 'File'
 }
 
-function posterPath(media: Media): string | undefined {
-    if (!media.type?.startsWith('video/') || !media.variants?.length) return undefined
-    const poster = media.variants.reduce((smallest, variant) =>
-        variant.width * variant.height < smallest.width * smallest.height ? variant : smallest,
-    )
-    return `${media.path}/${poster.filename}`
-}
-
 function variantsDim(variants: Variants[]) {
     const dims = new Map<number, string>()
 
@@ -236,8 +228,8 @@ function resetUpload() {
                         @click="openUpdateModal(media.id!)"
                     />
                     <img
-                        v-else-if="posterPath(media)"
-                        :src="posterPath(media)"
+                        v-else-if="mediaThumbnailPath(media)"
+                        :src="mediaThumbnailPath(media)"
                         :alt="media.alt ?? media.filename ?? ''"
                         class="w-full h-full object-contain rounded-t cursor-pointer"
                         @click="openUpdateModal(media.id!)"

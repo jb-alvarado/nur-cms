@@ -10,7 +10,7 @@ import Multiselect from 'vue-multiselect'
 import { useIndex } from '@/stores/index'
 import { errMsg } from '@/utils/error'
 import { authFetch } from '@/composables/authFetch'
-import { closeDropdown, mediaPath } from '@/utils/helper'
+import { closeDropdown, iconFrom, mediaThumbnailPath } from '@/utils/helper'
 import { slugify } from '@/utils/slugify.js'
 import type { ContentNodeDataField, ContentNodeTemplate } from '@/types/models.d'
 import type { RespondObj as TypedRespondObj } from '@/types/query.d'
@@ -935,11 +935,12 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 class="bg-checker w-full md:w-53 aspect-video flex justify-center items-center border border-base-content/20"
                             >
                                 <img
-                                    v-if="media"
-                                    :src="mediaPath(media)"
+                                    v-if="media && mediaThumbnailPath(media)"
+                                    :src="mediaThumbnailPath(media)"
                                     :alt="media?.alt ?? $t('button.media')"
                                     class="w-full h-full object-contain"
                                 />
+                                <i v-else-if="media" class="bi text-5xl" :class="iconFrom(media.type)"></i>
                             </div>
                             <div class="join join-vertical">
                                 <button class="btn p-2 join-item" @click="openMediaBrowser()">
@@ -1043,8 +1044,8 @@ async function insertEntryAuthor(entry: number, author: number) {
                             >
                                 <div class="w-10">
                                     <img
-                                        v-if="node.media"
-                                        :src="mediaPath(node.media!)"
+                                        v-if="node.media && mediaThumbnailPath(node.media)"
+                                        :src="mediaThumbnailPath(node.media)"
                                         :alt="node.media?.alt ?? undefined"
                                         class="object-cover w-10 h-10 cursor-pointer"
                                         @click="openNodeMediaBrowser(i)"
@@ -1125,8 +1126,8 @@ async function insertEntryAuthor(entry: number, author: number) {
                                     >
                                         <div class="w-10">
                                             <img
-                                                v-if="block.media"
-                                                :src="mediaPath(block.media!)"
+                                                v-if="block.media && mediaThumbnailPath(block.media)"
+                                                :src="mediaThumbnailPath(block.media)"
                                                 :alt="block.media?.alt ?? undefined"
                                                 class="object-cover w-10 h-10 cursor-pointer"
                                                 @click="openBlockMediaBrowser(i, bi)"

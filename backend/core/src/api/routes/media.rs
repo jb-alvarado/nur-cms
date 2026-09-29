@@ -19,7 +19,7 @@ use crate::db::{
     serialize::*,
 };
 use crate::file::helper::{delete_media_file, rename_media_file};
-use crate::file::routes::web_video_filename;
+use crate::file::routes::web_media_filename;
 use crate::sse::{SSELevel as Level, SSEMessage};
 use crate::utils::errors::NurError;
 
@@ -174,7 +174,7 @@ pub async fn media_update(
             if m.r#type
                 .as_deref()
                 .is_some_and(|mime| mime.starts_with("video/"))
-                && web_video_filename(name)? != name
+                && web_media_filename(name)? != name
             {
                 return Err(NurError::BadRequest(
                     "Video filenames must be lowercase and web-safe.".into(),

@@ -64,6 +64,17 @@ export function mediaPath(media: Media, preferredWidth = 320): string {
     return `${media.path}/${media.filename}`
 }
 
+export function mediaThumbnailPath(media: Media): string | undefined {
+    if (!media.path) return undefined
+    if (media.type?.startsWith('image/')) return mediaPath(media)
+    if (!media.type?.startsWith('video/') || !media.variants?.length) return undefined
+
+    const poster = media.variants.reduce((smallest, variant) =>
+        variant.width * variant.height < smallest.width * smallest.height ? variant : smallest,
+    )
+    return `${media.path}/${poster.filename}`
+}
+
 export function iconFrom(type: string | null | undefined): string {
     const t = (type || '').toLowerCase()
     switch (true) {

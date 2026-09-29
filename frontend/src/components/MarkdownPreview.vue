@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useElementVisibility } from '@vueuse/core'
 import { onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { mediaPath } from '@/utils/helper'
+import { mediaThumbnailPath } from '@/utils/helper'
 import { renderMarkdownPreview, type MarkdownPreviewInput } from '@/composables/markdownPreview'
 
 const props = defineProps({
@@ -99,8 +99,8 @@ onBeforeUnmount(() => {
                 >
                     <div class="w-10">
                         <img
-                            v-if="block.media"
-                            :src="mediaPath(block.media!)"
+                            v-if="block.media && mediaThumbnailPath(block.media)"
+                            :src="mediaThumbnailPath(block.media)"
                             :atl="block.media?.alt"
                             class="object-cover w-10 h-10"
                         />
@@ -136,8 +136,8 @@ onBeforeUnmount(() => {
             >
                 <div class="w-10">
                     <img
-                        v-if="node.media"
-                        :src="mediaPath(node.media!)"
+                        v-if="node.media && mediaThumbnailPath(node.media)"
+                        :src="mediaThumbnailPath(node.media)"
                         :atl="node.media?.alt"
                         class="object-cover w-10 h-10"
                     />
