@@ -18,7 +18,7 @@ interpret embedded raw HTML.
 
 ```sh
 rustup target add wasm32-wasip2
-cargo build --manifest-path backend/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --release
+cargo build --manifest-path crates/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --release
 NUR_PLUGINS=community-site NUR_PLUGIN_ALLOW_ROOT_ROUTES=1 cargo run -p nur-cms
 ```
 

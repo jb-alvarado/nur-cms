@@ -33,7 +33,7 @@ docker compose up
 In the second terminal, run the Rust backend with:
 
 ```bash
-cargo watch -C backend -x "run -- -l 127.0.0.1:8777"
+cargo watch -C crates -x "run -- -l 127.0.0.1:8777"
 ```
 
 In the third terminal, run the frontend with:
@@ -58,10 +58,10 @@ npm run dev:example
 
 ## Project Structure
 
-- `backend/` - Rust backend with Axum
+- `crates/` - Rust workspace crates for the application, core, and plugins
 - `example/` - Vue 3 example frontend with TypeScript
 - `frontend/` - Vue 3 admin frontend with TypeScript
-- `backend/core/migrations/` - Core database schema migrations
+- `crates/core/migrations/` - Core database schema migrations
 - `migrations_dev/` - Development database seed data
 - `uploads/` - File upload directory
 

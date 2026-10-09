@@ -252,7 +252,7 @@ fn public_mail_fails_closed_without_a_client_ip() {
 #[tokio::test]
 #[ignore = "requires a prebuilt wasm32-wasip2 echo example"]
 async fn invokes_built_echo_component_when_available() {
-    let module = example_component("echo", "nur_cms_echo_plugin");
+    let module = example_component("echo", "nur_echo");
     let pool =
         sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms").expect("test pool initializes");
     let runtime = Runtime::new(pool, None).expect("runtime initializes");
@@ -290,7 +290,7 @@ async fn invokes_built_echo_component_when_available() {
 #[tokio::test]
 #[ignore = "requires a prebuilt wasm32-wasip2 community-site example"]
 async fn loads_a_component_with_the_content_import_when_available() {
-    let module = example_component("community-site", "nur_cms_community_site_plugin");
+    let module = example_component("community-site", "nur_community_site");
     let pool =
         sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms").expect("test pool initializes");
     let runtime = Runtime::new(pool, None).expect("runtime initializes");
@@ -326,7 +326,7 @@ async fn loads_a_component_with_the_content_import_when_available() {
 #[tokio::test]
 #[ignore = "requires a prebuilt wasm32-wasip2 Vue admin example"]
 async fn invokes_built_vue_admin_component_when_available() {
-    let module = example_component("vue-admin", "nur_cms_vue_admin_plugin");
+    let module = example_component("vue-admin", "nur_vue_admin");
     let pool =
         sqlx::PgPool::connect_lazy("postgres://localhost/nur_cms").expect("test pool initializes");
     let runtime = Runtime::new(pool, None).expect("runtime initializes");

@@ -6,10 +6,10 @@ Production builds embed the frontend in the Rust binary.
 
 ## Structure
 
-- `backend/app/`: executable, CLI, middleware, logging, and static UI serving
-- `backend/core/`: API, auth, database, uploads, mail, SSE, and shared logic
-- `backend/core/migrations/`: core PostgreSQL migrations
-- `backend/plugins/migrations/`: plugin-runtime infrastructure migrations
+- `crates/app/`: executable, CLI, middleware, logging, and static UI serving
+- `crates/core/`: API, auth, database, uploads, mail, SSE, and shared logic
+- `crates/core/migrations/`: core PostgreSQL migrations
+- `crates/plugins/migrations/`: plugin-runtime infrastructure migrations
 - `frontend/`: admin UI served below `/admin/`
 - `example/`: public example frontend
 - `assets/`, `docs/`, `scripts/`, `debian/`: configuration and project tooling

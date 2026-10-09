@@ -7,7 +7,7 @@ Element and its `context` property.
 Build the independently versioned admin bundle with:
 
 ```bash
-cd backend/plugins/examples/vue-admin/admin
+cd crates/plugins/examples/vue-admin/admin
 npm install
 npm run build
 ```
@@ -17,7 +17,7 @@ styles without requiring Node.js globals at runtime. The styles are injected int
 DOM. Build the small example backend component with:
 
 ```bash
-cargo build --manifest-path backend/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2 --release
+cargo build --manifest-path crates/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2 --release
 ```
 
 Run nur-cms with `NUR_PLUGINS=vue-admin` and `NUR_PLUGIN_ALLOW_ADMIN_COMPONENTS=1`. The manifest exposes the

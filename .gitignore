@@ -1,11 +1,11 @@
 /postgres-data
 /target
-/backend/plugins/examples/*/target/
+/crates/plugins/examples/*/target/
 .env
 *.sql
-!backend/core/migrations/*.sql
+!crates/core/migrations/*.sql
 !migrations_dev/*.sql
-!backend/plugins/**/*.sql
+!crates/plugins/**/*.sql
 
 nur-cms.toml
 !assets/nur-cms.toml

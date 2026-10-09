@@ -35,7 +35,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            backend/plugins/examples/vue-admin/admin/package-lock.json
+            crates/plugins/examples/vue-admin/admin/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -43,7 +43,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
       - name: Install Vue admin plugin example dependencies
-        run: npm ci --prefix backend/plugins/examples/vue-admin/admin
+        run: npm ci --prefix crates/plugins/examples/vue-admin/admin
       - name: Validate frontend
         run: |
           npx eslint frontend/src --max-warnings=0
@@ -51,13 +51,13 @@ jobs:
           npm run build
       - name: Check plugin examples
         run: |
-          npm run build --prefix backend/plugins/examples/vue-admin/admin
-          cargo check --manifest-path backend/plugins/examples/echo/Cargo.toml --target wasm32-wasip2
-          cargo check --manifest-path backend/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2
-          cargo check --manifest-path backend/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2
-          cargo test --manifest-path backend/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --no-run
-          cargo test --manifest-path backend/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --no-run
-          cargo test --manifest-path backend/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2 --no-run
+          npm run build --prefix crates/plugins/examples/vue-admin/admin
+          cargo check --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2
+          cargo check --manifest-path crates/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2
+          cargo check --manifest-path crates/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2
+          cargo test --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --no-run
+          cargo test --manifest-path crates/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --no-run
+          cargo test --manifest-path crates/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2 --no-run
       - name: Validate Rust
         run: |
           cargo fmt --all -- --check

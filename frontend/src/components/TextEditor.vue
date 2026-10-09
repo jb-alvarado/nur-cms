@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { type ModelRef, nextTick, ref } from 'vue'
+import { type ModelRef, type PropType, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIndex } from '@/stores/index'
+import { useFloatingToolbar } from '@/composables/useFloatingToolbar'
 
 import GenericModal from '@/components/generic/GenericModal.vue'
 import MarkdownHelpModal from '@/components/generic/MarkdownHelpModal.vue'
@@ -48,6 +49,10 @@ const editorButtons = [
 ]
 
 const props = defineProps({
+    stickyToolbar: {
+        type: [Boolean, Object] as PropType<boolean | HTMLElement | null>,
+        default: false,
+    },
     update: {
         type: Function,
         default() {},
@@ -65,6 +70,16 @@ const props = defineProps({
         default: 1,
     },
 })
+
+const editorRef = ref<HTMLElement | null>(null)
+const toolbarAnchor = ref<HTMLElement | null>(null)
+const toolbarRef = ref<HTMLElement | null>(null)
+const { floatingStyle, placeholderStyle } = useFloatingToolbar(
+    toolbarAnchor,
+    toolbarRef,
+    () => Boolean(props.stickyToolbar),
+    () => (typeof props.stickyToolbar === 'boolean' ? editorRef.value : props.stickyToolbar),
+)
 
 function openLinkModal() {
     const textarea = textareaRef.value
@@ -87,7 +102,7 @@ function keyHandler(e: KeyboardEvent) {
 
     props.update()
 
-    if (e.ctrlKey && e.key === 'z' && lastBody.value) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z' && lastBody.value) {
         e.preventDefault()
 
         model.value = lastBody.value
@@ -325,51 +340,63 @@ function table() {
 }
 </script>
 <template>
-    <div class="h-full flex flex-col">
-        <div class="join border-t border-s border-e border-base-content/25 rounded-t bg-base-200 mt-2 flex-none">
-            <select v-model="format" class="hidden md:block select max-w-40 join-item border-0" @change="heading">
-                <option v-for="head in headings" :key="head.value" :value="head.value">{{ head.name }}</option>
-            </select>
-            <button
-                v-for="eb in editorButtons"
-                :key="eb.id"
-                class="btn join-item leading-0"
-                :class="eb.class"
-                :title="eb.title"
-                @click="eb.func"
+    <div ref="editorRef" class="relative h-full flex flex-col">
+        <div ref="toolbarAnchor" class="mt-2 flex w-full flex-none" :style="placeholderStyle">
+            <div
+                ref="toolbarRef"
+                class="join flex w-full border-t border-s border-e border-base-content/25 rounded-t bg-base-200 flex-none"
+                :style="floatingStyle"
+                :class="{
+                    'rounded-lg border-b shadow-md overflow-hidden': floatingStyle,
+                }"
             >
-                <i class="bi" :class="eb.icon"></i>
-            </button>
+                <select v-model="format" class="hidden md:block select max-w-40 join-item border-0" @change="heading">
+                    <option v-for="head in headings" :key="head.value" :value="head.value">{{ head.name }}</option>
+                </select>
+                <button
+                    v-for="eb in editorButtons"
+                    :key="eb.id"
+                    class="btn join-item leading-0"
+                    :class="eb.class"
+                    :title="eb.title"
+                    @click="eb.func"
+                >
+                    <i class="bi" :class="eb.icon"></i>
+                </button>
 
-            <div class="grow flex justify-end">
-                <div class="join">
-                    <button class="join-item btn rounded p-3 hidden 2xl:flex" @click="store.preview = !store.preview">
-                        <i class="bi bi-markdown scale-130"></i>
-                    </button>
-                    <button
-                        type="button"
-                        class="join-item btn p-3"
-                        :title="$t('markdownHelp.open')"
-                        :aria-label="$t('markdownHelp.open')"
-                        @click="markdownHelpModal?.showModal()"
-                    >
-                        <i class="bi bi-question-circle"></i>
-                    </button>
-                    <input
-                        v-if="orderPosition !== null && orderMaximum > 1"
-                        :value="orderPosition"
-                        type="number"
-                        min="1"
-                        :max="orderMaximum"
-                        step="1"
-                        class="input join-item w-15"
-                        :title="$t('table.order')"
-                        :aria-label="$t('table.order')"
-                        @change="emit('reorder', $event)"
-                    />
-                    <button v-if="removeNode" class="join-item btn rounded p-3" @click="removeNode()">
-                        <i class="bi bi-x-lg"></i>
-                    </button>
+                <div class="grow flex justify-end">
+                    <div class="join">
+                        <button
+                            class="join-item btn rounded p-3 hidden 2xl:flex"
+                            @click="store.preview = !store.preview"
+                        >
+                            <i class="bi bi-markdown scale-130"></i>
+                        </button>
+                        <button
+                            type="button"
+                            class="join-item btn p-3"
+                            :title="$t('markdownHelp.open')"
+                            :aria-label="$t('markdownHelp.open')"
+                            @click="markdownHelpModal?.showModal()"
+                        >
+                            <i class="bi bi-question-circle"></i>
+                        </button>
+                        <input
+                            v-if="orderPosition !== null && orderMaximum > 1"
+                            :value="orderPosition"
+                            type="number"
+                            min="1"
+                            :max="orderMaximum"
+                            step="1"
+                            class="input join-item w-15"
+                            :title="$t('table.order')"
+                            :aria-label="$t('table.order')"
+                            @change="emit('reorder', $event)"
+                        />
+                        <button v-if="removeNode" class="join-item btn rounded p-3" @click="removeNode()">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

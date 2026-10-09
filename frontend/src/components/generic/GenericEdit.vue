@@ -46,6 +46,7 @@ const deleteModal = ref()
 const mediaModal = ref()
 const blockModal = ref()
 const editorEndRef = ref<HTMLElement | null>(null)
+const editorContainerRef = ref<HTMLElement | null>(null)
 const mediaTarget = ref<{ type: 'main' | 'node' | 'block'; nodeIndex?: number; blockIndex?: number }>({
     type: 'main',
 })
@@ -792,7 +793,7 @@ async function insertEntryAuthor(entry: number, author: number) {
 </script>
 
 <template>
-    <div class="flex flex-col h-full">
+    <div ref="editorContainerRef" class="flex flex-col h-full">
         <div class="flex">
             <h1 class="grow text-xl lg:text-2xl lin">{{ content?.title ?? '' }}</h1>
             <button class="btn btn-sm text-base" @click="router.back()">
@@ -1022,6 +1023,7 @@ async function insertEntryAuthor(entry: number, author: number) {
                                 v-if="!('blocks' in node) && !('data' in node)"
                                 v-model="node.text"
                                 class="min-h-60"
+                                :sticky-toolbar="content.nodes.length === 1 ? editorContainerRef : true"
                                 :remove-node="templateCount > 0 ? () => deleteNode(i) : null"
                                 :order-position="i + 1"
                                 :order-maximum="content.nodes.length"

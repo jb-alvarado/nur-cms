@@ -244,7 +244,7 @@ fn enabled_plugins() -> HashSet<String> {
 fn plugin_roots() -> Vec<PathBuf> {
     let mut roots = settings().plugins.additional_directories.clone();
     if cfg!(debug_assertions) {
-        roots.push(PathBuf::from("backend/plugins/examples"));
+        roots.push(PathBuf::from("crates/plugins/examples"));
     }
     #[cfg(target_os = "linux")]
     roots.extend([

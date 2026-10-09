@@ -4,7 +4,7 @@ Build the example from the repository root:
 
 ```sh
 rustup target add wasm32-wasip2
-cargo build --manifest-path backend/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --release
+cargo build --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --release
 ```
 
 Enable it for a development run:

@@ -24,7 +24,7 @@ The module, asset, and migration directories must resolve inside the package dir
 and special files are not allowed in the public asset tree. Production plugin directories must not be
 writable by the nur-cms runtime user or by any account that can upload content through the application.
 
-During development, nur-cms also searches `backend/plugins/examples`. Linux installations additionally
+During development, nur-cms also searches `crates/plugins/examples`. Linux installations additionally
 search `/usr/share/nur-cms/plugins` and `/var/lib/nur-cms/plugins`. Extra roots can be supplied with
 `plugins.additional_directories`.
 
@@ -642,15 +642,15 @@ See [configuration.md](configuration.md) for runtime settings and defaults.
 
 ## Examples
 
-The minimal example is in [`backend/plugins/examples/echo`](../backend/plugins/examples/echo). The
-[`community-site`](../backend/plugins/examples/community-site) example demonstrates public content queries,
+The minimal example is in [`crates/plugins/examples/echo`](../crates/plugins/examples/echo). The
+[`community-site`](../crates/plugins/examples/community-site) example demonstrates public content queries,
 root routes, static assets, and route caching. The
-[`vue-admin`](../backend/plugins/examples/vue-admin) example demonstrates an independently built Vue Custom
+[`vue-admin`](../crates/plugins/examples/vue-admin) example demonstrates an independently built Vue Custom
 Element that is loaded into the admin interface at runtime. Build a Rust example with:
 
 ```sh
 rustup target add wasm32-wasip2
-cargo build --manifest-path backend/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --release
+cargo build --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --release
 ```
 
 Then run nur-cms with:
