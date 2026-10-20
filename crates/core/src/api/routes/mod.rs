@@ -29,3 +29,6 @@ pub use node_templates::*;
 pub use tags::*;
 pub use types::*;
 pub use video_profiles::*;
+
+pub mod subtitles;
+pub use subtitles::*;

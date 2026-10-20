@@ -77,7 +77,11 @@ fn write_error(table: &Table, error: sqlx::Error) -> NurError {
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 
-pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), NurError> {
+pub async fn delete_record<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    table: &Table,
+    id: i32,
+) -> Result<(), NurError> {
     let mut qb = QueryBuilder::<Postgres>::new(format!("DELETE FROM {table} WHERE id = "));
     qb.push_bind(id);
 
@@ -86,7 +90,7 @@ pub async fn delete_record(pool: &PgPool, table: &Table, id: i32) -> Result<(), 
 
     let query = qb.build();
 
-    let rows_affected = query.execute(pool).await?.rows_affected();
+    let rows_affected = query.execute(executor).await?.rows_affected();
 
     if rows_affected == 0 {
         let msg = format!("No record with id={id} found in {table}");

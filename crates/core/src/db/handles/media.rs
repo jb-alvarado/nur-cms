@@ -17,8 +17,8 @@ use crate::{
 #[cfg(debug_assertions)]
 use crate::db::format_sql;
 
-pub async fn select_media(
-    pool: &PgPool,
+pub async fn select_media<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
     query_obj: &QueryObj<MediaFields>,
 ) -> Result<RespondObj<MediaSerializer>, NurError> {
     let ordering_with_alias = |alias: &str| {
@@ -155,7 +155,7 @@ pub async fn select_media(
 
     let query = query_builder.build_query_as::<MediaSerializer>();
 
-    let data: Vec<MediaSerializer> = query.fetch_all(pool).await?;
+    let data: Vec<MediaSerializer> = query.fetch_all(executor).await?;
 
     Ok(RespondObj::new(query_obj, data))
 }
@@ -369,12 +369,31 @@ pub async fn update_media(
     video_variants: &[MediaVideoVariantSerializer],
 ) -> Result<(), sqlx::Error> {
     let mut transaction = pool.begin().await?;
+    update_media_on(
+        &mut transaction,
+        media_id,
+        filename,
+        alt,
+        variants,
+        video_variants,
+    )
+    .await?;
+    transaction.commit().await
+}
 
+pub async fn update_media_on(
+    transaction: &mut sqlx::Transaction<'_, Postgres>,
+    media_id: i32,
+    filename: Option<&str>,
+    alt: Option<Option<&str>>,
+    variants: &[MediaVariantSerializer],
+    video_variants: &[MediaVideoVariantSerializer],
+) -> Result<(), sqlx::Error> {
     for variant in variants {
         sqlx::query("UPDATE media_variants SET filename = $1 WHERE id = $2")
             .bind(&variant.filename)
             .bind(variant.id)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await?;
     }
 
@@ -382,7 +401,7 @@ pub async fn update_media(
         sqlx::query("UPDATE media_video_variants SET filename = $1 WHERE id = $2")
             .bind(&variant.filename)
             .bind(variant.id)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await?;
     }
 
@@ -390,7 +409,7 @@ pub async fn update_media(
         sqlx::query("UPDATE media SET filename = $1 WHERE id = $2")
             .bind(filename)
             .bind(media_id)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await?;
     }
 
@@ -398,11 +417,11 @@ pub async fn update_media(
         sqlx::query("UPDATE media SET alt = $1 WHERE id = $2")
             .bind(alt)
             .bind(media_id)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await?;
     }
 
-    transaction.commit().await
+    Ok(())
 }
 
 pub async fn media_is_video(pool: &PgPool, media_id: i32) -> Result<bool, sqlx::Error> {

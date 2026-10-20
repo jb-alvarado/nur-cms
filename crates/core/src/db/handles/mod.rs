@@ -25,3 +25,6 @@ pub use node_templates::*;
 pub use refresh_tokens::*;
 pub use video_processing::*;
 pub use video_profiles::*;
+
+pub mod subtitles;
+pub use subtitles::*;

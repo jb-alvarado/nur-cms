@@ -55,6 +55,8 @@ pub async fn media_delete(
     details: AuthDetails<Role>,
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        let mut file_transaction = handles::lock_media_files(&pool, id).await?;
+        crate::file::subtitles::recover_publication_on(&mut file_transaction, id).await?;
         let params: QueryObj<MediaFields> = QueryObj {
             fields: vec![
                 MediaFields::Filename,
@@ -67,16 +69,16 @@ pub async fn media_delete(
             search_id: Some(id),
             ..Default::default()
         };
-        let media = handles::select_media(&pool, &params).await?;
+        let media = handles::select_media(&mut *file_transaction, &params).await?;
 
         if let Some(m) = media.results.first()
             && m.r#type
                 .as_deref()
                 .is_some_and(|mime| mime.starts_with("video/"))
-            && matches!(
+            && (matches!(
                 m.processing_status.as_deref(),
                 Some("queued" | "processing")
-            )
+            ) || handles::media_has_active_video_job(&mut file_transaction, id).await?)
         {
             return Err(NurError::Conflict(
                 "The video is still being processed and cannot be deleted.".into(),
@@ -91,11 +93,12 @@ pub async fn media_delete(
             return Err(e);
         }
 
-        if let Err(e) = handles::delete_record(&pool, &Table::Media, id).await {
+        if let Err(e) = handles::delete_record(&mut *file_transaction, &Table::Media, id).await {
             error!("{e}");
             return Err(NurError::InternalServerError);
         }
 
+        file_transaction.commit().await?;
         return Ok(());
     }
 
@@ -111,6 +114,8 @@ pub async fn media_update(
     Json(mut content): Json<Value>,
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
+        let mut file_transaction = handles::lock_media_files(&pool, id).await?;
+        crate::file::subtitles::recover_publication_on(&mut file_transaction, id).await?;
         let object = content.as_object_mut().ok_or(NurError::InvalidInput)?;
         if object
             .keys()
@@ -152,7 +157,7 @@ pub async fn media_update(
             search_id: Some(id),
             ..Default::default()
         };
-        let mut media = handles::select_media(&pool, &params).await?;
+        let mut media = handles::select_media(&mut *file_transaction, &params).await?;
         if media.results.is_empty() {
             return Err(NurError::NotFound);
         }
@@ -173,10 +178,10 @@ pub async fn media_update(
             if m.r#type
                 .as_deref()
                 .is_some_and(|mime| mime.starts_with("video/"))
-                && matches!(
+                && (matches!(
                     m.processing_status.as_deref(),
                     Some("queued" | "processing")
-                )
+                ) || handles::media_has_active_video_job(&mut file_transaction, id).await?)
             {
                 return Err(NurError::Conflict(
                     "The video is still being processed and cannot be renamed.".into(),
@@ -226,8 +231,19 @@ pub async fn media_update(
         } else {
             &[]
         };
-        let database_result =
-            handles::update_media(&pool, id, filename, alt, variants, video_variants).await;
+        let database_result = async {
+            handles::update_media_on(
+                &mut file_transaction,
+                id,
+                filename,
+                alt,
+                variants,
+                video_variants,
+            )
+            .await?;
+            file_transaction.commit().await
+        }
+        .await;
 
         if let Err(error) = database_result {
             if let Some(old_filename) = renamed_from

@@ -376,6 +376,7 @@ async fn hls_upload_mime(request: Request<Body>, next: Next) -> Response {
         match request.uri().path().rsplit_once('.').map(|(_, ext)| ext) {
             Some("m3u8") => Some("application/vnd.apple.mpegurl"),
             Some("m4s") => Some("video/iso.segment"),
+            Some("vtt") => Some("text/vtt; charset=utf-8"),
             _ => None,
         }
     } else {
@@ -385,6 +386,12 @@ async fn hls_upload_mime(request: Request<Body>, next: Next) -> Response {
     if response.status().is_success()
         && let Some(content_type) = content_type
     {
+        if content_type == "application/vnd.apple.mpegurl" {
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-cache"),
+            );
+        }
         response.headers_mut().insert(
             header::CONTENT_TYPE,
             axum::http::HeaderValue::from_static(content_type),

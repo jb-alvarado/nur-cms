@@ -10,6 +10,7 @@ import { authFetch } from '@/composables/authFetch'
 
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
 import MediaProcessingProgress from '@/components/media/MediaProcessingProgress.vue'
+import MediaSubtitles from '@/components/media/MediaSubtitles.vue'
 
 const { t } = useI18n()
 const store = useIndex()
@@ -18,12 +19,13 @@ const mediaOriginal = ref<Media>({})
 const thumbnailModal = ref()
 const thumbnailQueued = ref(false)
 const video = ref<HTMLVideoElement>()
+const subtitleRevision = ref(0)
 
 watch(
-    [video, () => media.value.video_variants?.find((variant) => variant.kind === 'hls')?.filename],
+    [video, () => media.value.video_variants?.find((variant) => variant.kind === 'hls')?.filename, subtitleRevision],
     ([element, filename], _, onCleanup) => {
         if (!element || !filename || !media.value.path) return
-        onCleanup(attachHls(element, `${media.value.path}/${filename}`))
+        onCleanup(attachHls(element, `${media.value.path}/${filename}?subtitles=${subtitleRevision.value}`))
     },
     { flush: 'post' },
 )
@@ -55,8 +57,7 @@ function stopPlayback() {
 }
 
 async function refreshAfterThumbnail(event: Event) {
-    const detail =
-        event instanceof CustomEvent ? (event.detail as { mediaId?: unknown; message?: unknown }) : undefined
+    const detail = event instanceof CustomEvent ? (event.detail as { mediaId?: unknown; message?: unknown }) : undefined
     if (!thumbnailQueued.value || detail?.mediaId !== props.id) return
     if (typeof detail.message === 'string' && detail.message.includes('retry queued:')) return
 
@@ -129,10 +130,7 @@ async function updateMedia() {
 
     const payload = Object.fromEntries(
         Object.entries(media.value).filter(([key, value]) => {
-            return (
-                ['alt', 'filename'].includes(key) &&
-                !isEqual(value, mediaOriginal.value[key as keyof Media])
-            )
+            return ['alt', 'filename'].includes(key) && !isEqual(value, mediaOriginal.value[key as keyof Media])
         }),
     )
 
@@ -161,7 +159,13 @@ async function updateMedia() {
 <template>
     <div class="flex flex-wrap gap-4">
         <div class="mt-3 mx-auto">
-            <img v-if="media.type?.startsWith('image/')" :src="mediaPath(media, 768)" :alt="media.alt ?? ''" width="100%" class="w-full md:max-w-150 lg:max-w-100" />
+            <img
+                v-if="media.type?.startsWith('image/')"
+                :src="mediaPath(media, 768)"
+                :alt="media.alt ?? ''"
+                width="100%"
+                class="w-full md:max-w-150 lg:max-w-100"
+            />
             <video
                 v-else-if="media.type?.startsWith('video/')"
                 ref="video"
@@ -207,10 +211,18 @@ async function updateMedia() {
                     {{ $t('media.regenerateThumbnail') }}
                 </button>
                 <span class="me-auto">
-                    {{ $t(`media.processing.${thumbnailQueued ? 'queued' : (media.processing_status ?? 'completed')}`) }}
+                    {{
+                        $t(`media.processing.${thumbnailQueued ? 'queued' : (media.processing_status ?? 'completed')}`)
+                    }}
                 </span>
             </div>
             <MediaProcessingProgress v-if="store.mediaProgress[props.id]" :media-id="props.id" />
+            <MediaSubtitles
+                v-if="media.video_variants?.some((variant) => variant.kind === 'hls')"
+                :media-id="props.id"
+                :disabled="thumbnailQueued || media.processing_status !== 'completed'"
+                @changed="subtitleRevision++"
+            />
         </div>
     </div>
     <MediaBrowser ref="thumbnailModal" :media-types="['image']" :update="replaceThumbnail" />

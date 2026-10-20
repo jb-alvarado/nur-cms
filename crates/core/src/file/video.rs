@@ -34,6 +34,7 @@ use crate::{
     file::{
         helper::{contained_storage_target, hls_directory_name},
         processing::save_image,
+        subtitles::{prepare_hls_publication, recover_publication_on},
     },
     sse::{MediaProgress, SSELevel as Level, SSEMessage},
     utils::errors::NurError,
@@ -1240,6 +1241,12 @@ async fn process_hls_job(
 
     update_video_progress(progress, "finalizing", 95);
     let mut transaction = lock_owned_job(pool, job).await?;
+    handles::lock_media_files_on(&mut transaction, job.media_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    recover_publication_on(&mut transaction, job.media_id)
+        .await
+        .map_err(|error| error.to_string())?;
     let (directory, replacing_existing) = choose_hls_directory(&mut transaction, job, stem).await?;
     let master_filename = format!("{directory}/master.m3u8");
     if handles::output_filename_conflicts(
@@ -1258,6 +1265,22 @@ async fn process_hls_job(
     let target = contained_storage_target(&job.path, &directory)
         .await
         .map_err(|error| error.to_string())?;
+    let tracks = handles::rotate_subtitle_revisions(&mut transaction, job.media_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let subtitle_bytes = prepare_hls_publication(&hls_output, &target, &tracks, replacing_existing)
+        .await
+        .map_err(|error| error.to_string())?;
+    let hls_bytes = hls_bytes
+        .checked_add(subtitle_bytes)
+        .ok_or_else(|| "HLS output size exceeds the supported range.".to_string())?;
+    if let Some(limit) = *VIDEO_PROCESSING_MAX_OUTPUT_SIZE
+        && generated_bytes.saturating_add(subtitle_bytes) > limit
+    {
+        return Err(
+            "HLS output including subtitles and backups exceeds the configured limit.".into(),
+        );
+    }
     let mut published =
         vec![publish_hls_directory(&hls_output, &target, replacing_existing).await?];
     match publish_outputs(&job.path, &[], &thumbnails).await {

@@ -121,6 +121,7 @@ pub async fn init_db() -> Result<PgPool, NurError> {
         .await?;
 
     handles::db_migrate(&pool).await?;
+    file::subtitles::recover_pending_publications(&pool).await?;
     file::helper::cleanup_persisted_uploads().await;
 
     Ok(pool)
@@ -272,6 +273,11 @@ pub fn router_entries() -> (AuthRouter, ApiRouter) {
     let media_routes = Router::new()
         .route("/", get(media_select))
         .route("/{id}/retry-video", post(media_retry_video))
+        .route(
+            "/{id}/subtitles",
+            get(subtitle_select).post(subtitle_upload),
+        )
+        .route("/{id}/subtitles/{track}", delete(subtitle_delete))
         .route("/{id}/thumbnail", put(media_replace_video_thumbnail))
         .route(
             "/{id}/regenerate-thumbnail",

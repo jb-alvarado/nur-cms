@@ -965,3 +965,52 @@ The following routes have stricter limits:
 Limits are applied using the resolved client IP. When running behind a reverse
 proxy, its networks must be configured in `TRUSTED_PROXY_CIDRS` before the
 backend will trust forwarded client-IP headers.
+
+## HLS subtitles
+
+Admins and authors can manage WebVTT subtitle tracks after an HLS video has
+finished processing. Requests use the usual Bearer authentication.
+
+- `GET /api/media/{id}/subtitles` returns an array of `{ id, language, label,
+  is_default }`. The original WebVTT text is not included.
+- `POST /api/media/{id}/subtitles` adds a track or replaces the track with the
+  same normalized language tag. The JSON body contains `language` (for example
+  `de-DE`), `label` (for example `Deutsch`), `is_default`, and `webvtt` (the full
+  UTF-8 WebVTT text). It returns the updated track list.
+- `DELETE /api/media/{id}/subtitles/{track-id}` removes a track belonging to that
+  video and returns the updated list. A missing track returns `404`.
+
+WebVTT uploads are limited to 512 KiB and must contain ordered cues with valid
+start and end timestamps. There may be up to 32 tracks per video, with distinct
+language tags and display names and at most one default track. Processing must
+be completed; active processing jobs prevent subtitle changes (`409`). Videos
+without HLS output cannot accept these uploads (`400`). Other roles are denied
+access (`403`). Invalid language tags, labels, or WebVTT content return `400`.
+
+The server creates a subtitle media playlist referencing one complete WebVTT
+file, generates its timestamp map from the encoded video, and links the subtitle
+group from every video variant in `master.m3u8`. Existing audio and codec
+attributes are preserved. Externally managed subtitle groups are rejected rather
+than overwritten.
+
+Before replacing a master playlist, the server saves its exact previous contents
+as `master.m3u8.<uuid>.bak` in the same HLS directory. A failed backup prevents
+replacement. Subtitle changes and a durable publication intent commit together
+before the new master is published using an atomic rename. A session advisory
+lock remains held across the commit and publication. An uncertain commit never
+triggers restoration of an older master. If the process stops before publication
+or before clearing the intent, startup or the next subtitle request, media rename,
+media deletion, or HLS regeneration completes the committed publication under the
+same media lock. Repeated recovery does not create duplicate backups or overwrite
+an unrelated, newer master. A publication error after the commit leaves the saved
+change pending for recovery. Recovery errors for individual media are logged without
+aborting startup; their publication intents remain available for retry. Older backups and their subtitle files are retained. Removing a track removes it from the active master but keeps
+historical files for those backups. Media deletion removes the entire HLS
+directory, including backups.
+
+Original subtitle text is stored with the video and included in subsequent HLS
+processing. Reprocessing retains master backups and old subtitle revisions and
+creates new subtitle files for the new video timeline. Backups are playlist
+snapshots, not copies of the video segments before reprocessing. If the previous
+HLS directory or master is missing, regeneration proceeds from the source video
+and stored subtitles; only existing historical files are backed up.

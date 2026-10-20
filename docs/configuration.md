@@ -142,6 +142,22 @@ website needs native HLS playback or a JavaScript HLS player for browsers that
 do not play HLS playlists directly. Keep playlists and segments under the same
 public URL prefix.
 
+After HLS processing finishes, the media editor can add or replace WebVTT
+subtitle tracks by language. Subtitle updates do not re-encode the video. Each
+master playlist change creates a uniquely named `.bak` file alongside
+`master.m3u8`; backups and historical subtitle files remain until the media is
+deleted or an operator archives them. Include these files in storage planning.
+Subtitle changes enforce `video.max_output_size_mb` before writing files, counting
+the HLS directory, retained history, the new backup and master, and thumbnails.
+A value of `0` disables this limit, as it does for video processing.
+See [HLS subtitle management](api.md#hls-subtitles).
+
+The built-in upload server serves WebVTT as `text/vtt` and marks HLS playlists
+with `Cache-Control: no-cache`. If a reverse proxy or CDN serves uploads, apply
+these settings there too, so newly added subtitles become visible when the
+player reloads its master playlist. A running player may need to reload the
+video; the media editor does this after subtitle changes.
+
 | TOML key | Default | Description |
 | --- | ---: | --- |
 | `video.processing_concurrency` | `1` | Concurrent jobs per process. |
