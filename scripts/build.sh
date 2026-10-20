@@ -1,7 +1,8 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 
 target=$1
 platform="x86_64-unknown-linux-musl"
+compiler="x86_64-linux-musl-gcc"
 
 IFS="= "
 while read -r name value; do
@@ -13,7 +14,8 @@ done < Cargo.toml
 echo "Compile nur-cms \"$version\""
 echo ""
 
-cargo build --release --target=$platform
+TARGET_CC="$compiler" cargo build --release --target="$platform" \
+    --config "target.${platform}.linker=\"${compiler}\"" || exit $?
 
 if [[ "$target" == "debian" ]]; then
     cargo deb --no-build --target=$platform -p nur-cms --manifest-path=crates/app/Cargo.toml -o nur-cms_${version}-1_amd64.deb
@@ -23,4 +25,3 @@ else
     cargo deb --no-build --target=$platform -p nur-cms --manifest-path=crates/app/Cargo.toml -o nur-cms_${version}-1_amd64.deb
     cargo generate-rpm --target=$platform -p crates/app -o nur-cms-${version}-1.x86_64.rpm
 fi
-
