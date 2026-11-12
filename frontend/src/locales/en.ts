@@ -258,12 +258,11 @@ export default {
     media: {
         subtitles: {
             title: 'Subtitles',
-            hint: 'Upload WebVTT (max. 512 KiB). Uploading the same language replaces that track. A master playlist backup is kept for every change.',
+            hint: 'Set the language, display name and default track, then choose a WebVTT file (max. 512 KiB) to upload it immediately. The same language replaces the existing track. A master playlist backup is kept for every change.',
             language: 'Language tag',
             label: 'Display name',
             file: 'WebVTT file',
             default: 'Default track',
-            upload: 'Add or replace subtitles',
             remove: 'Remove',
             invalidFile: 'Choose a UTF-8 .vtt file no larger than 512 KiB.',
             saved: 'Subtitles saved. A master playlist backup was created.',

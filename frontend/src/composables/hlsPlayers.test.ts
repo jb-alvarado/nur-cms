@@ -63,6 +63,38 @@ afterEach(() => {
 })
 
 describe('MarkdownPreview HLS lifecycle', () => {
+    it('initializes existing videos and reloads a changed source on the same node', async () => {
+        const revision = ref(0)
+        const app = renderer.createApp({
+            setup() {
+                const root = ref<HTMLElement | null>(null)
+                useHlsPlayers(root)
+                return () => h('div', {
+                    ref: root,
+                    'data-revision': revision.value,
+                    innerHTML: '<video data-hls-src="/uploads/clip/master.m3u8"></video>',
+                })
+            },
+        })
+        const container = new HostNode()
+        app.mount(container)
+        try {
+            expect(attachHls).toHaveBeenCalledTimes(1)
+            const video = container.children[0]!.videos[0]!
+            video.dataset.hlsSrc = '/uploads/clip/master.m3u8?subtitles=1'
+            revision.value++
+            await nextTick()
+            expect(cleanup).toHaveBeenCalledTimes(1)
+            expect(attachHls).toHaveBeenLastCalledWith(video, '/uploads/clip/master.m3u8?subtitles=1')
+            revision.value++
+            await nextTick()
+            expect(attachHls).toHaveBeenCalledTimes(2)
+        } finally {
+            app.unmount()
+        }
+        expect(cleanup).toHaveBeenCalledTimes(2)
+    })
+
     it('releases a player when its text block is removed', async () => {
         const showVideo = ref(false)
         const app = renderer.createApp({

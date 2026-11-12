@@ -14,6 +14,7 @@ const language = ref('de')
 const label = ref('Deutsch')
 const isDefault = ref(false)
 const fileInput = ref<HTMLInputElement>()
+const uploadForm = ref<HTMLFormElement>()
 const busy = ref(false)
 
 onMounted(async () => {
@@ -27,6 +28,7 @@ onMounted(async () => {
 async function upload() {
     const file = fileInput.value?.files?.[0]
     if (!file) return
+    if (props.disabled || busy.value || !uploadForm.value?.reportValidity()) return
     if (!file.name.toLowerCase().endsWith('.vtt') || file.size > 512 * 1024) {
         store.msgAlert('error', t('media.subtitles.invalidFile'))
         return
@@ -50,6 +52,7 @@ async function upload() {
         emit('changed')
     } catch (error) {
         store.msgAlert('error', error instanceof Error ? error.message : String(error))
+        return
     } finally {
         busy.value = false
     }
@@ -86,7 +89,7 @@ async function remove(track: MediaSubtitle) {
                 </button>
             </li>
         </ul>
-        <form @submit.prevent="upload">
+        <form ref="uploadForm" @submit.prevent>
             <fieldset :disabled="disabled || busy" class="fieldset gap-2">
                 <label class="label" for="subtitle-language">{{ t('media.subtitles.language') }}</label>
                 <input
@@ -99,6 +102,11 @@ async function remove(track: MediaSubtitle) {
                 />
                 <label class="label" for="subtitle-label">{{ t('media.subtitles.label') }}</label>
                 <input id="subtitle-label" v-model="label" required maxlength="100" class="input w-full" />
+                <label class="label"
+                    ><input v-model="isDefault" type="checkbox" class="checkbox checkbox-sm" />{{
+                        t('media.subtitles.default')
+                    }}</label
+                >
                 <label class="label" for="subtitle-file">{{ t('media.subtitles.file') }}</label>
                 <input
                     id="subtitle-file"
@@ -107,13 +115,8 @@ async function remove(track: MediaSubtitle) {
                     accept=".vtt,text/vtt"
                     required
                     class="file-input w-full"
+                    @change="upload"
                 />
-                <label class="label"
-                    ><input v-model="isDefault" type="checkbox" class="checkbox checkbox-sm" />{{
-                        t('media.subtitles.default')
-                    }}</label
-                >
-                <button type="submit" class="btn btn-sm">{{ t('media.subtitles.upload') }}</button>
             </fieldset>
         </form>
     </section>

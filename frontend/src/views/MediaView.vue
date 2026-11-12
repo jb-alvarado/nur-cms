@@ -164,7 +164,6 @@ function runUpload() {
 async function runUpdate() {
     if (updater.value) {
         await updater.value.update()
-
         selectMedia()
     }
 }
@@ -300,7 +299,6 @@ function resetUpload() {
             ref="editModal"
             :key="editID"
             :title="$t('media.editTitle')"
-            width="200"
             :ok-action="runUpdate"
             @close="stopEditingVideo"
         >

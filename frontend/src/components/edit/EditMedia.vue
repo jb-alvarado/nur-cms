@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cloneDeep } from 'es-toolkit/object'
 import { isEqual } from 'es-toolkit/predicate'
 import { useIndex } from '@/stores/index'
-import { mediaPath } from '@/utils/helper'
-import { attachHls } from '@/utils/hls'
+import { mediaPath, mediaThumbnailPath } from '@/utils/helper'
+import MediaVideo from '@/components/media/MediaVideo.vue'
 import { authFetch } from '@/composables/authFetch'
 
 import MediaBrowser from '@/components/media/MediaBrowser.vue'
@@ -18,16 +18,18 @@ const media = ref<Media>({})
 const mediaOriginal = ref<Media>({})
 const thumbnailModal = ref()
 const thumbnailQueued = ref(false)
-const video = ref<HTMLVideoElement>()
+const video = ref<InstanceType<typeof MediaVideo>>()
 const subtitleRevision = ref(0)
-
-watch(
-    [video, () => media.value.video_variants?.find((variant) => variant.kind === 'hls')?.filename, subtitleRevision],
-    ([element, filename], _, onCleanup) => {
-        if (!element || !filename || !media.value.path) return
-        onCleanup(attachHls(element, `${media.value.path}/${filename}?subtitles=${subtitleRevision.value}`))
-    },
-    { flush: 'post' },
+const posterRevision = ref(Date.now())
+const posterSource = computed(() => {
+    const poster = mediaThumbnailPath(media.value)
+    return poster ? `${poster}?thumbnail=${posterRevision.value}` : undefined
+})
+const hlsVariant = computed(() => media.value.video_variants?.find((variant) => variant.kind === 'hls'))
+const videoSource = computed(() =>
+    hlsVariant.value
+        ? `${media.value.path}/${hlsVariant.value.filename}?subtitles=${subtitleRevision.value}`
+        : mediaPath(media.value),
 )
 
 const props = defineProps({
@@ -39,7 +41,7 @@ const props = defineProps({
 
 defineExpose({
     async update() {
-        await updateMedia()
+        return updateMedia()
     },
     stopPlayback,
 })
@@ -61,11 +63,11 @@ async function refreshAfterThumbnail(event: Event) {
     if (!thumbnailQueued.value || detail?.mediaId !== props.id) return
     if (typeof detail.message === 'string' && detail.message.includes('retry queued:')) return
 
-    await selectMedia()
+    if (await selectMedia(true)) posterRevision.value = Date.now()
     thumbnailQueued.value = false
 }
 
-async function selectMedia(): Promise<boolean> {
+async function selectMedia(preserveEdits = false): Promise<boolean> {
     const url = `/api/media?id=${props.id}`
 
     try {
@@ -76,8 +78,16 @@ async function selectMedia(): Promise<boolean> {
             return false
         }
 
+        const edits = preserveEdits
+            ? Object.fromEntries(
+                  (['alt', 'filename'] as const)
+                      .filter((key) => !isEqual(media.value[key], mediaOriginal.value[key]))
+                      .map((key) => [key, media.value[key]]),
+              )
+            : {}
         media.value = res.results[0]
         mediaOriginal.value = cloneDeep(res.results[0])
+        Object.assign(media.value, edits)
         return true
     } catch (err) {
         store.msgAlert('error', err instanceof Error ? err.message : String(err))
@@ -125,7 +135,7 @@ async function regenerateThumbnail() {
         .catch((err) => store.msgAlert('error', err))
 }
 
-async function updateMedia() {
+async function updateMedia(): Promise<boolean> {
     const url = `/api/media/${props.id}`
 
     const payload = Object.fromEntries(
@@ -135,48 +145,46 @@ async function updateMedia() {
     )
 
     if (Object.keys(payload).length === 0) {
-        store.msgAlert('warning', t('media.noChanges'))
-        return
+        return true
     }
 
-    await authFetch(url, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-    })
-        .then(async () => {
-            if (await selectMedia()) {
-                store.msgAlert('success', t('media.updateSuccess', { id: props.id }))
-            }
+    try {
+        await authFetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
         })
-        .catch((err) => {
-            store.msgAlert('error', err)
-        })
+        if (await selectMedia()) {
+            store.msgAlert('success', t('media.updateSuccess', { id: props.id }))
+        }
+        return true
+    } catch (error) {
+        store.msgAlert('error', error instanceof Error ? error.message : String(error))
+        return false
+    }
 }
 </script>
 <template>
-    <div class="flex flex-wrap gap-4">
-        <div class="mt-3 mx-auto">
+    <div class="flex flex-col gap-4">
+        <div class="mt-3 w-full text-center">
             <img
                 v-if="media.type?.startsWith('image/')"
                 :src="mediaPath(media, 768)"
                 :alt="media.alt ?? ''"
                 width="100%"
-                class="w-full md:max-w-150 lg:max-w-100"
+                class="w-full"
             />
-            <video
+            <MediaVideo
                 v-else-if="media.type?.startsWith('video/')"
                 ref="video"
-                :src="media.video_variants?.some((variant) => variant.kind === 'hls') ? undefined : mediaPath(media)"
-                controls
-                preload="metadata"
-                class="w-full lg:max-w-100"
+                :hls="Boolean(hlsVariant)"
+                :src="videoSource"
+                :poster="posterSource"
+                class="w-full"
             />
             <i v-else class="bi bi-file-earmark text-8xl"></i>
         </div>
-        <div class="grow w-full lg:max-w-84">
+        <div class="w-full">
             <fieldset class="fieldset">
                 <legend class="fieldset-legend">{{ $t('media.altText') }}</legend>
                 <input v-model="media.alt" type="text" class="input w-full" :placeholder="$t('media.alt')" />

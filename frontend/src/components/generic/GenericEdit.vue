@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -119,7 +119,7 @@ const content = ref({
     group_members: [],
     check: false,
     meta: {},
-} as Content)
+} as Content) as Ref<Content>
 const contentOriginal = ref(cloneDeep(content))
 
 const { copy, copied, isSupported } = useClipboard()

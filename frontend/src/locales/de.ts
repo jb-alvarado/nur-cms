@@ -261,12 +261,11 @@ export default {
     media: {
         subtitles: {
             title: 'Untertitel',
-            hint: 'WebVTT hochladen (max. 512 KiB). Dieselbe Sprache ersetzt die vorhandene Spur. Bei jeder Änderung wird die Master-Playlist gesichert.',
+            hint: 'Sprache, Anzeigename und Standardspur festlegen, dann eine WebVTT-Datei auswählen (max. 512 KiB). Die Auswahl lädt sie sofort hoch. Dieselbe Sprache ersetzt die vorhandene Spur. Bei jeder Änderung wird die Master-Playlist gesichert.',
             language: 'Sprachcode',
             label: 'Anzeigename',
             file: 'WebVTT-Datei',
             default: 'Standardspur',
-            upload: 'Untertitel hinzufügen oder ersetzen',
             remove: 'Entfernen',
             invalidFile: 'Wähle eine UTF-8-Datei mit Endung .vtt und maximal 512 KiB.',
             saved: 'Untertitel gespeichert. Die Master-Playlist wurde gesichert.',

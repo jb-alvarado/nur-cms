@@ -282,7 +282,8 @@ impl Visitor for SqlSubsetValidator {
                 partitions,
                 json_path,
                 sample,
-                index_hints,
+                index_directives,
+                inheritance,
                 ..
             } if args.is_none()
                 && with_hints.is_empty()
@@ -291,7 +292,8 @@ impl Visitor for SqlSubsetValidator {
                 && partitions.is_empty()
                 && json_path.is_none()
                 && sample.is_none()
-                && index_hints.is_empty() =>
+                && index_directives.is_empty()
+                && inheritance.is_none() =>
             {
                 ControlFlow::Continue(())
             }
@@ -740,6 +742,8 @@ mod tests {
             "SELECT set_config($1, $2, $3)",
             "SELECT query_to_xml($1, $2, $3, $4)",
             "SELECT id FROM pg_authid",
+            "SELECT id FROM ONLY messages",
+            "SELECT id FROM messages *",
             "SELECT id FROM messages; DELETE FROM messages",
         ] {
             let params = match sql {

@@ -22,7 +22,17 @@ export default defineConfig(() => {
         },
         base: '/admin/',
         root: './frontend',
-        plugins: [tailwindcss(), vue()],
+        plugins: [
+            tailwindcss(),
+            vue({
+                template: {
+                    compilerOptions: {
+                        isCustomElement: (tag) =>
+                            ['video-player', 'video-skin', 'hls-video', 'media-i18n'].includes(tag),
+                    },
+                },
+            }),
+        ],
         define: {
             __APP_VERSION__: JSON.stringify(appVersion),
         },
