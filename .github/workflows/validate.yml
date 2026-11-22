@@ -49,15 +49,12 @@ jobs:
           npx eslint frontend/src --max-warnings=0
           npm run type-check
           npm run build
-      - name: Check plugin examples
+      - name: Build plugin examples for runtime tests
         run: |
           npm run build --prefix crates/plugins/examples/vue-admin/admin
-          cargo check --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2
-          cargo check --manifest-path crates/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2
-          cargo check --manifest-path crates/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2
-          cargo test --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --no-run
-          cargo test --manifest-path crates/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --no-run
-          cargo test --manifest-path crates/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2 --no-run
+          cargo build --manifest-path crates/plugins/examples/echo/Cargo.toml --target wasm32-wasip2 --release
+          cargo build --manifest-path crates/plugins/examples/community-site/Cargo.toml --target wasm32-wasip2 --release
+          cargo build --manifest-path crates/plugins/examples/vue-admin/Cargo.toml --target wasm32-wasip2 --release
       - name: Validate Rust
         run: |
           cargo fmt --all -- --check
