@@ -7,7 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use chrono::{Datelike, Local};
+use jiff::ZonedDateTime;
 
 use super::StorageDirectory;
 use crate::Error;
@@ -17,7 +17,7 @@ const MAX_FILE_NAME_BYTES: usize = 236;
 static TEMPORARY_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn render_path(template: &str) -> String {
-    let now = Local::now();
+    let now = ZonedDateTime::now();
     template
         .replace("{year}", &now.year().to_string())
         .replace("{month}", &format!("{:02}", now.month()))

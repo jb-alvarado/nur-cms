@@ -17,16 +17,12 @@ nur_core = { path = "../core" }
 nur_plugins = { path = "../plugins" }
 axum = { version = "0.8", features = ["multipart"] }
 bytes = "1"
-chrono = { version = "0.4", default-features = false, features = [
-    "clock",
-    "std",
-    "serde",
-] }
 clap = { version = "4", features = ["derive"] }
 colored = "3"
 dotenvy = "0.15"
 include_dir = "0.7"
 ipnet = "2"
+jiff = "1"
 lazy-limit = "1"
 mime_guess = "2"
 moka = { version = "0.12", default-features = false, features = ["sync"] }
@@ -42,11 +38,7 @@ tracing-subscriber = { version = "0.3", features = [
     "ansi",
     "env-filter",
     "time",
-    "chrono",
 ] }
-
-[build-dependencies]
-build-print = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 sd-notify = "0.5"

@@ -1,11 +1,11 @@
 use std::{fmt, str::FromStr};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use ts_rs::TS;
 
+use crate::db::Timestamp;
 use crate::db::{
     fields::{ColumnCounter, OutputType},
     is_zero,
@@ -218,11 +218,11 @@ pub struct AuthUser {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub role_id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_login: Option<DateTime<Utc>>,
+    pub last_login: Option<Timestamp>,
 }
 
 impl AuthUser {
@@ -451,9 +451,9 @@ pub struct ContentEntry {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub updated_by: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -502,9 +502,9 @@ pub struct ContentAuthor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_id: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -542,9 +542,9 @@ pub struct ContentMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<DateTime<Utc>>,
+    pub start_time: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<DateTime<Utc>>,
+    pub end_time: Option<Timestamp>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -594,7 +594,7 @@ pub struct Media {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub processing_status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -943,9 +943,9 @@ pub struct Comment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<Entry>,
     #[ts(skip)]

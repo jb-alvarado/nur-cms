@@ -23,9 +23,9 @@ use std::{
     sync::LazyLock,
 };
 
-use chrono::{DateTime, NaiveDate, Utc};
 use colored::Colorize;
 use inquire::Select;
+use jiff::{civil::Date, tz::TimeZone};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -34,11 +34,7 @@ use tokio::fs;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-static IMAGE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"!\[([^\]]*)\]\(([^")"\s]+)(?:\s+"([^"]*)")?\)"#)
-        .expect("Invalid image regex pattern")
-});
-
+use crate::db::Timestamp;
 use crate::{
     CONFIG, PUBLIC_UPLOADS, STORAGE,
     db::{
@@ -56,6 +52,11 @@ use crate::{
     },
     utils::{errors::NurError, markdown::media_references},
 };
+
+static IMAGE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"!\[([^\]]*)\]\(([^")"\s]+)(?:\s+"([^"]*)")?\)"#)
+        .expect("Invalid image regex pattern")
+});
 
 #[derive(Debug, Clone)]
 pub struct ImportOptions {
@@ -121,12 +122,16 @@ struct Frontmatter {
     data: Option<BTreeMap<String, Value>>,
 }
 
-fn parse_frontmatter_datetime(value: &str) -> Option<DateTime<Utc>> {
-    value.trim().parse::<DateTime<Utc>>().ok().or_else(|| {
-        NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+fn parse_frontmatter_datetime(value: &str) -> Option<Timestamp> {
+    value.trim().parse::<Timestamp>().ok().or_else(|| {
+        value
+            .trim()
+            .parse::<Date>()
             .ok()?
-            .and_hms_opt(0, 0, 0)
-            .map(|datetime| datetime.and_utc())
+            .at(0, 0, 0, 0)
+            .to_zoned_datetime(TimeZone::UTC)
+            .ok()
+            .map(|datetime| Timestamp::from(datetime.timestamp()))
     })
 }
 
@@ -691,7 +696,7 @@ async fn extract_body_and_title(
     media_root: Option<&Path>,
     file_dir: &Path,
     user_id: i32,
-) -> Result<(Option<Frontmatter>, DateTime<Utc>, String, String), NurError> {
+) -> Result<(Option<Frontmatter>, Timestamp, String, String), NurError> {
     let mut lines = content.lines();
     let mut title = String::new();
 
@@ -700,7 +705,7 @@ async fn extract_body_and_title(
     let mut frontmatter_parsed = false;
     let mut frontmatter_raw = Vec::new();
     let mut frontmatter: Option<Frontmatter> = None;
-    let mut created_at = Utc::now();
+    let mut created_at = Timestamp::now();
     let mut body_lines: Vec<String> = Vec::new();
 
     for line in lines.by_ref() {
@@ -726,7 +731,7 @@ async fn extract_body_and_title(
                         .as_ref()
                         .and_then(|f| f.date.as_ref())
                         .and_then(|value| parse_frontmatter_datetime(value))
-                        .unwrap_or(Utc::now()),
+                        .unwrap_or(Timestamp::now()),
                 };
 
                 frontmatter_raw.clear();
@@ -782,7 +787,7 @@ async fn replace_markdown_image(
     pool: &PgPool,
     media_root: Option<&Path>,
     file_dir: &Path,
-    created_at: &DateTime<Utc>,
+    created_at: &Timestamp,
     user_id: i32,
 ) -> Option<String> {
     let img_regex = &*IMAGE_REGEX;
@@ -883,7 +888,7 @@ async fn lookup_or_create_category(
 async fn lookup_or_create_author(
     pool: &PgPool,
     name: &str,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
 ) -> Result<Option<i32>, sqlx::Error> {
     let parts: Vec<&str> = name.rsplitn(2, ' ').collect();
     let (first_name, last_name) = match parts.as_slice() {
@@ -921,7 +926,7 @@ async fn lookup_or_create_tag(pool: &PgPool, name: &str) -> Result<Option<i32>, 
 async fn resolve_author_ids(
     pool: &PgPool,
     frontmatter: Option<&Frontmatter>,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
 ) -> Result<Vec<i32>, sqlx::Error> {
     let Some(authors) = frontmatter.and_then(|fm| fm.author.as_ref()) else {
         return Ok(Vec::new());
@@ -995,9 +1000,9 @@ fn resolve_source_path(
     }
 }
 
-fn ensure_target_paths(date: &DateTime<Utc>) -> (String, PathBuf) {
-    let year = date.format("%Y").to_string();
-    let month = date.format("%m").to_string();
+fn ensure_target_paths(date: &Timestamp) -> (String, PathBuf) {
+    let year = date.strftime("%Y").to_string();
+    let month = date.strftime("%m").to_string();
     let target_dir = format!("{PUBLIC_UPLOADS}/{year}/{month}");
     let target_fs = PathBuf::from(STORAGE.as_str()).join(&year).join(&month);
     (target_dir, target_fs)
@@ -1008,7 +1013,7 @@ async fn ensure_media(
     thumbnail_path: &str,
     media_root: Option<&Path>,
     file_dir: &Path,
-    date: &DateTime<Utc>,
+    date: &Timestamp,
     user_id: i32,
 ) -> Result<Option<i32>, NurError> {
     let source_path = resolve_source_path(thumbnail_path, media_root, file_dir);
@@ -1163,11 +1168,11 @@ mod tests {
     fn parses_frontmatter_dates_with_and_without_a_time() {
         assert_eq!(
             parse_frontmatter_datetime("2008-04-17"),
-            "2008-04-17T00:00:00Z".parse::<DateTime<Utc>>().ok()
+            "2008-04-17T00:00:00Z".parse::<Timestamp>().ok()
         );
         assert_eq!(
             parse_frontmatter_datetime("2008-04-17T13:45:30+02:00"),
-            "2008-04-17T11:45:30Z".parse::<DateTime<Utc>>().ok()
+            "2008-04-17T11:45:30Z".parse::<Timestamp>().ok()
         );
     }
 

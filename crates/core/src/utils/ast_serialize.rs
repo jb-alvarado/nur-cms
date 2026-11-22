@@ -175,9 +175,9 @@ fn node_type_name(node: &NodeValue) -> &'static str {
         NodeValue::Image(_) => "image",
         NodeValue::Text(_) => "text",
         NodeValue::HtmlBlock(_) | NodeValue::HtmlInline(_) => "html",
-        NodeValue::Strong => "strong",
-        NodeValue::Emph => "emphasis",
-        NodeValue::Strikethrough => "delete",
+        NodeValue::Strong(_) => "strong",
+        NodeValue::Emph(_) => "emphasis",
+        NodeValue::Strikethrough(_) => "delete",
         NodeValue::Underline => "underline",
         NodeValue::Highlight => "highlight",
         NodeValue::Insert => "insert",
@@ -190,7 +190,7 @@ fn node_type_name(node: &NodeValue) -> &'static str {
         NodeValue::Code(_) => "inlineCode",
         NodeValue::CodeBlock(_) => "code",
         NodeValue::Table(_) => "table",
-        NodeValue::ThematicBreak => "thematicBreak",
+        NodeValue::ThematicBreak(_) => "thematicBreak",
         NodeValue::TableRow(_) => "tableRow",
         NodeValue::TableCell => "tableCell",
         NodeValue::Item(_) | NodeValue::TaskItem(_) => "listItem",
@@ -205,6 +205,7 @@ fn alert_type_name(alert_type: comrak::nodes::AlertType) -> &'static str {
         comrak::nodes::AlertType::Important => "important",
         comrak::nodes::AlertType::Warning => "warning",
         comrak::nodes::AlertType::Caution => "caution",
+        _ => "note",
     }
 }
 
@@ -414,9 +415,9 @@ fn to_structure_ast<'a>(
                 _ => None,
             };
             let style_key = match data.value {
-                NodeValue::Strong => Some("bold"),
-                NodeValue::Emph => Some("italic"),
-                NodeValue::Strikethrough => Some("strikethrough"),
+                NodeValue::Strong(_) => Some("bold"),
+                NodeValue::Emph(_) => Some("italic"),
+                NodeValue::Strikethrough(_) => Some("strikethrough"),
                 _ => None,
             };
             drop(data);
@@ -636,11 +637,7 @@ fn truncate_structure_node(node: &mut Value, remaining: &mut usize) -> bool {
                 .map(Vec::is_empty)
                 .unwrap_or(false);
 
-            if is_empty_children {
-                return false;
-            }
-
-            true
+            !is_empty_children
         }
         Value::Array(arr) => {
             let mut next_children = Vec::new();

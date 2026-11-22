@@ -2,12 +2,12 @@ use axum::{
     Json,
     extract::{Extension, OriginalUri, Path, Query, State},
 };
-use chrono::Utc;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
+use crate::db::Timestamp;
 use crate::{
     db::{
         fields::{AuthRoleFields, AuthUserFields, Table},
@@ -131,7 +131,7 @@ pub async fn auth_user_update(
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin]) {
         let mut auth_user: AuthUser = auth_user;
-        auth_user.updated_at = Some(Utc::now());
+        auth_user.updated_at = Some(Timestamp::now());
         auth_user.last_login = None;
 
         return match handles::update_auth_user(&pool, id, &auth_user).await {

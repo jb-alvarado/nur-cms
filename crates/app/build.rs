@@ -4,9 +4,6 @@ use std::{
     process::{Command, Stdio},
 };
 
-#[cfg(not(debug_assertions))]
-use build_print::info;
-
 fn main() {
     #[cfg(not(debug_assertions))]
     {
@@ -21,7 +18,7 @@ fn main() {
                 let reader = BufReader::new(stdout);
                 for line in reader.lines() {
                     let line = line?;
-                    info!("{}", line.trim());
+                    println!("cargo:warning=info: {}", line.trim());
                 }
                 child.wait_with_output()
             })

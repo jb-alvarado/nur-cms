@@ -141,6 +141,32 @@ interface mail {
   send: func(message: message) -> result<_, plugin-error>;
 }
 
+interface mail-attachments {
+  use types.{plugin-error};
+  use mail.{message};
+
+  enum attachment-type {
+    pdf,
+    png,
+    jpeg,
+    plain-text,
+    csv,
+    json,
+  }
+
+  record attachment {
+    filename: string,
+    kind: attachment-type,
+    data: list<u8>,
+  }
+
+  /// Sends up to five attachments with at most one MiB of data in total.
+  send: func(message: message, attachments: list<attachment>) -> result<_, plugin-error>;
+
+  /// Compatibility helper for callers sending a single PDF.
+  send-pdf: func(message: message, pdf: list<u8>) -> result<_, plugin-error>;
+}
+
 interface configuration {
   /// Returns the validated canonical public CMS URL without a trailing slash.
   public-url: func() -> option<string>;
@@ -194,6 +220,7 @@ world cms-plugin {
   import configuration;
   import database;
   import mail;
+  import mail-attachments;
   import storage;
   export http-handler;
 }

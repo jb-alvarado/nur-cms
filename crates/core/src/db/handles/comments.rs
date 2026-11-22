@@ -1,10 +1,10 @@
-use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder, Row, postgres::PgPool};
 use strum::IntoEnumIterator;
 
 #[cfg(debug_assertions)]
 use tracing::debug;
 
+use crate::db::Timestamp;
 use crate::db::{
     fields::CommentFields,
     models::Comment,
@@ -233,7 +233,7 @@ pub async fn insert_comment_moderation_tokens(
     comment_id: i64,
     approve_token_hash: &[u8],
     reject_token_hash: &[u8],
-    expires_at: DateTime<Utc>,
+    expires_at: Timestamp,
 ) -> Result<(), NurError> {
     let mut transaction = pool.begin().await?;
     sqlx::query(
@@ -338,8 +338,10 @@ pub async fn consume_comment_moderation_token(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, Utc};
+    use jiff::SignedDuration;
     use sqlx::PgPool;
+
+    use crate::db::Timestamp;
 
     use super::{
         comment_ordering, consume_comment_moderation_token, insert_comment_moderation_tokens,
@@ -395,7 +397,7 @@ mod tests {
             comment_id,
             approve_hash,
             reject_hash,
-            Utc::now() + Duration::days(14),
+            Timestamp::now() + SignedDuration::from_hours(24 * 14),
         )
         .await
         .expect("moderation tokens can be inserted");
@@ -439,7 +441,7 @@ mod tests {
             comment_id,
             approve_hash,
             reject_hash,
-            Utc::now() + Duration::days(14),
+            Timestamp::now() + SignedDuration::from_hours(24 * 14),
         )
         .await
         .expect("moderation tokens can be inserted");
@@ -473,7 +475,7 @@ mod tests {
             comment_id,
             approve_hash,
             b"expired-reject-hash",
-            Utc::now() - Duration::seconds(1),
+            Timestamp::now() - SignedDuration::from_secs(1),
         )
         .await
         .expect("expired test tokens can be inserted");

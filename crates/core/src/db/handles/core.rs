@@ -5,13 +5,13 @@ use std::{
 };
 
 use argon2::{Argon2, PasswordHasher};
-use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{Executor, Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 use tracing::{debug, warn};
 
+use crate::db::Timestamp;
 use crate::db::{
     fields::*,
     queries::{QueryObj, RespondObj, WhereBuilder},
@@ -259,9 +259,9 @@ where
             }
             Value::String(s) => {
                 if type_time.contains(&key.as_str()) {
-                    let dt: DateTime<Utc> = match DateTime::parse_from_rfc3339(s) {
-                        Ok(t) => t.into(),
-                        Err(_) => Utc::now(),
+                    let dt: Timestamp = match s.parse::<Timestamp>() {
+                        Ok(t) => t,
+                        Err(_) => Timestamp::now(),
                     };
 
                     separated.push_bind(dt);
@@ -360,9 +360,9 @@ where
             }
             Value::String(s) => {
                 if type_time.contains(&key.as_str()) {
-                    let dt: DateTime<Utc> = match DateTime::parse_from_rfc3339(&s) {
-                        Ok(t) => t.into(),
-                        Err(_) => Utc::now(),
+                    let dt: Timestamp = match s.parse::<Timestamp>() {
+                        Ok(t) => t,
+                        Err(_) => Timestamp::now(),
                     };
 
                     separated.push_bind_unseparated(dt);

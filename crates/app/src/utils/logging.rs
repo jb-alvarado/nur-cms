@@ -8,7 +8,7 @@ use axum::{
     },
     middleware::Next,
 };
-use chrono::Local;
+use jiff::ZonedDateTime;
 use tracing::{error, info, warn};
 use tracing_subscriber::{
     EnvFilter, Layer,
@@ -17,11 +17,15 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-struct ChronoLocalTimer;
+struct LocalTimer;
 
-impl FormatTime for ChronoLocalTimer {
+impl FormatTime for LocalTimer {
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
-        write!(w, "{}", Local::now().format("[%Y-%m-%d %H:%M:%S%.6f]"))
+        write!(
+            w,
+            "{}",
+            ZonedDateTime::now().strftime("[%Y-%m-%d %H:%M:%S.%6f]")
+        )
     }
 }
 
@@ -39,7 +43,7 @@ pub fn init_tracing(level: Option<String>, timestamp: bool) {
 
     let fmt_layer = if timestamp {
         fmt::layer()
-            .with_timer(ChronoLocalTimer)
+            .with_timer(LocalTimer)
             .with_target(false)
             .with_level(true)
             .with_ansi(true)

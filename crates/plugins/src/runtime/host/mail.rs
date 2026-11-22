@@ -7,23 +7,65 @@ use colored::Colorize;
 use tracing::{error, info};
 
 use nur_core::mail::service::{
-    MailRequest, PluginMailContentKind, PluginMailError, deliver_plugin_mail, prepare_plugin_mail,
+    MailRequest, PluginMailContentKind, PluginMailError, deliver_plugin_mail,
+    deliver_plugin_mail_with_attachments, prepare_plugin_mail,
 };
+
+mod attachments;
 
 use super::{HostState, PluginResult, TimedHostResult};
 use crate::runtime::{
-    bindings::{self, nur::cms::types::PluginError},
+    bindings::{
+        self,
+        nur::cms::{
+            mail::Message,
+            mail_attachments::{Attachment, AttachmentType},
+            types::PluginError,
+        },
+    },
     mail_limiter::{allow_mail_for_request, allow_public_mail_for_client},
 };
 
 impl bindings::nur::cms::mail::Host for HostState {
-    fn send(&mut self, message: bindings::nur::cms::mail::Message) -> PluginResult<()> {
+    fn send(&mut self, message: Message) -> PluginResult<()> {
+        self.send_plugin_mail(message, Vec::new())
+    }
+}
+
+impl bindings::nur::cms::mail_attachments::Host for HostState {
+    fn send(&mut self, message: Message, attachments: Vec<Attachment>) -> PluginResult<()> {
+        self.send_plugin_mail(message, attachments)
+    }
+
+    fn send_pdf(&mut self, message: Message, pdf: Vec<u8>) -> PluginResult<()> {
+        self.send_plugin_mail(
+            message,
+            vec![Attachment {
+                filename: "participation-agreement.pdf".into(),
+                kind: AttachmentType::Pdf,
+                data: pdf,
+            }],
+        )
+    }
+}
+
+impl HostState {
+    fn send_plugin_mail(
+        &mut self,
+        message: Message,
+        attachments: Vec<Attachment>,
+    ) -> PluginResult<()> {
         self.consume_host_call()?;
 
         let trusted_template = matches!(
             message.content_kind,
             bindings::nur::cms::mail::ContentKind::TrustedTemplateHtml
         );
+
+        // Attachments are only allowed for trusted template targets with fixed recipients.
+        if !attachments.is_empty() && (!trusted_template || message.recipient.is_some()) {
+            return Err(PluginError::Forbidden);
+        }
 
         if !self.mail_permissions.allows(
             &message.target,
@@ -32,6 +74,8 @@ impl bindings::nur::cms::mail::Host for HostState {
         ) {
             return Err(PluginError::Forbidden);
         }
+
+        let attachments = attachments::validate(attachments)?;
 
         let request = MailRequest {
             reply_to: message.reply_to,
@@ -78,7 +122,14 @@ impl bindings::nur::cms::mail::Host for HostState {
         self.authorize_mail_send()?;
         let remaining = self.host_call_timeout.saturating_sub(started.elapsed());
         let result = self.tokio_handle.block_on(async {
-            tokio::time::timeout(remaining, deliver_plugin_mail(prepared)).await
+            tokio::time::timeout(remaining, async {
+                if attachments.is_empty() {
+                    deliver_plugin_mail(prepared).await
+                } else {
+                    deliver_plugin_mail_with_attachments(prepared, attachments).await
+                }
+            })
+            .await
         });
 
         self.log_mail_metrics(&result, started.elapsed());

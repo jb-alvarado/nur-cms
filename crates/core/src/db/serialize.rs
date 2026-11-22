@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use ts_rs::TS;
 
+use crate::db::Timestamp;
 use crate::db::{
     fields::ColumnCounter,
     models::{AuthRole, Role},
@@ -31,11 +31,11 @@ pub struct AuthUserSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<AuthRole>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_login: Option<DateTime<Utc>>,
+    pub last_login: Option<Timestamp>,
     #[ts(skip)]
     #[serde(default, skip_serializing)]
     pub total_count: Option<i64>,
@@ -216,9 +216,9 @@ pub struct ContentEntrySerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media: Option<MediaSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub group_members: Vec<GroupMemberSerializer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -238,14 +238,14 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             .map(|v| serde_json::from_value::<Vec<AuthorSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
 
-        let meta = row
-            .try_get::<(Option<DateTime<Utc>>, Option<DateTime<Utc>>), &str>("meta")
-            .ok()
-            .filter(|(start_time, end_time)| start_time.is_some() || end_time.is_some())
-            .map(|(start_time, end_time)| ContentMetaSerializer {
+        let meta = match row.try_get::<(Option<Timestamp>, Option<Timestamp>), &str>("meta") {
+            Ok((None, None)) | Err(sqlx::Error::ColumnNotFound(_)) => None,
+            Ok((start_time, end_time)) => Some(ContentMetaSerializer {
                 start_time,
                 end_time,
-            });
+            }),
+            Err(error) => return Err(error),
+        };
 
         let category = row
             .try_get::<Option<serde_json::Value>, _>("category")
@@ -497,9 +497,9 @@ impl ColumnCounter for ContentTagSerializer {
 #[ts(export, export_to = "serialized.d.ts")]
 pub struct ContentMetaSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<DateTime<Utc>>,
+    pub start_time: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<DateTime<Utc>>,
+    pub end_time: Option<Timestamp>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, TS)]
@@ -539,7 +539,7 @@ pub struct MediaSerializer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position_index: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub processing_status: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -1,7 +1,7 @@
-use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 
+use crate::db::Timestamp;
 use crate::{
     db::{
         fields::Table,
@@ -184,7 +184,7 @@ pub async fn insert_author(
     first_name: &str,
     last_name: Option<&str>,
     slug: &str,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
 ) -> Result<i32, sqlx::Error> {
     sqlx::query_scalar(
         "INSERT INTO content_authors (first_name, last_name, slug, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",

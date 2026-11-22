@@ -2,7 +2,7 @@ use sqlx::PgPool;
 
 use crate::{
     db::handles,
-    mail::client::{Msg, message},
+    mail::client::{MailAttachment, Msg, message, message_with_attachments},
     utils::{
         errors::NurError,
         spam_detection::{TextScore, evaluate_text, validate_email_address},
@@ -173,6 +173,24 @@ pub async fn deliver_plugin_mail(prepared: PreparedPluginMail) -> Result<(), Plu
         prepared.mail.text,
         prepared.target,
     ))
+    .await
+    .map_err(|_| PluginMailError::DeliveryFailed)
+}
+
+pub async fn deliver_plugin_mail_with_attachments(
+    prepared: PreparedPluginMail,
+    attachments: Vec<MailAttachment>,
+) -> Result<(), PluginMailError> {
+    message_with_attachments(
+        Msg::new(
+            prepared.mail.reply_to,
+            prepared.mail.name,
+            prepared.mail.subject,
+            prepared.mail.text,
+            prepared.target,
+        ),
+        attachments,
+    )
     .await
     .map_err(|_| PluginMailError::DeliveryFailed)
 }

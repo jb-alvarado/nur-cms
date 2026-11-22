@@ -8,7 +8,7 @@ use axum::{
     middleware::Next,
     response::{Html, IntoResponse, Response},
 };
-use chrono::{Duration, Utc};
+use jiff::SignedDuration;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use real::RealIp;
 use serde_json::Value;
@@ -18,6 +18,7 @@ use tokio::sync::broadcast::Sender;
 use tracing::error;
 use uuid::Uuid;
 
+use crate::db::Timestamp;
 use crate::{
     AuthUserMeta, CMS_CONFIG, CONFIG,
     db::{
@@ -128,7 +129,8 @@ async fn create_moderation_links(
     comment_id: i64,
     public_url: &str,
 ) -> Result<ModerationLinks, NurError> {
-    let expires_at = Utc::now() + Duration::days(comment_moderation_token_ttl_days());
+    let expires_at =
+        Timestamp::now() + SignedDuration::from_hours(24 * comment_moderation_token_ttl_days());
     let approve_token = Uuid::new_v4().simple().to_string();
     let reject_token = Uuid::new_v4().simple().to_string();
     handles::insert_comment_moderation_tokens(
@@ -419,7 +421,7 @@ pub async fn comment_update(
     Json(mut content): Json<Value>,
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+        content["updated_at"] = Value::String(Timestamp::now().to_string());
 
         return match handles::update_record(&pool, &Table::Comments, id, &content).await {
             Ok(_) => Ok(()),

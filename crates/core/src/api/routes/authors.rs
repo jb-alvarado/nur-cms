@@ -2,13 +2,13 @@ use axum::{
     Json,
     extract::{OriginalUri, Path, Query, State},
 };
-use chrono::Utc;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
+use crate::db::Timestamp;
 use crate::db::{
     fields::{ContentAuthorFields, Table},
     handles,
@@ -62,7 +62,7 @@ pub async fn author_update(
     Json(mut content): Json<Value>,
 ) -> Result<(), NurError> {
     if details.has_any_authority(&[&Role::Admin, &Role::Author]) {
-        content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+        content["updated_at"] = Value::String(Timestamp::now().to_string());
 
         return match handles::update_record(&pool, &Table::ContentAuthors, id, &content).await {
             Ok(_) => Ok(()),

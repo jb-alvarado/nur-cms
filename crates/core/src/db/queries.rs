@@ -1,6 +1,5 @@
 use std::{str::FromStr, sync::LazyLock};
 
-use chrono::prelude::*;
 use regex::Regex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -8,6 +7,7 @@ use sqlx::{Postgres, QueryBuilder};
 use strum::IntoEnumIterator;
 use ts_rs::TS;
 
+use crate::db::Timestamp;
 use crate::db::fields::*;
 
 // Default response items limit
@@ -107,14 +107,14 @@ pub struct QueryObj<T> {
     pub grouped: bool,
 
     #[serde(default)]
-    pub start_time: Option<DateTime<Utc>>,
+    pub start_time: Option<Timestamp>,
     #[serde(default)]
-    pub end_time: Option<DateTime<Utc>>,
+    pub end_time: Option<Timestamp>,
 
     #[serde(default)]
-    pub created_after: Option<DateTime<Utc>>,
+    pub created_after: Option<Timestamp>,
     #[serde(default)]
-    pub created_before: Option<DateTime<Utc>>,
+    pub created_before: Option<Timestamp>,
 
     #[serde(
         default = "default_fields",

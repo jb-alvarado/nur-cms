@@ -5,7 +5,7 @@ use std::{
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier, password_hash::phc::PasswordHash};
 use axum::{Json as AxumJson, extract::State, http::StatusCode, response::IntoResponse};
-use chrono::{DateTime, TimeDelta, Utc};
+use jiff::SignedDuration;
 use jsonwebtoken::{self, DecodingKey, EncodingKey, Header, Validation};
 use lettre::message::Mailbox;
 use rand::RngExt;
@@ -16,6 +16,7 @@ use tokio::{sync::Mutex, task};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::db::Timestamp;
 use crate::{
     ACCESS_LIFETIME_MINUTES, CMS_CONFIG, CONFIG, REFRESH_LIFETIME,
     db::{
@@ -55,32 +56,26 @@ pub enum TokenType {
 
 impl Claims {
     pub fn access(id: i32, role: Role) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id,
             role,
             token_type: TokenType::Access,
             jti: None,
-            iat: now.timestamp(),
-            exp: (now
-                + TimeDelta::try_minutes(*ACCESS_LIFETIME_MINUTES)
-                    .expect("access-token lifetime is bounded"))
-            .timestamp(),
+            iat: now.as_second(),
+            exp: (now + SignedDuration::from_mins(*ACCESS_LIFETIME_MINUTES)).as_second(),
         }
     }
 
     pub fn refresh(id: i32, role: Role, jti: String) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id,
             role,
             token_type: TokenType::Refresh,
             jti: Some(jti),
-            iat: now.timestamp(),
-            exp: (now
-                + TimeDelta::try_days(*REFRESH_LIFETIME)
-                    .expect("refresh-token lifetime is bounded"))
-            .timestamp(),
+            iat: now.as_second(),
+            exp: (now + SignedDuration::from_hours(24 * *REFRESH_LIFETIME)).as_second(),
         }
     }
 }
@@ -107,7 +102,7 @@ pub struct VerificationCode {
     pub code: String,
     pub user_id: i32,
     pub role: Role,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub failed_attempts: u8,
 }
 
@@ -144,7 +139,7 @@ fn is_valid_mailbox(value: &str) -> bool {
 
 /// Create a json web token (JWT)
 pub async fn encode_jwt(claims: Claims) -> Result<String, NurError> {
-    let encoding_key = EncodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
+    let encoding_key = EncodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes())?;
     Ok(jsonwebtoken::encode(
         &Header::default(),
         &claims,
@@ -154,7 +149,8 @@ pub async fn encode_jwt(claims: Claims) -> Result<String, NurError> {
 
 /// Decode a json web token (JWT)
 async fn decode_jwt_with_type(token: &str, expected: TokenType) -> Result<Claims, NurError> {
-    let decoding_key = DecodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes());
+    let decoding_key = DecodingKey::from_secret(CONFIG.read().await.jwt_secret.as_bytes())
+        .map_err(|_| NurError::Unauthorized)?;
     let claims = jsonwebtoken::decode::<Claims>(token, &decoding_key, &Validation::default())
         .map(|data| data.claims)
         .map_err(|_| NurError::Unauthorized)?;
@@ -198,7 +194,7 @@ async fn issue_token_pair(pool: &PgPool, user_id: i32, role: Role) -> Result<Tok
         &jti,
         user_id,
         expires_at,
-        Utc::now().timestamp(),
+        Timestamp::now().as_second(),
     )
     .await?;
 
@@ -225,7 +221,7 @@ async fn rotate_token_pair(
         &new_jti,
         user_id,
         expires_at,
-        Utc::now().timestamp(),
+        Timestamp::now().as_second(),
     )
     .await?;
 
@@ -325,7 +321,7 @@ pub async fn login(
                         code: verification_code.clone(),
                         user_id,
                         role: role.name.clone(),
-                        created_at: Utc::now(),
+                        created_at: Timestamp::now(),
                         failed_attempts: 0,
                     };
 
@@ -451,8 +447,8 @@ pub async fn verify(
 
         if let Some(mut verification) = codes.remove(&username) {
             // Check if code is still valid (max 5 minutes)
-            let elapsed = Utc::now().signed_duration_since(verification.created_at);
-            if elapsed >= TimeDelta::minutes(5) {
+            let elapsed = Timestamp::now() - verification.created_at;
+            if elapsed >= SignedDuration::from_mins(5) {
                 return Ok((
                     StatusCode::BAD_REQUEST,
                     AxumJson(serde_json::json!({
@@ -595,7 +591,8 @@ pub async fn logout(
     if let Ok(claims) = decode_refresh_jwt(&data.refresh).await
         && let Some(jti) = claims.jti
     {
-        handles::revoke_refresh_family(&pool, &jti, claims.id, Utc::now().timestamp()).await?;
+        handles::revoke_refresh_family(&pool, &jti, claims.id, Timestamp::now().as_second())
+            .await?;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -661,7 +658,7 @@ mod tests {
 
     #[tokio::test]
     async fn access_claims_have_the_configured_lifetime() {
-        let now = Utc::now().timestamp();
+        let now = Timestamp::now().as_second();
         let claims = Claims::access(42, Role::Admin);
         let expected = *ACCESS_LIFETIME_MINUTES * 60;
 
@@ -799,7 +796,7 @@ mod tests {
             let token = encode_jwt(claims).await.expect("encode ok");
 
             // Try to decode with different secret
-            let decoding_key = DecodingKey::from_secret("wrong-secret".as_bytes());
+            let decoding_key = DecodingKey::from_secret(b"wrong-secret").expect("nonempty secret");
             let result =
                 jsonwebtoken::decode::<Claims>(&token, &decoding_key, &Validation::default());
 
@@ -810,7 +807,7 @@ mod tests {
 
     #[tokio::test]
     async fn verification_code_struct_creation() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let code = VerificationCode {
             code: "1234567".to_string(),
             user_id: 42,
@@ -828,7 +825,7 @@ mod tests {
 
     #[tokio::test]
     async fn verification_code_expiry_check_fresh() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let code = VerificationCode {
             code: "1234567".to_string(),
             user_id: 42,
@@ -837,16 +834,13 @@ mod tests {
             failed_attempts: 0,
         };
 
-        let elapsed = Utc::now().signed_duration_since(code.created_at);
-        assert!(
-            elapsed.num_minutes() <= 5,
-            "Fresh code should not be expired"
-        );
+        let elapsed = Timestamp::now() - code.created_at;
+        assert!(elapsed.as_mins() <= 5, "Fresh code should not be expired");
     }
 
     #[tokio::test]
     async fn verification_code_expires_after_5_minutes() {
-        let far_past = Utc::now() - chrono::Duration::minutes(6);
+        let far_past = Timestamp::now() - SignedDuration::from_mins(6);
         let code = VerificationCode {
             code: "1234567".to_string(),
             user_id: 42,
@@ -855,9 +849,9 @@ mod tests {
             failed_attempts: 0,
         };
 
-        let elapsed = Utc::now().signed_duration_since(code.created_at);
+        let elapsed = Timestamp::now() - code.created_at;
         assert!(
-            elapsed >= chrono::Duration::minutes(5),
+            elapsed >= SignedDuration::from_mins(5),
             "Code older than 5 minutes should be expired"
         );
     }

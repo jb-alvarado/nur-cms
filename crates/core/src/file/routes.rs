@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use chrono::Local;
+use jiff::ZonedDateTime;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use sanitize_filename::sanitize;
 use serde::{Deserialize, Serialize};
@@ -242,7 +242,7 @@ pub struct UploadStatus {
 
 fn upload_output_file(file_name: &str) -> PathBuf {
     PathBuf::from(&*STORAGE)
-        .join(Local::now().format("%Y/%m").to_string())
+        .join(ZonedDateTime::now().strftime("%Y/%m").to_string())
         .join(file_name)
 }
 

@@ -1,10 +1,10 @@
-use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder, postgres::PgPool};
 use strum::IntoEnumIterator;
 
 #[cfg(debug_assertions)]
 use tracing::debug;
 
+use crate::db::Timestamp;
 use crate::{
     db::{
         fields::MediaFields,
@@ -196,7 +196,7 @@ pub struct NewImportedMedia<'a> {
     pub height: Option<i32>,
     pub size: i64,
     pub uploaded_by: i32,
-    pub created_at: &'a DateTime<Utc>,
+    pub created_at: &'a Timestamp,
 }
 
 pub async fn find_upload_media(
@@ -452,8 +452,9 @@ pub async fn media_type_and_processing_status(
 
 #[cfg(test)]
 mod imported_media_tests {
-    use chrono::Utc;
     use sqlx::PgPool;
+
+    use crate::db::Timestamp;
 
     use super::{NewImportedMedia, insert_imported_media};
 
@@ -472,7 +473,7 @@ mod imported_media_tests {
             .await
             .expect("HLS can be selected");
 
-        let created_at = Utc::now();
+        let created_at = Timestamp::now();
         let imported = NewImportedMedia {
             alt: "",
             filename: "imported.mp4",

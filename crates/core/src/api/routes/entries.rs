@@ -4,13 +4,13 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::Query;
-use chrono::Utc;
 use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 
+use crate::db::Timestamp;
 use crate::{
     CONFIG,
     api::entry_cache::{EntryCache, encode_json, json_response},
@@ -217,7 +217,7 @@ pub async fn entry_update(
         ));
     }
 
-    content["updated_at"] = Value::String(Utc::now().to_rfc3339());
+    content["updated_at"] = Value::String(Timestamp::now().to_string());
     content["updated_by"] = user.id.into();
 
     handles::update_entry_with_nodes(&pool, id, &content).await?;

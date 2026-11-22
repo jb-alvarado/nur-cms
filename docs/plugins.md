@@ -427,6 +427,25 @@ by the plugin and is accepted only when the target is listed in `trusted_templat
 not make interpolated values safe: escape all user-controlled values before inserting them into HTML. The mail
 target must also have `allow_html` enabled, otherwise the host strips HTML before delivery.
 
+Plugins can send attachments through `nur:cms/mail-attachments.send`:
+
+```rust
+use bindings::nur::cms::mail_attachments::{self, Attachment, AttachmentType};
+
+mail_attachments::send(&message, &[Attachment {
+    filename: "report.csv".into(),
+    kind: AttachmentType::Csv,
+    data: report.into_bytes(),
+}])?;
+```
+
+The message must use `TrustedTemplateHtml` and a manifest-authorized trusted-template target with fixed
+recipients. Each message can contain up to five attachments with 1 MiB of raw data in total. Supported
+types are PDF, PNG, JPEG, plain text, CSV, and JSON. The host maps these types to MIME types and checks
+that filenames and content match. Filenames must be single names with an allowed extension, without
+paths or control characters. The existing `mail.send` and `mail-attachments.send-pdf` entry points remain
+available.
+
 By default, the fixed `recipients` configured on the selected mail target receive the message. An administrator
 can explicitly enable `allow_dynamic_recipient` for a target. The plugin must additionally list that target in
 `dynamic_recipient_targets`. It may then set `recipient` to one address;

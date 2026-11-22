@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{
@@ -15,6 +14,7 @@ use colored::Colorize;
 #[cfg(debug_assertions)]
 use tracing::debug;
 
+use crate::db::Timestamp;
 use crate::{
     db::{
         fields::{
@@ -108,7 +108,7 @@ pub struct PublishedEntryReference {
     type_slug: String,
     locale: String,
     slug: String,
-    updated_at: DateTime<Utc>,
+    updated_at: Timestamp,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -317,9 +317,8 @@ pub async fn insert_entry_with_nodes(pool: &PgPool, content: &Value) -> Result<i
         normalize_entry_node_templates(&mut transaction, nodes).await?;
     }
     let id = insert_entry_on(&mut transaction, &entry).await?;
-    if let Some(mut meta) = meta {
-        meta["entry_id"] = Value::Number(id.into());
-        let _: i32 = insert_record(&mut *transaction, &Table::ContentMeta, &meta).await?;
+    if let Some(meta) = meta {
+        upsert_entry_meta(&mut transaction, id, &meta).await?;
     }
 
     let mut order_index = 1;
@@ -1453,38 +1452,44 @@ pub async fn delete_tag_from_entry(
     Ok(())
 }
 
-pub async fn upsert_entry_meta(
+async fn upsert_entry_meta(
     connection: &mut PgConnection,
     entry_id: i32,
     data: &Value,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), NurError> {
     if let Some(meta_obj) = data.as_object() {
-        let start_time = meta_obj
-            .get("start_time")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc));
-        let end_time = meta_obj
-            .get("end_time")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc));
+        let start_time = meta_obj.get("start_time");
+        let end_time = meta_obj.get("end_time");
 
         sqlx::query(
             r#"INSERT INTO content_meta (entry_id, start_time, end_time)
                VALUES ($1, $2, $3)
                ON CONFLICT (entry_id) DO UPDATE SET
-                   start_time = EXCLUDED.start_time,
-                   end_time = EXCLUDED.end_time"#,
+                   start_time = CASE WHEN $4 THEN EXCLUDED.start_time ELSE content_meta.start_time END,
+                   end_time = CASE WHEN $5 THEN EXCLUDED.end_time ELSE content_meta.end_time END"#,
         )
         .bind(entry_id)
-        .bind(start_time)
-        .bind(end_time)
+        .bind(parse_meta_timestamp(start_time, "start_time")?)
+        .bind(parse_meta_timestamp(end_time, "end_time")?)
+        .bind(start_time.is_some())
+        .bind(end_time.is_some())
         .execute(&mut *connection)
         .await?;
     }
 
     Ok(())
+}
+
+fn parse_meta_timestamp(value: Option<&Value>, field: &str) -> Result<Option<Timestamp>, NurError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if value.is_empty() => Ok(None),
+        Some(value) => value
+            .as_str()
+            .and_then(|value| value.parse().ok())
+            .map(Some)
+            .ok_or_else(|| NurError::BadRequest(format!("Invalid timestamp for {field}."))),
+    }
 }
 
 pub async fn select_media_id_by_path(
@@ -1986,12 +1991,78 @@ mod tests {
     use axum::http::Uri;
     use axum_extra::extract::Query;
     use serde_json::json;
+    use sqlx::{PgPool, Row};
 
     use super::{
         SLUG_RANDOM_SUFFIX_LEN, TEXT_NODE_SELECTOR, build_content_entries_query, node_template_id,
-        optional_positive_i32, optional_positive_i64, slug_with_suffix,
+        optional_positive_i32, optional_positive_i64, slug_with_suffix, upsert_entry_meta,
     };
-    use crate::db::fields::ContentEntryFields;
+    use crate::{
+        db::{fields::ContentEntryFields, serialize::ContentEntrySerializer},
+        utils::errors::NurError,
+    };
+
+    #[sqlx::test(migrations = false)]
+    async fn preserves_legacy_metadata_and_reports_unreadable_dates(pool: PgPool) {
+        let mut connection = pool.acquire().await.expect("connection");
+        sqlx::query(
+            "CREATE TEMP TABLE content_meta (
+                entry_id integer PRIMARY KEY, start_time timestamptz, end_time timestamptz
+            )",
+        )
+        .execute(&mut *connection)
+        .await
+        .expect("metadata table");
+        sqlx::query("INSERT INTO content_meta VALUES (1, '10000-01-01 UTC', NULL)")
+            .execute(&mut *connection)
+            .await
+            .expect("legacy date");
+
+        assert!(matches!(
+            upsert_entry_meta(
+                &mut connection,
+                1,
+                &json!({"start_time": "+10000-01-01T00:00:00Z"})
+            )
+            .await,
+            Err(NurError::BadRequest(_))
+        ));
+        upsert_entry_meta(
+            &mut connection,
+            1,
+            &json!({"end_time": "2026-11-22T00:00:00Z"}),
+        )
+        .await
+        .expect("partial update");
+
+        let row = sqlx::query(
+            "SELECT start_time = '10000-01-01 UTC'::timestamptz AS preserved,
+                    end_time = '2026-11-22 UTC'::timestamptz AS updated
+             FROM content_meta WHERE entry_id = 1",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .expect("read metadata");
+        assert!(row.get::<bool, _>("preserved"));
+        assert!(row.get::<bool, _>("updated"));
+
+        let entry = sqlx::query_as::<_, ContentEntrySerializer>(
+            "SELECT (start_time, end_time) AS meta FROM content_meta WHERE entry_id = 1",
+        )
+        .fetch_one(&mut *connection)
+        .await;
+        assert!(matches!(entry, Err(sqlx::Error::ColumnDecode { .. })));
+
+        upsert_entry_meta(&mut connection, 1, &json!({"start_time": null}))
+            .await
+            .expect("explicitly clear legacy date");
+        let cleared: bool =
+            sqlx::query_scalar("SELECT start_time IS NULL FROM content_meta WHERE entry_id = 1")
+                .fetch_one(&mut *connection)
+                .await
+                .expect("read cleared value");
+        assert!(cleared);
+    }
 
     fn query_from_uri(uri: &str) -> crate::db::queries::QueryObj<ContentEntryFields> {
         let uri: Uri = uri.parse().expect("request URI");

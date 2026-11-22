@@ -1,4 +1,7 @@
 #[cfg(not(debug_assertions))]
+use std::time::Duration;
+
+#[cfg(not(debug_assertions))]
 use {
     axum::{
         Router,
@@ -9,7 +12,6 @@ use {
         response::{IntoResponse, Response},
         routing::get,
     },
-    chrono::Duration,
     include_dir::{Dir, File, include_dir},
     mime_guess::{Mime, mime},
 };
@@ -32,7 +34,7 @@ fn serve_file(
 ) -> Response<Body> {
     let mime = mime.unwrap_or(mime::TEXT_HTML);
     let status = status.unwrap_or(StatusCode::OK);
-    let cache_header = format!("max-age={}", cache.as_seconds_f32());
+    let cache_header = format!("max-age={}", cache.as_secs());
 
     Response::builder()
         .status(status)
@@ -45,7 +47,7 @@ fn serve_file(
 #[cfg(not(debug_assertions))]
 fn serve_index() -> Response<Body> {
     if let Some(file) = FRONTEND_DIR.get_file(DEFAULT_FILE) {
-        serve_file(file, None, Duration::seconds(0), None)
+        serve_file(file, None, Duration::ZERO, None)
     } else {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -63,9 +65,9 @@ async fn serve_asset(path: Option<Path<String>>) -> impl IntoResponse {
     if let Some(file) = FRONTEND_DIR.get_file(&path) {
         let mime = mime_guess::from_path(&path).first_or_octet_stream();
         let cache = if mime == mime::TEXT_HTML {
-            Duration::seconds(0)
+            Duration::ZERO
         } else {
-            Duration::days(365)
+            Duration::from_secs(365 * 24 * 60 * 60)
         };
         return serve_file(file, Some(mime), cache, None);
     }
@@ -73,7 +75,7 @@ async fn serve_asset(path: Option<Path<String>>) -> impl IntoResponse {
     if let Some(dir) = FRONTEND_DIR.get_dir(&path)
         && let Some(file) = dir.get_file(DEFAULT_FILE)
     {
-        return serve_file(file, None, Duration::seconds(0), None);
+        return serve_file(file, None, Duration::ZERO, None);
     }
 
     // If nothing was found → return index.html (SPA fallback)
