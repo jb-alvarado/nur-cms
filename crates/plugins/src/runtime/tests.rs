@@ -263,6 +263,7 @@ async fn invokes_built_echo_component_when_available() {
         component,
         runtime,
         mail_permissions: Default::default(),
+        reads_mail_queue: false,
         storage_directories: Arc::new(Vec::new()),
     };
     let response = plugin
@@ -301,6 +302,7 @@ async fn loads_a_component_with_the_content_import_when_available() {
         component,
         runtime,
         mail_permissions: Default::default(),
+        reads_mail_queue: false,
         storage_directories: Arc::new(Vec::new()),
     };
     let result = plugin
@@ -337,6 +339,7 @@ async fn invokes_built_vue_admin_component_when_available() {
         component,
         runtime,
         mail_permissions: Default::default(),
+        reads_mail_queue: false,
         storage_directories: Arc::new(Vec::new()),
     };
     let response = plugin

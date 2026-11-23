@@ -21,7 +21,9 @@ impl bindings::nur::cms::database::Host for HostState {
 
         let schema = self.plugin_schema.clone();
         let started = Instant::now();
-        let cache_key = if validated.cacheable() {
+        // Views and functions in a queue-enabled schema can read status written
+        // by a worker in another process.
+        let cache_key = if !self.reads_mail_queue && validated.cacheable() {
             let (generation, digest, cached) = self.database_cache.lookup(&schema, &statement);
             if let Some(cached) = cached {
                 if self.metrics_enabled {
@@ -69,7 +71,7 @@ impl bindings::nur::cms::database::Host for HostState {
                 if let Some((generation, digest)) = cache_key {
                     self.database_cache
                         .insert(&schema, generation, digest, result.clone());
-                } else {
+                } else if !validated[0].read_only() {
                     self.database_cache.invalidate(&schema);
                 }
                 Ok(result)

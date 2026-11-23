@@ -15,6 +15,7 @@ use self::{
 };
 
 mod db;
+mod mail_queue;
 mod manifest;
 mod runtime;
 mod storage;
@@ -92,6 +93,7 @@ struct RegisteredRoute {
 }
 
 pub struct PluginManager {
+    _mail_worker: Option<mail_queue::Worker>,
     routes: Vec<RegisteredRoute>,
     assets: Vec<AssetDirectory>,
     metadata: Vec<PluginMetadata>,
@@ -121,6 +123,7 @@ impl PluginManager {
 
         if installed.is_empty() {
             return Ok(Self {
+                _mail_worker: Some(mail_queue::Worker::start(pool.clone(), Vec::new())),
                 routes: Vec::new(),
                 assets: Vec::new(),
                 metadata: Vec::new(),
@@ -162,11 +165,22 @@ impl PluginManager {
         }
 
         let runtime = Runtime::new(pool.clone(), storage.clone())?;
+        let queues: Vec<_> = installed
+            .iter()
+            .filter(|p| p.manifest.mail.queue)
+            .map(|p| {
+                (
+                    manifest::schema_name(&p.manifest.plugin.id),
+                    p.manifest.mail.trusted_template_targets.clone(),
+                )
+            })
+            .collect();
         let loaded = load_plugins(pool, installed, &runtime).await?;
 
         file_links::cleanup(pool, plugin_upload_session_seconds()).await?;
 
         Ok(Self {
+            _mail_worker: Some(mail_queue::Worker::start(pool.clone(), queues)),
             routes: loaded.routes,
             assets: loaded.assets,
             metadata: loaded.metadata,
@@ -953,6 +967,7 @@ mod tests {
         .await
         .expect("upload link can be inserted");
         let manager = PluginManager {
+            _mail_worker: None,
             routes: Vec::new(),
             assets: Vec::new(),
             metadata: Vec::new(),

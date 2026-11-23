@@ -113,6 +113,8 @@ pub struct PluginConfig {
     pub compilation_cache: PluginCompilationCacheConfig,
     pub storage: PluginStorageConfig,
     pub public_mail: PluginPublicMailConfig,
+    #[serde(default)]
+    pub mail_queue: PluginMailQueueConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -170,6 +172,20 @@ pub struct PluginStorageConfig {
 pub struct PluginPublicMailConfig {
     pub interval_minutes: u64,
     pub max_clients: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PluginMailQueueConfig {
+    pub interval_seconds: u64,
+}
+
+impl Default for PluginMailQueueConfig {
+    fn default() -> Self {
+        Self {
+            interval_seconds: 5,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -306,6 +322,7 @@ impl Default for AppConfig {
                     quota_mb: 1_024,
                     file_links_max_age_hours: 48,
                 },
+                mail_queue: PluginMailQueueConfig::default(),
                 public_mail: PluginPublicMailConfig {
                     interval_minutes: 3,
                     max_clients: 10_000,
@@ -586,6 +603,12 @@ impl AppConfig {
             self.plugins.public_mail.max_clients,
             128,
             1_000_000,
+        )?;
+        bounded(
+            "plugins.mail_queue.interval_seconds",
+            self.plugins.mail_queue.interval_seconds,
+            0,
+            86_400,
         )?;
         for directory in &self.plugins.additional_directories {
             nonempty_path("plugins.additional_directories", directory)?;

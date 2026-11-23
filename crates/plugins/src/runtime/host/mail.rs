@@ -11,7 +11,7 @@ use nur_core::mail::service::{
     deliver_plugin_mail_with_attachments, prepare_plugin_mail,
 };
 
-mod attachments;
+pub(crate) mod attachments;
 
 use super::{HostState, PluginResult, TimedHostResult};
 use crate::runtime::{

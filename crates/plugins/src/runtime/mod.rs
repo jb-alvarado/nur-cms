@@ -2,7 +2,7 @@ pub mod bindings;
 
 mod component;
 mod engine;
-mod host;
+pub(crate) mod host;
 mod mail_limiter;
 
 pub use component::{PluginComponent, Runtime};

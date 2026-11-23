@@ -483,6 +483,38 @@ values, empty messages, and spam. Missing manifest permissions for the target, d
 template mode return `forbidden`. Request mail limits use `rate-limited`; SMTP, database, timeout, and other
 internal delivery failures use a generic `failed` error without connection or configuration details.
 
+### Durable mail delivery
+
+Set `queue = true` in the plugin's `[mail]` table to expose the shared CMS mail queue through a scoped `plugin_mail_outbox` view before plugin migrations run. Insert the
+mail job in the same database transaction as the record that requires delivery.
+A unique `job_key` identifies each logical message. The required columns are
+`job_key`, `target`, `sender_name`, `reply_to`, and `body`. The subject is optional.
+For one attachment, supply `filename`, `attachment_kind` (pdf, png, jpeg, text,
+csv, or json), and `attachment` (bytea, at most 1 MiB). Omit all three for plain
+mail. The current queue supports fixed recipients on declared trusted-template
+targets. Recipient addresses and SMTP credentials remain CMS-managed. Core CMS
+code can enqueue into the same queue with `nur_core::mail::queue::enqueue`.
+
+The CMS starts a worker for its shared queue. It checks PostgreSQL every five
+seconds when idle. It spaces send attempts per plugin across CMS instances by
+`plugins.mail_queue.interval_seconds` (default 5 seconds, or 0 to remove the
+spacing). This setting is independent of the synchronous public-mail IP limit. This allows groups sharing an IP to
+submit independently. `state` progresses from `pending` to `sending` and
+`sent`; temporary failures back off with increasing delays and become `failed`
+after ten attempts, including attempts interrupted by a process crash. Invalid
+messages fail immediately. The five-minute lease
+allows another worker to recover interrupted deliveries. Delivery is at least
+once: SMTP acceptance and recording success cannot be made atomic.
+
+Use `enabled = false` to pause waiting jobs. The view exposes delivery state,
+attempt count and timestamps as read-only. A database operator can requeue a
+failed job in `public.mail_queue` by setting `state` to `pending`, `attempts` to
+zero and `due_at` to the current time. Database reads from queue-enabled plugins
+bypass the plugin query cache so they can observe delivery on another CMS
+instance, including through plugin-defined views. The host
+clears the queued attachment after success. Existing synchronous mail imports
+keep their immediate success/error semantics.
+
 ## Public CMS URL
 
 The read-only `nur:cms/configuration` import exposes only the canonical public URL:

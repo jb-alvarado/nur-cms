@@ -55,6 +55,7 @@ pub struct PluginComponent {
     pub(super) component: Component,
     pub(super) runtime: Runtime,
     pub(super) mail_permissions: MailPermissions,
+    pub(super) reads_mail_queue: bool,
     pub(super) storage_directories: Arc<Vec<StorageDirectory>>,
 }
 
@@ -123,6 +124,7 @@ impl Runtime {
             component,
             runtime,
             mail_permissions: MailPermissions::from_plugin(plugin),
+            reads_mail_queue: plugin.manifest.mail.queue,
             storage_directories: plugin_storage_directories(plugin)?,
         })
     }

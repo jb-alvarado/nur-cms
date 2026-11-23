@@ -98,6 +98,8 @@ pub struct MigrationManifest {
 #[serde(deny_unknown_fields)]
 pub struct MailManifest {
     #[serde(default)]
+    pub queue: bool,
+    #[serde(default)]
     pub targets: Vec<String>,
     #[serde(default)]
     pub dynamic_recipient_targets: Vec<String>,

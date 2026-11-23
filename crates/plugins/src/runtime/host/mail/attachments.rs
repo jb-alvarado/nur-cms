@@ -13,7 +13,7 @@ use crate::runtime::{
 const MAX_ATTACHMENTS: usize = 5;
 const MAX_ATTACHMENT_BYTES: usize = 1024 * 1024;
 
-pub(super) fn validate(attachments: Vec<Attachment>) -> PluginResult<Vec<MailAttachment>> {
+pub(crate) fn validate(attachments: Vec<Attachment>) -> PluginResult<Vec<MailAttachment>> {
     let total = attachments
         .iter()
         .fold(0usize, |bytes, item| bytes.saturating_add(item.data.len()));

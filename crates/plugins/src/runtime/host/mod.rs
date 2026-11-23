@@ -22,7 +22,7 @@ use crate::{
 mod configuration;
 mod content;
 mod database;
-mod mail;
+pub(crate) mod mail;
 mod storage;
 
 type PluginResult<T> = Result<T, PluginError>;
@@ -38,6 +38,7 @@ pub(super) struct HostState {
     wasi: WasiCtx,
     pool: PgPool,
     database_cache: Arc<PluginDatabaseCache>,
+    reads_mail_queue: bool,
     tokio_handle: tokio::runtime::Handle,
     pub(super) host_calls_remaining: usize,
     host_call_timeout: Duration,
@@ -79,6 +80,7 @@ impl HostState {
             wasi: WasiCtxBuilder::new().build(),
             pool: runtime.pool.clone(),
             database_cache: Arc::clone(&runtime.database_cache),
+            reads_mail_queue: component.reads_mail_queue,
             tokio_handle: runtime.tokio_handle.clone(),
             host_calls_remaining: runtime.max_host_calls,
             host_call_timeout: runtime.timeout,

@@ -243,8 +243,36 @@ async fn ensure_registry(
         .execute(&mut *transaction)
         .await?;
 
+    if plugin.manifest.mail.queue {
+        expose_mail_outbox(&mut transaction, schema).await?;
+    }
+
     transaction.commit().await?;
 
+    Ok(())
+}
+
+pub(crate) async fn expose_mail_outbox(
+    connection: &mut sqlx::PgConnection,
+    schema: &str,
+) -> Result<(), sqlx::Error> {
+    // Both the identifier and the literal derive from the validated plugin ID.
+    let view = format!(
+        "CREATE OR REPLACE VIEW \"{schema}\".plugin_mail_outbox AS \
+         SELECT source, job_key, target, sender_name, reply_to, subject, body, \
+                filename, attachment_kind, attachment, enabled, state || '' AS state, \
+                attempts + 0 AS attempts, last_attempt + interval '0 seconds' AS last_attempt, \
+                due_at + interval '0 seconds' AS due_at \
+         FROM public.mail_queue WHERE source = '{schema}' WITH LOCAL CHECK OPTION"
+    );
+    let default_source = format!(
+        "ALTER VIEW \"{schema}\".plugin_mail_outbox ALTER COLUMN source SET DEFAULT '{schema}'"
+    );
+
+    query(AssertSqlSafe(view)).execute(&mut *connection).await?;
+    query(AssertSqlSafe(default_source))
+        .execute(&mut *connection)
+        .await?;
     Ok(())
 }
 

@@ -146,6 +146,7 @@ fn vue_admin_example_uses_a_valid_current_manifest() {
 #[test]
 fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
     let permissions = MailManifest {
+        queue: false,
         targets: vec!["contact".into(), "orders".into()],
         dynamic_recipient_targets: vec!["orders".into()],
         trusted_template_targets: vec!["orders".into()],
@@ -153,6 +154,7 @@ fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
     assert!(validate_mail_permissions(&permissions, "example").is_ok());
 
     let undeclared_dynamic_target = MailManifest {
+        queue: false,
         targets: vec!["contact".into()],
         dynamic_recipient_targets: vec!["orders".into()],
         trusted_template_targets: Vec::new(),
@@ -160,6 +162,7 @@ fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
     assert!(validate_mail_permissions(&undeclared_dynamic_target, "example").is_err());
 
     let duplicate_target = MailManifest {
+        queue: false,
         targets: vec!["contact".into(), "contact".into()],
         dynamic_recipient_targets: Vec::new(),
         trusted_template_targets: Vec::new(),
@@ -167,6 +170,7 @@ fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
     assert!(validate_mail_permissions(&duplicate_target, "example").is_err());
 
     let undeclared_trusted_template_target = MailManifest {
+        queue: false,
         targets: vec!["contact".into()],
         dynamic_recipient_targets: Vec::new(),
         trusted_template_targets: vec!["orders".into()],
@@ -174,6 +178,7 @@ fn mail_permissions_are_explicit_and_dynamic_targets_are_a_subset() {
     assert!(validate_mail_permissions(&undeclared_trusted_template_target, "example").is_err());
 
     let duplicate_trusted_template_target = MailManifest {
+        queue: false,
         targets: vec!["contact".into()],
         dynamic_recipient_targets: Vec::new(),
         trusted_template_targets: vec!["contact".into(), "contact".into()],
