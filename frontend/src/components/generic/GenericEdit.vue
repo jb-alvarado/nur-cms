@@ -3,7 +3,7 @@ import { ref, computed, nextTick, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import dayjs from 'dayjs'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
-import { useClipboard } from '@vueuse/core'
+import { useClipboard, useEventListener } from '@vueuse/core'
 import { cloneDeep } from 'es-toolkit/object'
 import { isEqual } from 'es-toolkit/predicate'
 import Multiselect from 'vue-multiselect'
@@ -128,10 +128,16 @@ function handleStructurePaste(event: ClipboardEvent) {
         })
         const existing = content.value.nodes ?? []
         const first = existing[0]
-        const emptyTextNode = existing.length === 1 && first && !('blocks' in first) &&
-            !first.data && !first.media_id && first.text === ''
-        content.value.nodes = emptyTextNode ? imported : [...existing, ...imported]
+        const placeholder = existing.length === 1 && first && !('blocks' in first) &&
+            !first.data && !first.media_id && first.text === '' ? first : undefined
+
+        content.value.nodes = placeholder ? imported : [...existing, ...imported]
         normalizeNodeOrderIndexes()
+        structurePasteUndo = {
+            imported: new Map(content.value.nodes.slice(-imported.length).map((node) => [node, cloneDeep(node)])),
+            placeholder,
+        }
+        showStructurePaste.value = false
     } catch {
         store.msgAlert('error', t('common.pasteStructureError'))
     }
@@ -151,6 +157,46 @@ const content = ref({
     meta: {},
 } as Content) as Ref<Content>
 const contentOriginal = ref(cloneDeep(content))
+
+const hasNodes = computed(() => (content.value.nodes?.length ?? 0) > 0)
+const showStructurePaste = ref(false)
+const structurePasteInput = ref<HTMLInputElement>()
+type EntryNodes = NonNullable<Content['nodes']>
+let structurePasteUndo: {
+    imported: Map<EntryNodes[number], EntryNodes[number]>
+    placeholder: EntryNodes[number] | undefined
+} | undefined
+
+useEventListener(window, 'keydown', (event) => {
+    if (
+        !structurePasteUndo || event.defaultPrevented || event.repeat || event.isComposing ||
+        !(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== 'z'
+    ) return
+
+    const target = event.target
+    if (target instanceof HTMLElement && target !== structurePasteInput.value &&
+        (target.isContentEditable || target.closest('input, textarea, select, dialog[open]'))) return
+
+    const { imported, placeholder } = structurePasteUndo
+    structurePasteUndo = undefined
+    const nodes = content.value.nodes ?? []
+    if (nodes.some((node) => imported.has(node) && !isEqual(node, imported.get(node)))) return
+
+    const remaining = nodes.filter((node) => !imported.has(node))
+    if (remaining.length === nodes.length) return
+
+    event.preventDefault()
+    content.value.nodes = remaining.length === 0 && placeholder ? [placeholder] : remaining
+    normalizeNodeOrderIndexes()
+})
+
+async function toggleStructurePaste() {
+    showStructurePaste.value = !showStructurePaste.value
+    if (showStructurePaste.value) {
+        await nextTick()
+        structurePasteInput.value?.focus()
+    }
+}
 
 const { copy, copied, isSupported } = useClipboard()
 
@@ -682,6 +728,7 @@ async function save() {
                 body: JSON.stringify(payload),
             })
             saved = true
+            structurePasteUndo = undefined
 
             // Handle new entry creation
             if (contentId === 0) {
@@ -1187,18 +1234,29 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </div>
                         </template>
                     </template>
-                    <details class="mt-4">
-                        <summary class="cursor-pointer">{{ $t('common.pasteStructure') }}</summary>
-                        <textarea
-                            class="textarea mt-2 w-full"
-                            :aria-label="$t('common.pasteStructure')"
-                            :placeholder="$t('common.pasteStructureHint')"
+                    <div v-else class="w-full h-54 pt-4">
+                        <div
+                            class="bg-base-200 w-full h-full rounded flex flex-col justify-center items-center gap-2 text-base-content/60"
+                            tabindex="0"
                             @paste="handleStructurePaste"
-                        ></textarea>
-                    </details>
+                        >
+                            <i class="bi bi-upload text-9xl text-base-100" aria-hidden="true"></i>
+                            <p class="text-sm text-base-content/30">{{ $t('common.pasteStructureHint') }}</p>
+                        </div>
+                    </div>
+                    <input
+                        v-if="hasNodes && showStructurePaste"
+                        id="structure-paste-input"
+                        ref="structurePasteInput"
+                        type="text"
+                        class="input mt-4 w-full"
+                        :aria-label="$t('common.pasteStructure')"
+                        :placeholder="$t('common.pasteStructureHint')"
+                        @paste="handleStructurePaste"
+                    />
 
-                    <div v-if="templateCount > 0" class="flex justify-center mt-2">
-                        <div class="grow flex justify-center">
+                    <div v-if="templateCount > 0 || hasNodes" class="flex justify-end mt-2">
+                        <div v-if="templateCount > 0" class="grow flex justify-center">
                             <div class="join">
                                 <button
                                     class="btn btn-sm btn-outline border-base-content/30 join-item rounded-l-full"
@@ -1221,19 +1279,30 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </div>
                         </div>
 
-                        <template v-if="isSupported">
-                            <button v-if="copied" class="btn btn-sm btn-disabled">
-                                <i class="bi bi-clipboard-check"></i>
-                            </button>
+                        <div v-if="hasNodes" class="join">
                             <button
-                                v-else
-                                class="btn btn-sm"
+                                v-if="isSupported"
+                                type="button"
+                                class="btn btn-sm join-item"
+                                :disabled="copied"
+                                :aria-label="$t('common.copyStructureToClipboard')"
                                 :title="$t('common.copyStructureToClipboard')"
                                 @click="copyStructure"
                             >
-                                <i class="bi bi-copy"></i>
+                                <i class="bi" :class="copied ? 'bi-clipboard-check' : 'bi-copy'"></i>
                             </button>
-                        </template>
+                            <button
+                                type="button"
+                                class="btn btn-sm join-item"
+                                :aria-label="$t('common.pasteStructure')"
+                                :title="$t('common.pasteStructure')"
+                                :aria-expanded="showStructurePaste"
+                                :aria-controls="showStructurePaste ? 'structure-paste-input' : undefined"
+                                @click="toggleStructurePaste"
+                            >
+                                <i class="bi bi-clipboard-plus"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
