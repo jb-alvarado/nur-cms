@@ -51,6 +51,7 @@ export default {
         removeBlock: 'Block entfernen',
         pasteStructure: 'Struktur einfügen',
         pasteStructureHint: 'Struktur mit Strg/Ctrl + V einfügen',
+        pasteStructureError: 'Ungültige Inhaltsstruktur. Füge ein JSON-Array aus Inhaltsknoten oder Blockgruppen ein.',
         copyStructureToClipboard: 'Struktur in die Zwischenablage kopieren',
         name: 'Name',
         fields: 'Felder',

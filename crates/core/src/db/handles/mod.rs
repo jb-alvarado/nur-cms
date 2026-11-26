@@ -6,6 +6,7 @@ pub mod configuration;
 pub mod core;
 pub mod entries;
 pub mod importer;
+pub mod mail_queue;
 pub mod media;
 pub mod node_templates;
 pub mod refresh_tokens;

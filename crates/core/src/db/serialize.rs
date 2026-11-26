@@ -238,14 +238,18 @@ impl FromRow<'_, PgRow> for ContentEntrySerializer {
             .map(|v| serde_json::from_value::<Vec<AuthorSerializer>>(v).unwrap_or_default())
             .unwrap_or_default();
 
-        let meta = match row.try_get::<(Option<Timestamp>, Option<Timestamp>), &str>("meta") {
-            Ok((None, None)) | Err(sqlx::Error::ColumnNotFound(_)) => None,
-            Ok((start_time, end_time)) => Some(ContentMetaSerializer {
-                start_time,
-                end_time,
-            }),
-            Err(error) => return Err(error),
-        };
+        // PostgreSQL accepts legacy timestamps outside Jiff's range. Omit
+        // each unreadable value independently so the entry remains readable.
+        let start_time = row
+            .try_get::<Option<Timestamp>, _>("meta_start_time")
+            .unwrap_or_default();
+        let end_time = row
+            .try_get::<Option<Timestamp>, _>("meta_end_time")
+            .unwrap_or_default();
+        let meta = (start_time.is_some() || end_time.is_some()).then_some(ContentMetaSerializer {
+            start_time,
+            end_time,
+        });
 
         let category = row
             .try_get::<Option<serde_json::Value>, _>("category")

@@ -13,7 +13,7 @@ use protect_axum::authorities::{AuthDetails, AuthoritiesCheck};
 use real::RealIp;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::postgres::PgPool;
+use sqlx::{PgConnection, PgPool};
 use tokio::sync::broadcast::Sender;
 use tracing::error;
 use uuid::Uuid;
@@ -24,10 +24,13 @@ use crate::{
     db::{
         fields::{CommentFields, Table},
         handles,
-        models::{Comment, MailTarget, Role},
+        models::{Comment, Role},
         queries::{QueryObj, RespondObj},
     },
-    mail::client::{Msg, message},
+    mail::{
+        queue::{self, COMMENT_NOTIFICATION_TARGET},
+        service::MailRequest,
+    },
     sse::{SSELevel, SSEMessage},
     utils::{
         errors::NurError,
@@ -59,62 +62,60 @@ fn feature_disabled(configuration: &crate::db::models::CmsConfiguration, feature
 #[cfg(test)]
 const COMMENT_MODERATION_TOKEN_TTL_DAYS: i64 = 14;
 
-async fn notify(pool: &PgPool, comment_id: i64, comment: &Comment) -> Result<(), NurError> {
+async fn enqueue_notification(
+    connection: &mut PgConnection,
+    comment_id: i64,
+    comment: &Comment,
+    public_url: Option<&str>,
+) -> Result<(), NurError> {
     let author_name = comment.author_name.as_deref().unwrap_or_default();
     let author_email = comment.author_email.as_deref().unwrap_or_default();
     let comment_text = comment.text.as_deref().unwrap_or_default();
     let entry =
-        handles::select_comment_entry(pool, comment.entry_id.ok_or(NurError::InvalidInput)?)
+        handles::select_comment_entry(connection, comment.entry_id.ok_or(NurError::InvalidInput)?)
             .await?;
 
-    let public_url = configured_public_url();
-    let moderation_links = match public_url.as_deref() {
-        Some(public_url) => Some(create_moderation_links(pool, comment_id, public_url).await?),
+    let moderation_links = match public_url {
+        Some(public_url) => {
+            Some(create_moderation_links(connection, comment_id, public_url).await?)
+        }
         None => None,
     };
-    let entry_link = public_url
-        .as_deref()
-        .map(|public_url| entry_public_url(public_url, &entry.type_slug, &entry.slug));
-    let comment_link = public_url
-        .as_deref()
-        .map(|public_url| format!("{public_url}/admin/comment/{comment_id}"));
+    let entry_link =
+        public_url.map(|public_url| entry_public_url(public_url, &entry.type_slug, &entry.slug));
+    let comment_link =
+        public_url.map(|public_url| format!("{public_url}/admin/comment/{comment_id}"));
 
+    let entry_title: String = entry.title.chars().take(1_000).collect();
     let message_body = format!(
         "<h2>New comment awaiting moderation</h2>\
          <p><strong>Entry:</strong> {}</p>\
          <p><strong>Name:</strong> {}<br><strong>Email:</strong> {}</p>\
          <hr><p>{}</p>{}",
-        escape_html(&entry.title),
+        escape_html(&entry_title),
         escape_html(author_name),
         escape_html(author_email),
         escape_html(comment_text).replace('\n', "<br>"),
         notification_links(entry_link, comment_link, moderation_links),
     );
 
-    let target = MailTarget {
-        id: 0,
-        name: "New Comment".to_string(),
+    let request = MailRequest {
+        reply_to: author_email.to_owned(),
+        name: author_name.to_owned(),
         subject: Some(format!("New Comment from: {author_name}")),
-        recipients: CONFIG
-            .read()
-            .await
-            .notification_emails
-            .clone()
-            .unwrap_or_default(),
-        allow_html: true,
-        allow_dynamic_recipient: false,
-        total_count: None,
+        text: message_body,
     };
-
-    let msg = Msg::new(
-        author_email.to_string(),
-        author_name.to_string(),
-        None,
-        message_body,
-        target,
-    );
-
-    message(msg).await?;
+    queue::enqueue(
+        connection,
+        &format!("comment:{comment_id}"),
+        COMMENT_NOTIFICATION_TARGET,
+        &request,
+    )
+    .await
+    .map_err(|_| {
+        error!(comment_id, "Failed to queue comment notification");
+        NurError::InternalServerError
+    })?;
 
     Ok(())
 }
@@ -125,7 +126,7 @@ struct ModerationLinks {
 }
 
 async fn create_moderation_links(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     comment_id: i64,
     public_url: &str,
 ) -> Result<ModerationLinks, NurError> {
@@ -134,7 +135,7 @@ async fn create_moderation_links(
     let approve_token = Uuid::new_v4().simple().to_string();
     let reject_token = Uuid::new_v4().simple().to_string();
     handles::insert_comment_moderation_tokens(
-        pool,
+        connection,
         comment_id,
         &hash_moderation_token(&approve_token),
         &hash_moderation_token(&reject_token),
@@ -294,28 +295,36 @@ pub async fn comment_insert(
         }
     }
 
-    match handles::insert_comment(&pool, &content).await {
-        Ok(id) => {
-            let msg = SSEMessage::new(SSELevel::Success, &format!("New Comment received: {id}"));
-            let _ = tx.send(msg.to_string());
-
-            if content.author_email.is_some()
-                && content.author_name.is_some()
-                && CONFIG.read().await.mail_smtp.is_some()
-                && !details.has_any_authority(&[&Role::Admin, &Role::Author])
-                && let Err(error) = notify(&pool, id, &content).await
-            {
-                error!(%error, comment_id = id, "failed to send comment notification");
-            }
-
-            Ok(Json(id))
-        }
-        Err(e) => {
-            error!("Insert Comment {e}");
-
-            Err(NurError::InternalServerError)
-        }
+    let notify = if content.author_email.is_some()
+        && content.author_name.is_some()
+        && !details.has_any_authority(&[&Role::Admin, &Role::Author])
+    {
+        let config = CONFIG.read().await;
+        config.mail_smtp.is_some()
+            && config
+                .notification_emails
+                .as_ref()
+                .is_some_and(|recipients| !recipients.is_empty())
+    } else {
+        false
+    };
+    let mut transaction = pool.begin().await?;
+    let id = handles::insert_comment(&mut transaction, &content).await?;
+    if notify {
+        enqueue_notification(
+            &mut transaction,
+            id,
+            &content,
+            configured_public_url().as_deref(),
+        )
+        .await?;
     }
+    transaction.commit().await?;
+
+    let msg = SSEMessage::new(SSELevel::Success, &format!("New Comment received: {id}"));
+    let _ = tx.send(msg.to_string());
+
+    Ok(Json(id))
 }
 
 pub async fn comment_moderation_confirm(
@@ -465,6 +474,74 @@ mod tests {
         configured_comment_moderation_token_ttl_days, entry_public_url, escape_html,
         feature_disabled, hash_moderation_token, valid_moderation_token_hash,
     };
+
+    #[sqlx::test]
+    async fn comment_notification_is_committed_with_the_comment(pool: sqlx::PgPool) {
+        let entry_id: i32 = sqlx::query_scalar(
+            "INSERT INTO content_entries (type_id, locale_id, slug, title, status)
+             VALUES ((SELECT id FROM content_types WHERE slug = 'article'),
+                     (SELECT id FROM locales WHERE code = 'en'),
+                     'queued-comment-test', 'Queue test', 'published')
+             RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let comment = super::Comment {
+            entry_id: Some(entry_id),
+            author_name: Some("Test author".into()),
+            author_email: Some("author@example.org".into()),
+            text: Some("<&".repeat(10_000)),
+            ..Default::default()
+        };
+
+        let mut tx = pool.begin().await.unwrap();
+        let id = super::handles::insert_comment(&mut tx, &comment)
+            .await
+            .unwrap();
+        super::enqueue_notification(&mut tx, id, &comment, Some("https://example.org"))
+            .await
+            .unwrap();
+        tx.rollback().await.unwrap();
+
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM comments), (SELECT count(*) FROM public.mail_queue),
+                    (SELECT count(*) FROM comment_moderation_tokens)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0, 0));
+
+        let mut tx = pool.begin().await.unwrap();
+        let id = super::handles::insert_comment(&mut tx, &comment)
+            .await
+            .unwrap();
+        super::enqueue_notification(&mut tx, id, &comment, Some("https://example.org"))
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let (state, body): (String, String) = sqlx::query_as(
+            "SELECT state, body FROM public.mail_queue WHERE source = 'cms' AND job_key = $1",
+        )
+        .bind(format!("comment:{id}"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(state, "pending");
+        assert!(body.contains("&lt;&amp;"));
+        assert!(body.len() > 65_536);
+        assert!(body.contains("https://example.org/api/comments/moderate/"));
+        let token_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM comment_moderation_tokens WHERE comment_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(token_count, 2);
+    }
 
     #[test]
     fn comments_are_enabled_by_default_and_can_be_disabled() {

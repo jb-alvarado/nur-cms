@@ -5,7 +5,12 @@ CREATE TABLE public.mail_queue (
     sender_name text NOT NULL CHECK (octet_length(sender_name) <= 1024),
     reply_to text NOT NULL CHECK (octet_length(reply_to) <= 1024),
     subject text CHECK (octet_length(subject) <= 1024),
-    body text NOT NULL CHECK (octet_length(body) <= 65536),
+    body text NOT NULL CHECK (
+        octet_length(body) <= CASE
+            WHEN source = 'cms' AND target = 'cms:comment-notification' THEN 262144
+            ELSE 65536
+        END
+    ),
     filename text CHECK (octet_length(filename) <= 640),
     attachment_kind text CHECK (attachment_kind IN ('pdf', 'png', 'jpeg', 'text', 'csv', 'json')),
     attachment bytea CHECK (octet_length(attachment) <= 1048576),

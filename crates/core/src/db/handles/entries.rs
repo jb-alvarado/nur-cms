@@ -1303,7 +1303,7 @@ fn build_content_entries_query(query_obj: &QueryObj<CF>) -> QueryBuilder<Postgre
             CF::Tags => sep.push(format!("COALESCE(tags.data, ARRAY[]::record[]) AS {f}")),
             CF::Type => sep
                 .push("(ct.id, ct.name, ct.slug, ct.order_index, ct.use_meta) AS type".to_string()),
-            CF::Meta => sep.push(format!("(cm.start_time, cm.end_time) AS {f}")),
+            CF::Meta => sep.push("cm.start_time AS meta_start_time, cm.end_time AS meta_end_time"),
             CF::CommentCount => {
                 sep.push("COALESCE(cc.comment_count, 0) AS comment_count".to_string())
             }
@@ -2003,7 +2003,7 @@ mod tests {
     };
 
     #[sqlx::test(migrations = false)]
-    async fn preserves_legacy_metadata_and_reports_unreadable_dates(pool: PgPool) {
+    async fn preserves_legacy_metadata_and_reads_valid_dates(pool: PgPool) {
         let mut connection = pool.acquire().await.expect("connection");
         sqlx::query(
             "CREATE TEMP TABLE content_meta (
@@ -2047,11 +2047,16 @@ mod tests {
         assert!(row.get::<bool, _>("updated"));
 
         let entry = sqlx::query_as::<_, ContentEntrySerializer>(
-            "SELECT (start_time, end_time) AS meta FROM content_meta WHERE entry_id = 1",
+            "SELECT start_time AS meta_start_time, end_time AS meta_end_time FROM content_meta WHERE entry_id = 1",
         )
         .fetch_one(&mut *connection)
         .await;
-        assert!(matches!(entry, Err(sqlx::Error::ColumnDecode { .. })));
+        let meta = entry
+            .expect("entry remains readable")
+            .meta
+            .expect("valid end time");
+        assert!(meta.start_time.is_none());
+        assert_eq!(meta.end_time, Some("2026-11-22T00:00:00Z".parse().unwrap()));
 
         upsert_entry_meta(&mut connection, 1, &json!({"start_time": null}))
             .await

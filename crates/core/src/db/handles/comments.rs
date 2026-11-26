@@ -1,4 +1,4 @@
-use sqlx::{Postgres, QueryBuilder, Row, postgres::PgPool};
+use sqlx::{PgConnection, Postgres, QueryBuilder, Row, postgres::PgPool};
 use strum::IntoEnumIterator;
 
 #[cfg(debug_assertions)]
@@ -42,7 +42,7 @@ pub struct CommentEntry {
 }
 
 pub async fn select_comment_entry(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     entry_id: i32,
 ) -> Result<CommentEntry, sqlx::Error> {
     let (title, slug, type_slug) = sqlx::query_as(
@@ -52,7 +52,7 @@ pub async fn select_comment_entry(
          WHERE e.id = $1",
     )
     .bind(entry_id)
-    .fetch_one(pool)
+    .fetch_one(connection)
     .await?;
 
     Ok(CommentEntry {
@@ -150,7 +150,7 @@ pub async fn select_comments(
     Ok(RespondObj::new(query_obj, data))
 }
 
-pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError> {
+pub async fn insert_comment(connection: &mut PgConnection, c: &Comment) -> Result<i64, NurError> {
     let entry_id = c.entry_id.ok_or(NurError::InvalidInput)?;
     let text = c.text.as_deref().ok_or(NurError::InvalidInput)?;
     let status = c.status.as_deref().unwrap_or("pending");
@@ -223,23 +223,22 @@ pub async fn insert_comment(pool: &PgPool, c: &Comment) -> Result<i64, NurError>
 
     let query = qb.build_query_scalar();
 
-    let id = query.fetch_one(pool).await?;
+    let id = query.fetch_one(connection).await?;
 
     Ok(id)
 }
 
 pub async fn insert_comment_moderation_tokens(
-    pool: &PgPool,
+    connection: &mut PgConnection,
     comment_id: i64,
     approve_token_hash: &[u8],
     reject_token_hash: &[u8],
     expires_at: Timestamp,
 ) -> Result<(), NurError> {
-    let mut transaction = pool.begin().await?;
     sqlx::query(
         "DELETE FROM comment_moderation_tokens WHERE used_at IS NOT NULL OR expires_at <= now()",
     )
-    .execute(&mut *transaction)
+    .execute(&mut *connection)
     .await?;
     sqlx::query(
         "INSERT INTO comment_moderation_tokens (comment_id, token_hash, action, expires_at)
@@ -249,9 +248,8 @@ pub async fn insert_comment_moderation_tokens(
     .bind(approve_token_hash)
     .bind(reject_token_hash)
     .bind(expires_at)
-    .execute(&mut *transaction)
+    .execute(&mut *connection)
     .await?;
-    transaction.commit().await?;
     Ok(())
 }
 
@@ -392,8 +390,9 @@ mod tests {
         let comment_id = insert_pending_comment(&pool).await;
         let approve_hash = b"approve-token-hash";
         let reject_hash = b"reject-token-hash";
+        let mut tx = pool.begin().await.unwrap();
         insert_comment_moderation_tokens(
-            &pool,
+            &mut tx,
             comment_id,
             approve_hash,
             reject_hash,
@@ -401,6 +400,7 @@ mod tests {
         )
         .await
         .expect("moderation tokens can be inserted");
+        tx.commit().await.unwrap();
 
         assert_eq!(
             select_comment_moderation_action(&pool, approve_hash)
@@ -436,8 +436,9 @@ mod tests {
         let comment_id = insert_pending_comment(&pool).await;
         let approve_hash = b"concurrent-approve-hash";
         let reject_hash = b"concurrent-reject-hash";
+        let mut tx = pool.begin().await.unwrap();
         insert_comment_moderation_tokens(
-            &pool,
+            &mut tx,
             comment_id,
             approve_hash,
             reject_hash,
@@ -445,6 +446,7 @@ mod tests {
         )
         .await
         .expect("moderation tokens can be inserted");
+        tx.commit().await.unwrap();
 
         let (approve, reject) = tokio::join!(
             consume_comment_moderation_token(&pool, approve_hash),
@@ -470,8 +472,9 @@ mod tests {
     async fn expired_moderation_links_are_rejected(pool: PgPool) {
         let comment_id = insert_pending_comment(&pool).await;
         let approve_hash = b"expired-approve-hash";
+        let mut tx = pool.begin().await.unwrap();
         insert_comment_moderation_tokens(
-            &pool,
+            &mut tx,
             comment_id,
             approve_hash,
             b"expired-reject-hash",

@@ -83,28 +83,58 @@ const dropValue = computed({
     },
 })
 
-function handleEmptyStatePaste(event: ClipboardEvent) {
-    const pasted = event.clipboardData?.getData('text')
-    if (!pasted) return
-
+function handleStructurePaste(event: ClipboardEvent) {
     event.preventDefault()
 
-    function removeIds(obj: any): any {
-        if (Array.isArray(obj)) {
-            return obj.map(removeIds)
-        } else if (obj && typeof obj === 'object') {
-            const newObj: any = {}
-            for (const key in obj) {
-                if (key === 'id') continue
-                newObj[key] = removeIds(obj[key])
-            }
-            return newObj
+    const isObject = (value: unknown): value is Record<string, unknown> =>
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+
+    function importNode(value: unknown, dataOnly = false): ContentNodeSerializer {
+        if (
+            !isObject(value) ||
+            'blocks' in value ||
+            (!isObject(value.data) && (dataOnly || typeof value.text !== 'string')) ||
+            ('data' in value && !isObject(value.data))
+        ) {
+            throw new Error('Invalid content node')
         }
-        return obj
+
+        const node = { ...value }
+        delete node.id
+        delete node.entry_id
+        delete node.parent_id
+        delete node.template_id
+        if (typeof node.name === 'string') {
+            const matching = nodeTemplates.value.filter((template) => template.name === node.name)
+            if (matching.length === 1) {
+                node.template_id = matching[0]?.id
+            }
+        }
+        return node as ContentNodeSerializer
     }
 
-    const json = JSON.parse(pasted)
-    content.value.nodes = removeIds(json)
+    try {
+        const parsed: unknown = JSON.parse(event.clipboardData?.getData('text/plain') ?? '')
+        if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Invalid content structure')
+
+        const imported = parsed.map((value: unknown) => {
+            if (isObject(value) && 'blocks' in value) {
+                if ('data' in value || 'text' in value || !Array.isArray(value.blocks) || !value.blocks.length) {
+                    throw new Error('Invalid block group')
+                }
+                return { blocks: value.blocks.map((block: unknown) => importNode(block, true)) }
+            }
+            return importNode(value)
+        })
+        const existing = content.value.nodes ?? []
+        const first = existing[0]
+        const emptyTextNode = existing.length === 1 && first && !('blocks' in first) &&
+            !first.data && !first.media_id && first.text === ''
+        content.value.nodes = emptyTextNode ? imported : [...existing, ...imported]
+        normalizeNodeOrderIndexes()
+    } catch {
+        store.msgAlert('error', t('common.pasteStructureError'))
+    }
 }
 
 const content = ref({
@@ -135,9 +165,10 @@ const tags = ref<Tag[]>([])
 const locales = ref<Locale[]>([])
 type NodeTemplateSchema = {
     id: number
+    name: string
     schema: Array<Pick<ContentNodeDataField, 'key' | 'label' | 'kind'>>
 }
-type NodeTemplateResponse = TypedRespondObj<Pick<ContentNodeTemplate, 'id'> & { schema: NodeTemplateSchema['schema'] }>
+type NodeTemplateResponse = TypedRespondObj<Pick<ContentNodeTemplate, 'id' | 'name'> & { schema: NodeTemplateSchema['schema'] }>
 const nodeTemplates = ref<NodeTemplateSchema[]>([])
 const needsSave = computed(() => !isEqual(content.value, contentOriginal.value))
 const status: readonly EntryEditorStatus[] = entryEditorStatuses
@@ -345,6 +376,7 @@ async function selectNodeTemplates() {
         const response = await authFetch<NodeTemplateResponse>('/api/content/node/templates?ordering=id')
         nodeTemplates.value = response.results.map((template) => ({
             id: Number(template.id),
+            name: template.name,
             schema: template.schema ?? [],
         }))
     } catch (e) {
@@ -1155,16 +1187,15 @@ async function insertEntryAuthor(entry: number, author: number) {
                             </div>
                         </template>
                     </template>
-                    <div v-else class="w-full h-54 pt-4">
-                        <div
-                            class="bg-base-200 w-full h-full rounded flex flex-col justify-center items-center gap-2 text-base-content/60"
-                            tabindex="0"
-                            @paste="handleEmptyStatePaste"
-                        >
-                            <i class="bi bi-upload text-9xl text-base-100"></i>
-                            <p class="text-sm text-base-content/30">{{ $t('common.pasteStructureHint') }}</p>
-                        </div>
-                    </div>
+                    <details class="mt-4">
+                        <summary class="cursor-pointer">{{ $t('common.pasteStructure') }}</summary>
+                        <textarea
+                            class="textarea mt-2 w-full"
+                            :aria-label="$t('common.pasteStructure')"
+                            :placeholder="$t('common.pasteStructureHint')"
+                            @paste="handleStructurePaste"
+                        ></textarea>
+                    </details>
 
                     <div v-if="templateCount > 0" class="flex justify-center mt-2">
                         <div class="grow flex justify-center">

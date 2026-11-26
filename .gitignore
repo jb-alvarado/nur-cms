@@ -1,6 +1,6 @@
 /postgres-data
-/target
-/crates/plugins/examples/*/target/
+target/
+
 .env
 *.sql
 !crates/core/migrations/*.sql

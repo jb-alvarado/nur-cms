@@ -5,10 +5,18 @@ use tokio::{task::JoinHandle, time};
 use tracing::warn;
 use uuid::Uuid;
 
-use nur_core::config::settings;
 use nur_core::mail::service::{
     MailRequest, PluginMailContentKind, PluginMailError, deliver_plugin_mail_with_attachments,
     prepare_plugin_mail,
+};
+use nur_core::{
+    CONFIG,
+    config::settings,
+    db::models::MailTarget,
+    mail::{
+        client::{Msg, message},
+        queue::COMMENT_NOTIFICATION_TARGET,
+    },
 };
 
 use crate::runtime::{
@@ -149,6 +157,7 @@ async fn finish(
 
     sqlx::query(
         "UPDATE public.mail_queue SET state=$1, claim_token=NULL, due_at=now()+make_interval(secs => $2),
+        body=CASE WHEN $1='sent' AND source='cms' AND target=$6 THEN '' ELSE body END,
         attachment=CASE WHEN $1='sent' THEN NULL ELSE attachment END,
         filename=CASE WHEN $1='sent' THEN NULL ELSE filename END,
         attachment_kind=CASE WHEN $1='sent' THEN NULL ELSE attachment_kind END
@@ -159,6 +168,7 @@ async fn finish(
     .bind(source)
     .bind(key)
     .bind(claim_token)
+    .bind(COMMENT_NOTIFICATION_TARGET)
     .execute(pool)
     .await?;
 
@@ -188,6 +198,11 @@ async fn deliver(
             .map_err(|_| PluginMailError::InvalidMessage)?,
         text: text("body")?,
     };
+    let source: String = text("source")?;
+    if source == "cms" && target == COMMENT_NOTIFICATION_TARGET {
+        return deliver_comment_notification(message).await;
+    }
+
     let mut files = Vec::new();
     if let Some(data) = row
         .try_get::<Option<Vec<u8>>, _>("attachment")
@@ -218,6 +233,31 @@ async fn deliver(
     )
     .await?;
     deliver_plugin_mail_with_attachments(prepared, files).await
+}
+
+async fn deliver_comment_notification(request: MailRequest) -> Result<(), PluginMailError> {
+    let recipients = CONFIG
+        .read()
+        .await
+        .notification_emails
+        .clone()
+        .unwrap_or_default();
+    let target = MailTarget {
+        name: "New Comment".into(),
+        recipients,
+        allow_html: true,
+        ..Default::default()
+    };
+
+    message(Msg::new(
+        request.reply_to,
+        request.name,
+        request.subject,
+        request.text,
+        target,
+    ))
+    .await
+    .map_err(|_| PluginMailError::DeliveryFailed)
 }
 
 #[cfg(test)]

@@ -50,6 +50,7 @@ export default {
         removeBlock: 'Remove Block',
         pasteStructure: 'Paste Structure',
         pasteStructureHint: 'Paste structure with Ctrl + V',
+        pasteStructureError: 'Invalid content structure. Paste a JSON array of content nodes or block groups.',
         copyStructureToClipboard: 'Copy structure to clipboard',
         name: 'Name',
         fields: 'Fields',
